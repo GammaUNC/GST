@@ -1,4 +1,5 @@
 #include <GLFW/glfw3.h>
+#include <OpenGL/glext.h>
 
 #include <cassert>
 #include <cstdlib>
@@ -13,15 +14,20 @@
 #define STB_IMAGE_IMPLEMENTATION
 #include "stb_image.h"
 
+#include "gpu.h"
+
 static void error_callback(int error, const char* description)
 {
     fputs(description, stderr);
 }
 
+static gPaused = false;
 static void key_callback(GLFWwindow* window, int key, int scancode, int action, int mods)
 {
   if ((key == GLFW_KEY_ESCAPE || key == GLFW_KEY_Q) && action == GLFW_PRESS)
     glfwSetWindowShouldClose(window, GL_TRUE);
+  if ((key == GLFW_KEY_P) && action == GLFW_PRESS)
+    gPaused = !gPaused;
 }
 
 const char *kVertexProg =
@@ -138,6 +144,54 @@ void LoadTexture(GLuint texID, const std::string &filePath) {
   stbi_image_free(data);
 }
 
+void LoadTexture2(GLuint pbo, GLuint texID, const std::string &filePath) {
+
+  // Load the image data...
+  int x = 0, y = 0, channels = 0;
+  unsigned char *data = stbi_load(filePath.c_str(), &x, &y, &channels, 0);
+  if (!data) {
+    fprintf(stderr, "Error loading image: %s\n", filePath.c_str());
+    exit(1);
+  }
+
+  assert ( x == 960 );
+  assert ( y == 500 );
+  
+  glFinish();
+
+  RunKernel(data, pbo, x, y, channels);
+  
+  // "Bind" the newly created texture : all future texture functions will modify this texture
+  glBindBuffer(GL_PIXEL_UNPACK_BUFFER_ARB, pbo);
+
+  glBindTexture(GL_TEXTURE_2D, texID);
+
+  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_BASE_LEVEL, 0);
+  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAX_LEVEL, 0);
+  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
+  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
+  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
+
+  glCompressedTexImage2D(GL_TEXTURE_2D, 0, GL_COMPRESSED_RGB_S3TC_DXT1_EXT,
+                         x, y, 0, x * y / 2, 0);
+
+  GLint query;
+  glGetTexLevelParameteriv(GL_TEXTURE_2D, 0, GL_TEXTURE_COMPRESSED, &query);
+  assert ( query == GL_TRUE );
+
+  glGetTexLevelParameteriv(GL_TEXTURE_2D, 0, GL_TEXTURE_COMPRESSED_IMAGE_SIZE, &query);
+  assert ( query == x * y / 2 );
+
+  glGetTexLevelParameteriv(GL_TEXTURE_2D, 0, GL_TEXTURE_INTERNAL_FORMAT, &query);
+  assert ( query == GL_COMPRESSED_RGB_S3TC_DXT1_EXT );
+
+  glBindTexture(GL_TEXTURE_2D, 0);
+  glBindBuffer(GL_PIXEL_UNPACK_BUFFER_ARB, 0);
+
+  stbi_image_free(data);
+}
+
 int main(void)
 {
     GLFWwindow* window;
@@ -147,7 +201,7 @@ int main(void)
     if (!glfwInit())
         exit(EXIT_FAILURE);
 
-    window = glfwCreateWindow(960, 506, "Video", NULL, NULL);
+    window = glfwCreateWindow(960, 500, "Video", NULL, NULL);
     if (!window)
     {
         glfwTerminate();
@@ -156,6 +210,30 @@ int main(void)
 
     glfwMakeContextCurrent(window);
     glfwSwapInterval(1);
+
+    fprintf(stdout, "GL Vendor: %s\n", glGetString(GL_VENDOR));
+    fprintf(stdout, "GL Renderer: %s\n", glGetString(GL_RENDERER));
+    fprintf(stdout, "GL Version: %s\n", glGetString(GL_VERSION));
+    fprintf(stdout, "GL Shading Language Version: %s\n",
+            glGetString(GL_SHADING_LANGUAGE_VERSION));
+
+    std::string extensionsString(reinterpret_cast<const char *>(glGetString(GL_EXTENSIONS)));
+    std::vector<char> extensionVector(extensionsString.begin(), extensionsString.end());
+    for (size_t i = 0; i < extensionVector.size(); ++i) {
+      if (extensionVector[i] == ',' || extensionVector[i] == ' ') {
+        extensionVector[i] = '\0';
+      }
+    }
+
+    fprintf(stdout, "GL extensions:\n");
+    fprintf(stdout, "  %s\n", &(extensionVector[0]));
+    for (size_t i = 1; i < extensionVector.size(); i++) {
+      if (extensionVector[i] == '\0' && i < extensionVector.size() - 1) {
+        fprintf(stdout, "  %s\n", &(extensionVector[i + 1]));
+      }
+    }
+
+    InitializeOpenCLKernel();
 
     glfwSetKeyCallback(window, key_callback);
 
@@ -170,8 +248,13 @@ int main(void)
     GLint texLoc = glGetUniformLocation(prog, "tex");
     assert ( texLoc >= 0 );
 
-    GLuint texID;
+    GLuint texID, pbo;
     glGenTextures(1, &texID);
+    glGenBuffers(1, &pbo);
+
+    glBindBuffer(GL_PIXEL_UNPACK_BUFFER_ARB, pbo);
+    glBufferData(GL_PIXEL_UNPACK_BUFFER_ARB, 960 * 500 / 2, NULL, GL_DYNAMIC_DRAW_ARB);
+    glBindBuffer(GL_PIXEL_UNPACK_BUFFER_ARB, 0);
 
     static const GLfloat g_FullScreenQuad[] = {
       -1.0f, -1.0f, 0.0f,
@@ -185,6 +268,7 @@ int main(void)
 
     glBindBuffer(GL_ARRAY_BUFFER, vertexBuffer);
     glBufferData(GL_ARRAY_BUFFER, sizeof(g_FullScreenQuad), g_FullScreenQuad, GL_STATIC_DRAW);
+    glBindBuffer(GL_ARRAY_BUFFER, 0);
 
     static const GLfloat g_FullScreenUVs[] = {
       0.0f, 1.0f,
@@ -198,6 +282,7 @@ int main(void)
 
     glBindBuffer(GL_ARRAY_BUFFER, uvBuffer);
     glBufferData(GL_ARRAY_BUFFER, sizeof(g_FullScreenUVs), g_FullScreenUVs, GL_STATIC_DRAW);
+    glBindBuffer(GL_ARRAY_BUFFER, 0);
     
     glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
 
@@ -205,6 +290,11 @@ int main(void)
     static const int kNumFrames = 720;
     
     while (!glfwWindowShouldClose(window)) {
+      glfwPollEvents();
+
+      if (gPaused) {
+        continue;
+      }
 
       assert (glGetError() == GL_NO_ERROR);
       
@@ -225,7 +315,8 @@ int main(void)
         stream << (((gFrameNumber + 1) / i) % 10);
       }
       stream << ".jpg";
-      LoadTexture(texID, stream.str());
+      // LoadTexture(texID, stream.str());
+      LoadTexture2(pbo, texID, stream.str());
 
       glActiveTexture(GL_TEXTURE0);
       glBindTexture(GL_TEXTURE_2D, texID);
@@ -234,10 +325,12 @@ int main(void)
       glEnableVertexAttribArray(posLoc);
       glBindBuffer(GL_ARRAY_BUFFER, vertexBuffer);
       glVertexAttribPointer(posLoc, 3, GL_FLOAT, GL_FALSE, 0, NULL);
+      glBindBuffer(GL_ARRAY_BUFFER, 0);
 
       glEnableVertexAttribArray(uvLoc);
       glBindBuffer(GL_ARRAY_BUFFER, uvBuffer);
       glVertexAttribPointer(uvLoc, 2, GL_FLOAT, GL_FALSE, 0, NULL);
+      glBindBuffer(GL_ARRAY_BUFFER, 0);
 
       glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
 
@@ -245,10 +338,14 @@ int main(void)
       glDisableVertexAttribArray(uvLoc);
 
       glfwSwapBuffers(window);
-      glfwPollEvents();
 
       gFrameNumber = (gFrameNumber + 1) % kNumFrames;
     }
+
+    DestroyOpenCLKernel();
+
+    glDeleteTextures(1, &texID);
+    glDeleteBuffers(1, &pbo);
 
     glfwDestroyWindow(window);
 
