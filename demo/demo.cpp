@@ -21,7 +21,7 @@ static void error_callback(int error, const char* description)
     fputs(description, stderr);
 }
 
-static gPaused = false;
+static bool gPaused = false;
 static void key_callback(GLFWwindow* window, int key, int scancode, int action, int mods)
 {
   if ((key == GLFW_KEY_ESCAPE || key == GLFW_KEY_Q) && action == GLFW_PRESS)
@@ -155,7 +155,7 @@ void LoadTexture2(GLuint pbo, GLuint texID, const std::string &filePath) {
   }
 
   assert ( x == 960 );
-  assert ( y == 500 );
+  assert ( y == 540 );
   
   glFinish();
 
@@ -201,7 +201,7 @@ int main(void)
     if (!glfwInit())
         exit(EXIT_FAILURE);
 
-    window = glfwCreateWindow(960, 500, "Video", NULL, NULL);
+    window = glfwCreateWindow(960, 540, "Video", NULL, NULL);
     if (!window)
     {
         glfwTerminate();
@@ -253,7 +253,7 @@ int main(void)
     glGenBuffers(1, &pbo);
 
     glBindBuffer(GL_PIXEL_UNPACK_BUFFER_ARB, pbo);
-    glBufferData(GL_PIXEL_UNPACK_BUFFER_ARB, 960 * 500 / 2, NULL, GL_DYNAMIC_DRAW_ARB);
+    glBufferData(GL_PIXEL_UNPACK_BUFFER_ARB, 960 * 540 / 2, NULL, GL_DYNAMIC_DRAW_ARB);
     glBindBuffer(GL_PIXEL_UNPACK_BUFFER_ARB, 0);
 
     static const GLfloat g_FullScreenQuad[] = {
@@ -315,8 +315,8 @@ int main(void)
         stream << (((gFrameNumber + 1) / i) % 10);
       }
       stream << ".jpg";
-      // LoadTexture(texID, stream.str());
-      LoadTexture2(pbo, texID, stream.str());
+      LoadTexture(texID, stream.str());
+      // LoadTexture2(pbo, texID, stream.str());
 
       glActiveTexture(GL_TEXTURE0);
       glBindTexture(GL_TEXTURE_2D, texID);
