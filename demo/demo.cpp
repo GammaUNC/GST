@@ -1,6 +1,3 @@
-#include <GLFW/glfw3.h>
-#include <OpenGL/glext.h>
-
 #include <cassert>
 #include <cstdlib>
 #include <cstdio>

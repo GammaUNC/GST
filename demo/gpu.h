@@ -3,11 +3,14 @@
 
 #ifdef __APPLE__
 #  include <OpenCL/opencl.h>
-#  include <OpenGL/OpenGL.h>
-#  include <GLUT/glut.h>
 #else
 #  include <CL/cl.h>
+#  include <CL/cl_gl.h>
 #endif
+
+#define GL_GLEXT_PROTOTYPES 1
+#define GLFW_INCLUDE_GLEXT 1
+#include <GLFW/glfw3.h>
 
 #ifndef NDEBUG
 #  define CHECK_CL(fn, ...)                                               \
