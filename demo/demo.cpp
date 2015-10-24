@@ -295,11 +295,9 @@ int main(void)
 
       assert (glGetError() == GL_NO_ERROR);
       
-      float ratio;
       int width, height;
 
       glfwGetFramebufferSize(window, &width, &height);
-      ratio = width / (float) height;
 
       glUseProgram(prog);
 

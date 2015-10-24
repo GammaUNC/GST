@@ -1,29 +1,16 @@
 #ifndef __GENTC_GPU_H__
 #define __GENTC_GPU_H__
 
-#ifdef __APPLE__
-#  include <OpenCL/opencl.h>
-#else
-#  include <CL/cl.h>
-#  include <CL/cl_gl.h>
-#endif
-
 #define GL_GLEXT_PROTOTYPES 1
 #define GLFW_INCLUDE_GLEXT 1
 #include <GLFW/glfw3.h>
 
-#ifndef NDEBUG
-#  define CHECK_CL(fn, ...)                                               \
-  do {                                                                    \
-    cl_int err = fn(__VA_ARGS__);                                         \
-    if(CL_SUCCESS != err) {                                               \
-      const char *errMsg = clErrMsg(err);                                 \
-      fprintf(stderr, "OpenCL error at line %d: %s\n", __LINE__, errMsg); \
-      assert (false);                                                     \
-    }                                                                     \
-  } while(0)
+#ifdef __APPLE__
+#  include <OpenCL/opencl.h>
 #else
-#  define CHECK_CL(fn, ...) do { (void)(fn(__VA_ARGS__)); } while(0)
+#  include <CL/cl_ext.h>
+#  include <CL/cl_gl.h>
+#  include <GL/glx.h>
 #endif
 
 #ifdef CL_VERSION_1_2

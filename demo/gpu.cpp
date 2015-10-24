@@ -26,6 +26,7 @@ static inline size_t GetPixelBufferBytes() { return GetTotalWorkItems() * kBlock
 // Thirty-two bytes for the kernel arguments...
 static inline size_t GetTotalLocalMemory() { return GetPixelBufferBytes() + 32; }
 
+#ifndef NDEBUG
 static const char *clErrMsg(cl_int err) {
   const char *errMsg = "Unknown error";
   switch(err) {
@@ -80,6 +81,19 @@ static const char *clErrMsg(cl_int err) {
   return errMsg;
 }
 
+#  define CHECK_CL(fn, ...)                                               \
+  do {                                                                    \
+    cl_int err = fn(__VA_ARGS__);                                         \
+    if(CL_SUCCESS != err) {                                               \
+      const char *errMsg = clErrMsg(err);                                 \
+      fprintf(stderr, "OpenCL error at line %d: %s\n", __LINE__, errMsg); \
+      assert (false);                                                     \
+    }                                                                     \
+  } while(0)
+#else
+#  define CHECK_CL(fn, ...) do { (void)(fn(__VA_ARGS__)); } while(0)
+#endif
+
 void ContextErrorCallback(const char *errinfo, const void *, size_t, void *) {
   fprintf(stderr, "Context error: %s\n", errinfo);
 }
@@ -88,7 +102,11 @@ void PrintDeviceInfo(cl_device_id device_id) {
 
   size_t strLen;
   const size_t kStrBufSz = 1024;
-  char strBuf[kStrBufSz];
+  union {
+    char strBuf[kStrBufSz];
+    cl_uint intBuf[kStrBufSz / sizeof(cl_uint)];
+    size_t sizeBuf[kStrBufSz / sizeof(size_t)];
+  };
 
   CHECK_CL(clGetDeviceInfo, device_id, CL_DEVICE_NAME, kStrBufSz, strBuf, &strLen);
   std::cout << "Device name: " << strBuf << std::endl;
@@ -105,16 +123,19 @@ void PrintDeviceInfo(cl_device_id device_id) {
   CHECK_CL(clGetDeviceInfo, device_id, CL_DRIVER_VERSION, kStrBufSz, strBuf, &strLen);
   std::cout << "Device driver version: " << strBuf << std::endl;
 
-  CHECK_CL(clGetDeviceInfo, device_id, CL_DEVICE_ADDRESS_BITS, kStrBufSz, strBuf, &strLen);
-  std::cout << "Device driver address bits: " << *((cl_uint *)strBuf) << std::endl;
+  CHECK_CL(clGetDeviceInfo, device_id, CL_DEVICE_ADDRESS_BITS, kStrBufSz, strBuf,
+           &strLen);
+  std::cout << "Device driver address bits: " << intBuf[0] << std::endl;
 
-  CHECK_CL(clGetDeviceInfo, device_id, CL_DEVICE_MAX_WORK_GROUP_SIZE, kStrBufSz, strBuf, &strLen);
-  std::cout << "Max work group size: " << *((size_t *)strBuf) << std::endl;
+  CHECK_CL(clGetDeviceInfo, device_id, CL_DEVICE_MAX_WORK_GROUP_SIZE, kStrBufSz,
+           strBuf, &strLen);
+  std::cout << "Max work group size: " << sizeBuf[0] << std::endl;
   assert(*((size_t *)strBuf) >= GetTotalWorkItems());
 
-  CHECK_CL(clGetDeviceInfo, device_id, CL_DEVICE_MAX_WORK_ITEM_DIMENSIONS, kStrBufSz, strBuf, &strLen);
-  std::cout << "Max work item dimensions: " << *((cl_uint *)strBuf) << std::endl;
-  assert(*((cl_uint *)strBuf) >= 2);
+  CHECK_CL(clGetDeviceInfo, device_id, CL_DEVICE_MAX_WORK_ITEM_DIMENSIONS, kStrBufSz,
+           strBuf, &strLen);
+  std::cout << "Max work item dimensions: " << intBuf[0] << std::endl;
+  assert(*(reinterpret_cast<cl_uint *>(strBuf)) >= 2);
 
   CHECK_CL(clGetDeviceInfo, device_id, CL_DEVICE_MAX_WORK_ITEM_SIZES, kStrBufSz, strBuf, &strLen);
   size_t nSizeElements = strLen / sizeof(size_t);
@@ -157,6 +178,36 @@ void PrintDeviceInfo(cl_device_id device_id) {
   if(deviceType & CL_DEVICE_TYPE_DEFAULT) {
     std::cout << "Device driver type: DEFAULT" << std::endl;
   }
+}
+
+void CreateCLContext(cl_context *result, cl_platform_id platform) {
+  assert(result);
+
+#ifdef __APPLE__
+  // Get current CGL Context and CGL Share group
+  CGLContextObj kCGLContext = CGLGetCurrentContext();
+  CGLShareGroupObj kCGLShareGroup = CGLGetShareGroup(kCGLContext);
+
+  cl_context_properties properties[] = {
+    CL_CONTEXT_PROPERTY_USE_CGL_SHAREGROUP_APPLE,
+    (cl_context_properties)kCGLShareGroup,
+    CL_CONTEXT_PLATFORM, (cl_context_properties) platform,
+    0
+  };
+#else
+  cl_context_properties properties[] = {
+    CL_GL_CONTEXT_KHR, (cl_context_properties) glXGetCurrentContext(),
+    CL_GLX_DISPLAY_KHR, (cl_context_properties) glXGetCurrentDisplay(),
+    CL_CONTEXT_PLATFORM, (cl_context_properties) platform,
+    0};
+#endif
+
+  cl_int errCreateContext;
+  //  *result = clCreateContext(properties, nDevices, devices,
+  //                             ContextErrorCallback, NULL, &errCreateContext);
+  *result = clCreateContext(properties, 0, 0,
+                            ContextErrorCallback, NULL, &errCreateContext);
+  CHECK_CL((cl_int), errCreateContext);
 }
 
 void InitializeOpenCLKernel() {
@@ -211,21 +262,8 @@ void InitializeOpenCLKernel() {
   std::cout << std::endl;
 #endif
 
-  // Get current CGL Context and CGL Share group
-  CGLContextObj kCGLContext = CGLGetCurrentContext();
-  CGLShareGroupObj kCGLShareGroup = CGLGetShareGroup(kCGLContext);
-
-  cl_context_properties properties[] = {
-    CL_CONTEXT_PROPERTY_USE_CGL_SHAREGROUP_APPLE,
-    (cl_context_properties)kCGLShareGroup, 0
-  };
-
-  cl_int errCreateContext;
-  //  gContext = clCreateContext(properties, nDevices, devices,
-  //                             ContextErrorCallback, NULL, &errCreateContext);   
-  gContext = clCreateContext(properties, 0, 0,
-                             ContextErrorCallback, NULL, &errCreateContext);   
-  CHECK_CL((cl_int), errCreateContext);
+  // Create OpenCL context...
+  CreateCLContext(&gContext, platform);
 
   cl_device_id existing_ids[16];
   size_t nDeviceIds;
