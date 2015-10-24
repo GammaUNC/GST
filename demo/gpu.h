@@ -7,6 +7,7 @@
 
 #ifdef __APPLE__
 #  include <OpenCL/opencl.h>
+#  include <OpenGL/opengl.h>
 #else
 #  include <CL/cl_ext.h>
 #  include <CL/cl_gl.h>
