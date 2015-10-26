@@ -3,8 +3,9 @@
 #include <cstdio>
 
 #include <algorithm>
-#include <string>
 #include <iostream>
+#include <numeric>
+#include <string>
 #include <sstream>
 #include <vector>
 
@@ -12,6 +13,7 @@
 #include "stb_image.h"
 
 #include "gpu.h"
+#include "stopwatch.h"
 
 static void error_callback(int error, const char* description)
 {
@@ -287,13 +289,20 @@ int main(void)
 
     static int gFrameNumber = 0;
     static const int kNumFrames = 720;
-    
+
+    double frame_times[8] = { 0 };
+    int frame_time_idx = 0;
+
+    StopWatch sw;
     while (!glfwWindowShouldClose(window)) {
       glfwPollEvents();
 
       if (gPaused) {
         continue;
       }
+
+      sw.Reset();
+      sw.Start();
 
       assert (glGetError() == GL_NO_ERROR);
       
@@ -336,8 +345,22 @@ int main(void)
 
       glfwSwapBuffers(window);
 
+      sw.Stop();
+      frame_times[frame_time_idx] = sw.TimeInMilliseconds();
+      frame_time_idx = (frame_time_idx + 1) % 8;
       gFrameNumber = (gFrameNumber + 1) % kNumFrames;
+
+      if (frame_time_idx % 8 == 0) {
+        double time = std::accumulate(frame_times, frame_times + 8, 0.0);
+        double frame_time = time / 8.0;
+        double fps = 1000.0 / frame_time;
+        std::cout << "\033[20D";
+        std::cout << "\033[K";
+        std::cout << "FPS: " << fps;
+        std::cout.flush();
+      }
     }
+    std::cout << std::endl;
 
     DestroyOpenCLKernel();
 
