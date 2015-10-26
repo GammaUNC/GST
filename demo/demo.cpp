@@ -214,6 +214,7 @@ int main(void)
     fprintf(stdout, "GL Shading Language Version: %s\n",
             glGetString(GL_SHADING_LANGUAGE_VERSION));
 
+#ifndef NDEBUG
     std::string extensionsString(reinterpret_cast<const char *>(glGetString(GL_EXTENSIONS)));
     std::vector<char> extensionVector(extensionsString.begin(), extensionsString.end());
     for (size_t i = 0; i < extensionVector.size(); ++i) {
@@ -229,6 +230,7 @@ int main(void)
         fprintf(stdout, "  %s\n", &(extensionVector[i + 1]));
       }
     }
+#endif
 
     InitializeOpenCLKernel();
 
@@ -310,8 +312,8 @@ int main(void)
         stream << (((gFrameNumber + 1) / i) % 10);
       }
       stream << ".jpg";
-      LoadTexture(texID, stream.str());
-      // LoadTexture2(pbo, texID, stream.str());
+      // LoadTexture(texID, stream.str());
+      LoadTexture2(pbo, texID, stream.str());
 
       glActiveTexture(GL_TEXTURE0);
       glBindTexture(GL_TEXTURE_2D, texID);

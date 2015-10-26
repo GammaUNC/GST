@@ -95,7 +95,8 @@ static const char *clErrMsg(cl_int err) {
 #endif
 
 void ContextErrorCallback(const char *errinfo, const void *, size_t, void *) {
-  fprintf(stderr, "Context error: %s\n", errinfo);
+  fprintf(stderr, "Context error: %s", errinfo);
+  exit(1);
 }
 
 void PrintDeviceInfo(cl_device_id device_id) {
@@ -136,6 +137,18 @@ void PrintDeviceInfo(cl_device_id device_id) {
            strBuf, &strLen);
   std::cout << "Max work item dimensions: " << intBuf[0] << std::endl;
   assert(*(reinterpret_cast<cl_uint *>(strBuf)) >= 2);
+
+  CHECK_CL(clGetDeviceInfo, device_id, CL_DEVICE_GLOBAL_MEM_SIZE, kStrBufSz,
+           strBuf, &strLen);
+  std::cout << "Total global bytes available: " << intBuf[0] << std::endl;
+
+  CHECK_CL(clGetDeviceInfo, device_id, CL_DEVICE_LOCAL_MEM_SIZE, kStrBufSz,
+           strBuf, &strLen);
+  std::cout << "Total local bytes available: " << intBuf[0] << std::endl;
+
+  CHECK_CL(clGetDeviceInfo, device_id, CL_DEVICE_MAX_MEM_ALLOC_SIZE, kStrBufSz,
+           strBuf, &strLen);
+  std::cout << "Total size of memory allocatable: " << intBuf[0] << std::endl;
 
   CHECK_CL(clGetDeviceInfo, device_id, CL_DEVICE_MAX_WORK_ITEM_SIZES, kStrBufSz, strBuf, &strLen);
   size_t nSizeElements = strLen / sizeof(size_t);
@@ -180,7 +193,7 @@ void PrintDeviceInfo(cl_device_id device_id) {
   }
 }
 
-void CreateCLContext(cl_context *result, cl_platform_id platform) {
+void CreateCLContext(cl_context *result, cl_platform_id platform, const cl_device_id *device) {
   assert(result);
 
 #ifdef __APPLE__
@@ -199,13 +212,14 @@ void CreateCLContext(cl_context *result, cl_platform_id platform) {
     CL_GL_CONTEXT_KHR, (cl_context_properties) glXGetCurrentContext(),
     CL_GLX_DISPLAY_KHR, (cl_context_properties) glXGetCurrentDisplay(),
     CL_CONTEXT_PLATFORM, (cl_context_properties) platform,
-    0};
+    0
+  };
 #endif
 
   cl_int errCreateContext;
   //  *result = clCreateContext(properties, nDevices, devices,
   //                             ContextErrorCallback, NULL, &errCreateContext);
-  *result = clCreateContext(properties, 0, 0,
+  *result = clCreateContext(properties, 1, device,
                             ContextErrorCallback, NULL, &errCreateContext);
   CHECK_CL((cl_int), errCreateContext);
 }
@@ -263,7 +277,7 @@ void InitializeOpenCLKernel() {
 #endif
 
   // Create OpenCL context...
-  CreateCLContext(&gContext, platform);
+  CreateCLContext(&gContext, platform, devices);
 
   cl_device_id existing_ids[16];
   size_t nDeviceIds;
