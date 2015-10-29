@@ -13,7 +13,6 @@
 #include "stb_image.h"
 
 #include "gpu.h"
-#include "stopwatch.h"
 
 static void error_callback(int error, const char* description)
 {
@@ -293,16 +292,14 @@ int main(void)
     double frame_times[8] = { 0 };
     int frame_time_idx = 0;
 
-    StopWatch sw;
     while (!glfwWindowShouldClose(window)) {
+      double start_time = glfwGetTime();
+
       glfwPollEvents();
 
       if (gPaused) {
         continue;
       }
-
-      sw.Reset();
-      sw.Start();
 
       assert (glGetError() == GL_NO_ERROR);
       
@@ -345,8 +342,8 @@ int main(void)
 
       glfwSwapBuffers(window);
 
-      sw.Stop();
-      frame_times[frame_time_idx] = sw.TimeInMilliseconds();
+      double end_time = glfwGetTime();
+      frame_times[frame_time_idx] = (end_time - start_time) * 1000.0;
       frame_time_idx = (frame_time_idx + 1) % 8;
       gFrameNumber = (gFrameNumber + 1) % kNumFrames;
 

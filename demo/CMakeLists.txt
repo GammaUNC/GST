@@ -19,22 +19,12 @@ CONFIGURE_FILE(
 
 SET( HEADERS
   "gpu.h"
-  "stopwatch.h"
 )  
 
 SET( SOURCES
   "demo.cpp"
   "gpu.cpp"
 )
-
-IF( APPLE )
-  SET( SOURCES ${SOURCES} "stopwatch_osx.cpp" )
-ELSE()
-  SET( SOURCES ${SOURCES} "stopwatch_unix.cpp" )
-  
-  # Assume compiler is GCC
-  SET( LINK_FLAGS -lrt ${LINK_FLAGS} )
-ENDIF()
 
 ADD_EXECUTABLE(demo ${HEADERS} ${SOURCES})
 
