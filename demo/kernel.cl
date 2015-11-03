@@ -1,5 +1,7 @@
 #pragma OPENCL EXTENSION cl_khr_byte_addressable_store : enable
 
+uchar2 PackPixel(uchar3 p);
+
 const sampler_t gSampler =
   CLK_ADDRESS_REPEAT | CLK_NORMALIZED_COORDS_FALSE | CLK_FILTER_NEAREST;
 
@@ -14,9 +16,7 @@ __kernel void compressDXT(__read_only image2d_t src,
                           __global __write_only uchar8 *dst)
 {
   const uint width = get_image_width(src);
-  const uint height = get_image_height(src);
   const uint nBlocksX = width / 4;
-  const uint nBlocksY = height / 4;
 
   const ushort blockX = get_global_id(0);
   const ushort blockY = get_global_id(1);

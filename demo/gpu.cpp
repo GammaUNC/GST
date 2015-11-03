@@ -96,6 +96,7 @@ static const char *clErrMsg(cl_int err) {
 
 void ContextErrorCallback(const char *errinfo, const void *, size_t, void *) {
   fprintf(stderr, "Context error: %s", errinfo);
+  assert(false);
   exit(1);
 }
 
