@@ -14,6 +14,10 @@
 
 #include "gpu.h"
 
+#ifdef _WIN32
+#  include <GL/glew.h>
+#endif
+
 static void error_callback(int error, const char* description)
 {
     fputs(description, stderr);
@@ -190,7 +194,7 @@ void LoadTexture2(GLuint pbo, GLuint texID, const std::string &filePath) {
   stbi_image_free(data);
 }
 
-int main(void)
+int main(int argc, char* argv[])
 {
     GLFWwindow* window;
 
@@ -230,6 +234,13 @@ int main(void)
       if (extensionVector[i] == '\0' && i < extensionVector.size() - 1) {
         fprintf(stdout, "  %s\n", &(extensionVector[i + 1]));
       }
+    }
+#endif
+
+#ifdef _WIN32
+    if (GLEW_OK != glewInit()) {
+      std::cerr << "Failed to initialize glew!" << std::endl;
+      exit(1);
     }
 #endif
 

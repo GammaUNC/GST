@@ -268,9 +268,9 @@ void InitializeOpenCLKernel() {
 #endif
 
   cl_platform_id platform = platforms[0];
-  if(nPlatforms > 1) {
-    assert(!"FIXME - Choose a platform");
-  }
+  //if(nPlatforms > 1) {
+  //  assert(!"FIXME - Choose a platform");
+  //}
 
   const cl_uint kMaxDevices = 8;
   cl_device_id devices[kMaxDevices];
@@ -345,6 +345,8 @@ void InitializeOpenCLKernel() {
     std::cerr << "CL Compilation failed:" << std::endl;
     std::cerr << buffer + 1 << std::endl;
     abort();
+  } else {
+    std::cerr << "CL Kernel compiled successfully!" << std::endl;
   }
   CHECK_CL(gUnloadCompilerFunc, platform);
 
