@@ -1,14 +1,23 @@
 #ifndef __GENTC_GPU_H__
 #define __GENTC_GPU_H__
 
-#define GL_GLEXT_PROTOTYPES 1
-#define GLFW_INCLUDE_GLEXT 1
-#include <GLFW/glfw3.h>
-
 #ifdef __APPLE__
+#  define GL_GLEXT_PROTOTYPES 1
+#  define GLFW_INCLUDE_GLEXT 1
+#  include <GLFW/glfw3.h>
 #  include <OpenCL/opencl.h>
 #  include <OpenGL/opengl.h>
+#elif defined (_WIN32)
+#  define NOMINMAX
+#  include "Windows.h"
+#  include <GL/glew.h>
+#  include <GLFW/glfw3.h>
+#  include <CL/cl.h>
+#  include <CL/cl_gl.h>
 #else
+#  define GL_GLEXT_PROTOTYPES 1
+#  define GLFW_INCLUDE_GLEXT 1
+#  include <GLFW/glfw3.h>
 #  include <CL/cl_ext.h>
 #  include <CL/cl_gl.h>
 #  include <GL/glx.h>

@@ -44,17 +44,33 @@ ELSE (APPLE)
       SET( OPENCLSDKROOT $ENV{AMDAPPSDKROOT} )
     ENDIF()
 
-    # The AMD SDK currently installs both x86 and x86_64 libraries
-    # This is only a hack to find out architecture
-    IF( ${CMAKE_SIZEOF_VOID_P} EQUAL 8 )
-      SET(OPENCL_LIB_DIR "${OPENCLSDKROOT}/lib/x86_64")
-    ELSE (${CMAKE_SIZEOF_VOID_P} EQUAL 8)
-      SET(OPENCL_LIB_DIR "${OPENCLSDKROOT}/lib/x86")
-    ENDIF( ${CMAKE_SIZEOF_VOID_P} EQUAL 8 )
+    IF ( OPENCLSDKROOT )
+
+      # The AMD SDK currently installs both x86 and x86_64 libraries
+      # This is only a hack to find out architecture
+      IF( ${CMAKE_SIZEOF_VOID_P} EQUAL 8 )
+        SET(OPENCL_LIB_DIR "${OPENCLSDKROOT}/lib/x86_64")
+      ELSE (${CMAKE_SIZEOF_VOID_P} EQUAL 8)
+        SET(OPENCL_LIB_DIR "${OPENCLSDKROOT}/lib/x86")
+      ENDIF( ${CMAKE_SIZEOF_VOID_P} EQUAL 8 )
+
+    ELSEIF (DEFINED ENV{CUDA_PATH})
+      SET ( OPENCLSDKROOT $ENV{CUDA_PATH} )
+
+      # The CUDA SDK currently installs both x86 and x86_64 libraries
+      # This is only a hack to find out architecture
+      IF( ${CMAKE_SIZEOF_VOID_P} EQUAL 8 )
+        SET(OPENCL_LIB_DIR "${OPENCLSDKROOT}/lib/x64")
+      ELSE (${CMAKE_SIZEOF_VOID_P} EQUAL 8)
+        SET(OPENCL_LIB_DIR "${OPENCLSDKROOT}/lib/Win32")
+      ENDIF( ${CMAKE_SIZEOF_VOID_P} EQUAL 8 )
+
+    ENDIF ( OPENCLSDKROOT )
+
     FIND_LIBRARY(OPENCL_LIBRARIES OpenCL.lib ${OPENCL_LIB_DIR})
-    
+
     GET_FILENAME_COMPONENT(_OPENCL_INC_CAND ${OPENCL_LIB_DIR}/../../include ABSOLUTE)
-    
+
     # On Win32 search relative to the library
     FIND_PATH(OPENCL_INCLUDE_DIRS CL/cl.h PATHS "${_OPENCL_INC_CAND}")
     FIND_PATH(_OPENCL_CPP_INCLUDE_DIRS CL/cl.hpp PATHS "${_OPENCL_INC_CAND}")

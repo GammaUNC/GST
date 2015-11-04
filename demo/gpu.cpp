@@ -208,6 +208,17 @@ void CreateCLContext(cl_context *result, cl_platform_id platform, const cl_devic
     CL_CONTEXT_PLATFORM, (cl_context_properties) platform,
     0
   };
+#elif defined (_WIN32)
+  cl_context_properties properties[] =
+  {
+    // OpenCL platform
+    CL_CONTEXT_PLATFORM, (cl_context_properties)platform,
+    // OpenGL context
+    CL_GL_CONTEXT_KHR, (cl_context_properties)wglGetCurrentContext(),
+    // HDC used to create the OpenGL context
+    CL_WGL_HDC_KHR, (cl_context_properties)wglGetCurrentDC(),
+    0
+  };
 #else
   cl_context_properties properties[] = {
     CL_GL_CONTEXT_KHR, (cl_context_properties) glXGetCurrentContext(),
