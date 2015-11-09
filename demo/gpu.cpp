@@ -302,10 +302,6 @@ void InitializeOpenCLKernel() {
   assert (nDeviceIds == 1);
 
   std::cout << "Num devices after shared context: " << nDeviceIds << std::endl;
-  for (size_t i = 0; i < nDeviceIds; ++i) {
-    std::cout << "Device " << i << ": " << std::endl;
-    PrintDeviceInfo(existing_ids[i]);
-  }
 
   cl_device_id shared_device = existing_ids[0];
   
