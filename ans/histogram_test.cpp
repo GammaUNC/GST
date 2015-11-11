@@ -74,28 +74,34 @@ TEST(Histogram, HandlesImproperTargetSum) {
 }
 
 TEST(Histogram, ProperlyDistributesPOTFreqs) {
-  std::vector<int> counts = { 1, 1, 2 };
+  const int counts_vec[3] = { 1, 1, 2 };
+  std::vector<int> counts(counts_vec, counts_vec + (sizeof(counts_vec)/sizeof(counts_vec[0])));
   std::vector<int> hist;
   ans::GenerateHistogram(&hist, counts, 256);
 
-  std::vector<int> expected = { 64, 64, 128 };
+  const int expected_vec[3] = { 64, 64, 128 };
+  std::vector<int> expected(expected_vec, expected_vec + (sizeof(expected_vec)/sizeof(expected_vec[0])));
   EXPECT_TRUE(VectorsAreEqual(hist, expected));
 }
 
 TEST(Histogram, ProperlyDistributesFreqs) {
-  std::vector<int> counts = { 1, 2, 3, 4, 5, 6, 7, 8, 9, 10 };
+  const int counts_vec[10] = { 1, 2, 3, 4, 5, 6, 7, 8, 9, 10 };
+  std::vector<int> counts(counts_vec, counts_vec + (sizeof(counts_vec)/sizeof(counts_vec[0])));
   std::vector<int> hist;
   ans::GenerateHistogram(&hist, counts, 256);
 
-  std::vector<int> expected = { 5, 9, 14, 19, 23, 28, 33, 37, 42, 46 };
+  const int expected_vec[10] = { 5, 9, 14, 19, 23, 28, 33, 37, 42, 46 };
+  std::vector<int> expected(expected_vec, expected_vec + (sizeof(expected_vec)/sizeof(expected_vec[0])));
   EXPECT_TRUE(VectorsAreEqual(hist, expected));
 }
 
 TEST(Histogram, ProperlyDistributesFreqsNPOT) {
-  std::vector<int> counts = { 1, 2, 3, 4, 5, 6, 7, 8, 9, 10 };
+  const int counts_vec[10] = { 1, 2, 3, 4, 5, 6, 7, 8, 9, 10 };
+  std::vector<int> counts(counts_vec, counts_vec + (sizeof(counts_vec)/sizeof(counts_vec[0])));
   std::vector<int> hist;
   ans::GenerateHistogram(&hist, counts, 11);
 
-  std::vector<int> expected = { 1, 1, 1, 1, 1, 1, 1, 1, 1, 2 };
+  const int expected_vec[10] = { 1, 1, 1, 1, 1, 1, 1, 1, 1, 2 };
+  std::vector<int> expected(expected_vec, expected_vec + (sizeof(expected_vec)/sizeof(expected_vec[0])));
   EXPECT_TRUE(VectorsAreEqual(hist, expected));
 }

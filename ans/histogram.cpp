@@ -18,6 +18,12 @@ namespace ans {
     }
   };
 
+#ifdef WIN32
+  double log2(double n) {
+    return log(n) / log(2.0);
+  }
+#endif
+
   static double GetFreqChange(int count, int new_count, int correction_sign) {
     return log2(static_cast<double>(new_count) /
                 static_cast<double>(new_count + correction_sign)) *
@@ -78,7 +84,7 @@ namespace ans {
       assert(histogram->at(i) > 0);
       if (histogram->at(i) > 1 || correction > 0) {
         Symbol s;
-        s.symbol = i;
+        s.symbol = static_cast<int>(i);
         s.rank = GetFreqChange(counts[i], histogram->at(i), correction_sign);
         symbols.push_back(s);
       }
