@@ -29,7 +29,7 @@ if (MSVC AND MSVC_VERSION EQUAL 1700)
   add_definitions(/D _VARIADIC_MAX=10)
 endif()
 
-FOREACH(TEST "histogram")
+FOREACH(TEST "histogram" "bits" "ans")
   ADD_EXECUTABLE(${TEST}_test ${TEST}_test.cpp)
   TARGET_LINK_LIBRARIES(${TEST}_test ans)
   TARGET_LINK_LIBRARIES(${TEST}_test gtest)
