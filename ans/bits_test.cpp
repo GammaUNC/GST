@@ -44,7 +44,7 @@ TEST(Bits, CanWriteBits) {
 }
 
 TEST(Bits, CanWriteBytesAndBits) {
-  int32_t x;
+  int32_t x = 0;
   ans::BitWriter w(reinterpret_cast<unsigned char*>(&x));
   w.WriteBit(1);
   EXPECT_EQ(w.BytesWritten(), 1);
