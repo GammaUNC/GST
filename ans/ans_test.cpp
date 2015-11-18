@@ -167,3 +167,261 @@ TEST(Codec, CanEncodeValuesWithRenormalization_Robust) {
     }
   }
 }
+
+TEST(Codec, CanInterleaveIdenticalStreams) {
+  // Make sure to initialize the random number generator
+  // with a known value in order to make it deterministic
+  srand(0);
+  const int num_symbols = 1024;
+  struct TestCase {
+    const std::vector<uint32_t> F;
+    std::vector<uint32_t> symbols;
+    std::vector<uint32_t> states;
+  } test_cases[] = {
+    { { 80, 15, 10, 7, 5, 3, 3, 3, 3, 2, 2, 2, 2, 1 }, { }, { } },
+    { { 80, 15, 10, 7, 5, 3, 3, 3, 3, 2, 2, 2, 2, 1 }, { }, { } },
+    { { 80, 15, 10, 7, 5, 3, 3, 3, 3, 2, 2, 2, 2, 1 }, { }, { } },
+    { { 80, 15, 10, 7, 5, 3, 3, 3, 3, 2, 2, 2, 2, 1 }, { }, { } },
+    { { 80, 15, 10, 7, 5, 3, 3, 3, 3, 2, 2, 2, 2, 1 }, { }, { } },
+    { { 80, 15, 10, 7, 5, 3, 3, 3, 3, 2, 2, 2, 2, 1 }, { }, { } },
+  };
+
+  const size_t num_cases = sizeof(test_cases) / sizeof(test_cases[0]);
+
+  std::vector<ans::Encoder<256, 2> > encoders;
+  encoders.reserve(num_cases);
+
+  for (size_t i = 0; i < num_cases; ++i) {
+    TestCase &test = test_cases[i];
+    test.symbols.reserve(num_symbols);
+    test.states.reserve(num_symbols);
+    encoders.push_back(ans::Encoder<256, 2>(test.F));
+  }
+
+  size_t bytes_written = 0;
+  std::vector<unsigned char> stream(10, 0);
+  for (size_t i = 0; i < num_symbols * num_cases; ++i) {
+    TestCase &test = test_cases[i % num_cases];    
+    uint32_t M = std::accumulate(test.F.begin(), test.F.end(), 0);
+
+    int r = rand() % M;
+    int symbol = 0;
+    int freq = 0;
+    for (auto f : test.F) {
+      freq += f;
+      if (r < freq) {
+        break;
+      }
+      symbol++;
+    }
+    ASSERT_LT(symbol, test.F.size());
+    test.symbols.push_back(symbol);
+
+    ans::BitWriter w(stream.data() + bytes_written);
+    test.states.push_back(encoders[i % num_cases].GetState());
+    encoders[i % num_cases].Encode(symbol, w);
+
+    bytes_written += w.BytesWritten();
+    if (bytes_written > (stream.size() / 2)) {
+      stream.resize(stream.size() * 2);
+    }
+  }
+
+  std::vector<ans::Decoder<256, 2> > decoders;
+  decoders.reserve(num_cases);
+
+  for (size_t i = 0; i < num_cases; ++i) {
+    TestCase &test = test_cases[i];
+    std::reverse(test.symbols.begin(), test.symbols.end());
+    std::reverse(test.states.begin(), test.states.end());
+
+    decoders.push_back(ans::Decoder<256, 2>(encoders[i].GetState(),
+                                            test_cases[i].F));
+  }
+
+  stream.resize(bytes_written);
+  std::reverse(stream.begin(), stream.end());
+  ans::BitReader r(stream.data());
+
+  for (size_t i = 0; i < num_symbols * num_cases; ++i) {
+    const int test_idx = num_cases - 1 - (i % num_cases);
+    const TestCase &test = test_cases[test_idx];
+    EXPECT_EQ(decoders[test_idx].Decode(r), test.symbols[i / num_cases]);
+    EXPECT_EQ(decoders[test_idx].GetState(), test.states[i / num_cases]);
+  }
+}
+
+TEST(Codec, CanInterleaveStreamsWithDifferentDistributions) {
+  // Make sure to initialize the random number generator
+  // with a known value in order to make it deterministic
+  srand(0);
+  const int num_symbols = 1024;
+  struct TestCase {
+    const std::vector<uint32_t> F;
+    std::vector<uint32_t> symbols;
+    std::vector<uint32_t> states;
+  } test_cases[] = {
+    { { 80, 15, 10, 7, 5, 3, 3, 3, 3, 2, 2, 2, 2, 1 }, { }, { } },
+    { { 3, 14, 7, 5, 5, 3, 13, 2, 2, 2, 1, 8, 1, 1 }, { }, { } },
+    { { 80, 10, 7, 5, 53, 3, 33, 2, 2, 1, 1, 1, 1, 1 }, { }, { } },
+    { { 2, 10, 7, 5, 53, 3, 33, 2, 2, 1, 1, 1, 1, 1 }, { }, { } },
+  };
+
+  const size_t num_cases = sizeof(test_cases) / sizeof(test_cases[0]);
+
+  std::vector<ans::Encoder<256, 2> > encoders;
+  encoders.reserve(num_cases);
+
+  for (size_t i = 0; i < num_cases; ++i) {
+    TestCase &test = test_cases[i];
+    test.symbols.reserve(num_symbols);
+    test.states.reserve(num_symbols);
+    encoders.push_back(ans::Encoder<256, 2>(test.F));
+  }
+
+  size_t bytes_written = 0;
+  std::vector<unsigned char> stream(10, 0);
+  for (size_t i = 0; i < num_symbols * num_cases; ++i) {
+    TestCase &test = test_cases[i % num_cases];    
+    uint32_t M = std::accumulate(test.F.begin(), test.F.end(), 0);
+
+    int r = rand() % M;
+    int symbol = 0;
+    int freq = 0;
+    for (auto f : test.F) {
+      freq += f;
+      if (r < freq) {
+        break;
+      }
+      symbol++;
+    }
+    ASSERT_LT(symbol, test.F.size());
+    test.symbols.push_back(symbol);
+
+    ans::BitWriter w(stream.data() + bytes_written);
+    test.states.push_back(encoders[i % num_cases].GetState());
+    encoders[i % num_cases].Encode(symbol, w);
+
+    bytes_written += w.BytesWritten();
+    if (bytes_written > (stream.size() / 2)) {
+      stream.resize(stream.size() * 2);
+    }
+  }
+
+  std::vector<ans::Decoder<256, 2> > decoders;
+  decoders.reserve(num_cases);
+
+  for (size_t i = 0; i < num_cases; ++i) {
+    TestCase &test = test_cases[i];
+    std::reverse(test.symbols.begin(), test.symbols.end());
+    std::reverse(test.states.begin(), test.states.end());
+
+    decoders.push_back(ans::Decoder<256, 2>(encoders[i].GetState(),
+                                            test_cases[i].F));
+  }
+
+  stream.resize(bytes_written);
+  std::reverse(stream.begin(), stream.end());
+  ans::BitReader r(stream.data());
+
+  for (size_t i = 0; i < num_symbols * num_cases; ++i) {
+    const int test_idx = num_cases - 1 - (i % num_cases);
+    const TestCase &test = test_cases[test_idx];
+    EXPECT_EQ(decoders[test_idx].Decode(r), test.symbols[i / num_cases]);
+    EXPECT_EQ(decoders[test_idx].GetState(), test.states[i / num_cases]);
+  }
+}
+
+TEST(Codec, CanInterleaveStreamsWithDifferentSymbolsFromDistributions) {
+  // Make sure to initialize the random number generator
+  // with a known value in order to make it deterministic
+  srand(0);
+  struct TestCase {
+    const std::vector<uint32_t> F;
+    std::vector<uint32_t> symbols;
+    std::vector<uint32_t> states;
+  } test_cases[] = {
+    { { 80, 15, 10, 7, 5, 3, 3, 3, 3, 2, 2, 2, 2, 1 }, { }, { } },
+    { { 3, 14, 7, 5, 5, 3, 13, 2, 2, 2, 1, 8, 1, 1 }, { }, { } },
+    { { 80, 10, 7, 5, 53, 3, 33, 2, 2, 1, 1, 1, 1, 1 }, { }, { } },
+    { { 2, 10, 7, 5, 53, 3, 33, 2, 2, 1, 1, 1, 1, 1 }, { }, { } },
+  };
+
+  const size_t num_cases = sizeof(test_cases) / sizeof(test_cases[0]);
+  const size_t num_symbols[num_cases] = { 1024, 3, 14, 256 };
+
+  std::vector<ans::Encoder<256, 2> > encoders;
+  encoders.reserve(num_cases);
+
+  size_t max_num_symbols = 0;
+  for (size_t i = 0; i < num_cases; ++i) {
+    TestCase &test = test_cases[i];
+    test.symbols.reserve(num_symbols[i]);
+    test.states.reserve(num_symbols[i]);
+    encoders.push_back(ans::Encoder<256, 2>(test.F));
+    max_num_symbols = std::max(max_num_symbols, num_symbols[i]);
+  }
+
+  // Still a single stream...
+  size_t bytes_written = 0;
+  std::vector<unsigned char> stream(10, 0);
+
+  for (size_t i = 0; i < max_num_symbols; ++i) {
+    for (size_t j = 0; j < num_cases; ++j) {
+      if (i >= num_symbols[j]) {
+        continue;
+      }
+
+      TestCase &test = test_cases[j];    
+      uint32_t M = std::accumulate(test.F.begin(), test.F.end(), 0);
+
+      int r = rand() % M;
+      int symbol = 0;
+      int freq = 0;
+      for (auto f : test.F) {
+        freq += f;
+        if (r < freq) {
+          break;
+        }
+        symbol++;
+      }
+      ASSERT_LT(symbol, test.F.size());
+      test.symbols.push_back(symbol);
+
+      ans::BitWriter w(stream.data() + bytes_written);
+      test.states.push_back(encoders[j].GetState());
+      encoders[j].Encode(symbol, w);
+
+      bytes_written += w.BytesWritten();
+      if (bytes_written > (stream.size() / 2)) {
+        stream.resize(stream.size() * 2);
+      }
+    }
+  }
+
+  std::vector<ans::Decoder<256, 2> > decoders;
+  decoders.reserve(num_cases);
+
+  for (size_t i = 0; i < num_cases; ++i) {
+    decoders.push_back(ans::Decoder<256, 2>(encoders[i].GetState(),
+                                            test_cases[i].F));
+  }
+
+  stream.resize(bytes_written);
+  std::reverse(stream.begin(), stream.end());
+  ans::BitReader r(stream.data());
+
+  for (size_t i = 0; i < max_num_symbols; ++i) {
+    size_t symbol_idx = max_num_symbols - 1 - i;
+    for (size_t j = 0; j < num_cases; ++j) {
+      const int test_idx = num_cases - 1 - j;
+      if (symbol_idx >= num_symbols[test_idx]) {
+        continue;
+      }
+
+      const TestCase &test = test_cases[test_idx];
+      EXPECT_EQ(decoders[test_idx].Decode(r), test.symbols[symbol_idx]);
+      EXPECT_EQ(decoders[test_idx].GetState(), test.states[symbol_idx]);
+    }
+  }
+}
