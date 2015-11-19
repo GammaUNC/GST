@@ -1,13 +1,8 @@
-#include "config.h"
 #include "gpu.h"
 
 #include <cassert>
 #include <iostream>
 #include <fstream>
-
-static cl_context gContext;
-static cl_command_queue gCommandQueue;
-static cl_kernel gKernel;
 
 static const size_t kBlockWidth = 4;
 static const size_t kBlockHeight = 4;
@@ -26,73 +21,21 @@ static inline size_t GetPixelBufferBytes() { return GetTotalWorkItems() * kBlock
 // Thirty-two bytes for the kernel arguments...
 static inline size_t GetTotalLocalMemory() { return GetPixelBufferBytes() + 32; }
 
-#ifndef NDEBUG
-static const char *clErrMsg(cl_int err) {
-  const char *errMsg = "Unknown error";
-  switch(err) {
-  case CL_SUCCESS:                         errMsg = "Success!"; break;
-  case CL_DEVICE_NOT_FOUND:                errMsg = "Device not found."; break;
-  case CL_DEVICE_NOT_AVAILABLE:            errMsg = "Device not available"; break;
-  case CL_COMPILER_NOT_AVAILABLE:          errMsg = "Compiler not available"; break;
-  case CL_MEM_OBJECT_ALLOCATION_FAILURE:   errMsg = "Memory object allocation failure"; break;
-  case CL_OUT_OF_RESOURCES:                errMsg = "Out of resources"; break;
-  case CL_OUT_OF_HOST_MEMORY:              errMsg = "Out of host memory"; break;
-  case CL_PROFILING_INFO_NOT_AVAILABLE:    errMsg = "Profiling information not available"; break;
-  case CL_MEM_COPY_OVERLAP:                errMsg = "Memory copy overlap"; break;
-  case CL_IMAGE_FORMAT_MISMATCH:           errMsg = "Image format mismatch"; break;
-  case CL_IMAGE_FORMAT_NOT_SUPPORTED:      errMsg = "Image format not supported"; break;
-  case CL_BUILD_PROGRAM_FAILURE:           errMsg = "Program build failure"; break;
-  case CL_MAP_FAILURE:                     errMsg = "Map failure"; break;
-  case CL_INVALID_VALUE:                   errMsg = "Invalid value"; break;
-  case CL_INVALID_DEVICE_TYPE:             errMsg = "Invalid device type"; break;
-  case CL_INVALID_PLATFORM:                errMsg = "Invalid platform"; break;
-  case CL_INVALID_DEVICE:                  errMsg = "Invalid device"; break;
-  case CL_INVALID_CONTEXT:                 errMsg = "Invalid context"; break;
-  case CL_INVALID_QUEUE_PROPERTIES:        errMsg = "Invalid queue properties"; break;
-  case CL_INVALID_COMMAND_QUEUE:           errMsg = "Invalid command queue"; break;
-  case CL_INVALID_HOST_PTR:                errMsg = "Invalid host pointer"; break;
-  case CL_INVALID_MEM_OBJECT:              errMsg = "Invalid memory object"; break;
-  case CL_INVALID_IMAGE_FORMAT_DESCRIPTOR: errMsg = "Invalid image format descriptor"; break;
-  case CL_INVALID_IMAGE_SIZE:              errMsg = "Invalid image size"; break;
-  case CL_INVALID_SAMPLER:                 errMsg = "Invalid sampler"; break;
-  case CL_INVALID_BINARY:                  errMsg = "Invalid binary"; break;
-  case CL_INVALID_BUILD_OPTIONS:           errMsg = "Invalid build options"; break;
-  case CL_INVALID_PROGRAM:                 errMsg = "Invalid program"; break;
-  case CL_INVALID_PROGRAM_EXECUTABLE:      errMsg = "Invalid program executable"; break;
-  case CL_INVALID_KERNEL_NAME:             errMsg = "Invalid kernel name"; break;
-  case CL_INVALID_KERNEL_DEFINITION:       errMsg = "Invalid kernel definition"; break;
-  case CL_INVALID_KERNEL:                  errMsg = "Invalid kernel"; break;
-  case CL_INVALID_ARG_INDEX:               errMsg = "Invalid argument index"; break;
-  case CL_INVALID_ARG_VALUE:               errMsg = "Invalid argument value"; break;
-  case CL_INVALID_ARG_SIZE:                errMsg = "Invalid argument size"; break;
-  case CL_INVALID_KERNEL_ARGS:             errMsg = "Invalid kernel arguments"; break;
-  case CL_INVALID_WORK_DIMENSION:          errMsg = "Invalid work dimension"; break;
-  case CL_INVALID_WORK_GROUP_SIZE:         errMsg = "Invalid work group size"; break;
-  case CL_INVALID_WORK_ITEM_SIZE:          errMsg = "Invalid work item size"; break;
-  case CL_INVALID_GLOBAL_OFFSET:           errMsg = "Invalid global offset"; break;
-  case CL_INVALID_EVENT_WAIT_LIST:         errMsg = "Invalid event wait list"; break;
-  case CL_INVALID_EVENT:                   errMsg = "Invalid event"; break;
-  case CL_INVALID_OPERATION:               errMsg = "Invalid operation"; break;
-  case CL_INVALID_GL_OBJECT:               errMsg = "Invalid OpenGL object"; break;
-  case CL_INVALID_BUFFER_SIZE:             errMsg = "Invalid buffer size"; break;
-  case CL_INVALID_MIP_LEVEL:               errMsg = "Invalid mip-map level"; break;
-  }
-
-  return errMsg;
+#ifndef CL_VERSION_1_2
+static cl_int clUnloadCompiler11(cl_platform_id) {
+  return clUnloadCompiler();
 }
-
-#  define CHECK_CL(fn, ...)                                               \
-  do {                                                                    \
-    cl_int err = fn(__VA_ARGS__);                                         \
-    if(CL_SUCCESS != err) {                                               \
-      const char *errMsg = clErrMsg(err);                                 \
-      fprintf(stderr, "OpenCL error at line %d: %s\n", __LINE__, errMsg); \
-      assert (false);                                                     \
-    }                                                                     \
-  } while(0)
-#else
-#  define CHECK_CL(fn, ...) do { (void)(fn(__VA_ARGS__)); } while(0)
 #endif
+
+typedef cl_int (*clUnloadCompilerFunc)(cl_platform_id);
+
+#ifdef CL_VERSION_1_2
+static const clUnloadCompilerFunc gUnloadCompilerFunc = clUnloadPlatformCompiler;
+#else
+static const clUnloadCompilerFunc gUnloadCompilerFunc = clUnloadCompiler11;
+#endif
+
+namespace gpu {
 
 void ContextErrorCallback(const char *errinfo, const void *, size_t, void *) {
   fprintf(stderr, "Context error: %s", errinfo);
@@ -194,56 +137,58 @@ void PrintDeviceInfo(cl_device_id device_id) {
   }
 }
 
-void CreateCLContext(cl_context *result, cl_platform_id platform, const cl_device_id *device) {
-  assert(result);
-
+std::vector<cl_context_properties> GetSharedCLGLProps() {
+  std::vector<cl_context_properties> props;
 #ifdef __APPLE__
   // Get current CGL Context and CGL Share group
   CGLContextObj kCGLContext = CGLGetCurrentContext();
   CGLShareGroupObj kCGLShareGroup = CGLGetShareGroup(kCGLContext);
 
-  cl_context_properties properties[] = {
-    CL_CONTEXT_PROPERTY_USE_CGL_SHAREGROUP_APPLE,
-    (cl_context_properties)kCGLShareGroup,
-    CL_CONTEXT_PLATFORM, (cl_context_properties) platform,
-    0
-  };
+  props.push_back(CL_CONTEXT_PROPERTY_USE_CGL_SHAREGROUP_APPLE);
+  props.push_back((cl_context_properties)kCGLShareGroup);
+  props.push_back(0);
+
 #elif defined (_WIN32)
-  cl_context_properties properties[] =
-  {
-    // OpenCL platform
-    CL_CONTEXT_PLATFORM, (cl_context_properties)platform,
-    // OpenGL context
-    CL_GL_CONTEXT_KHR, (cl_context_properties)wglGetCurrentContext(),
-    // HDC used to create the OpenGL context
-    CL_WGL_HDC_KHR, (cl_context_properties)wglGetCurrentDC(),
-    0
-  };
-#else
-  cl_context_properties properties[] = {
-    CL_GL_CONTEXT_KHR, (cl_context_properties) glXGetCurrentContext(),
-    CL_GLX_DISPLAY_KHR, (cl_context_properties) glXGetCurrentDisplay(),
-    CL_CONTEXT_PLATFORM, (cl_context_properties) platform,
-    0
-  };
+
+  // OpenGL context
+  props.push_back(CL_GL_CONTEXT_KHR);
+  props.push_back((cl_context_properties)wglGetCurrentContext());
+
+  // HDC used to create the OpenGL context
+  props.push_back(CL_WGL_HDC_KHR);
+  props.push_back((cl_context_properties)wglGetCurrentDC());
+
+  props.push_back(0);
+
+#else  // Linux??
+
+  props.push_back(CL_GL_CONTEXT_KHR);
+  props.push_back((cl_context_properties) glXGetCurrentContext());
+  props.push_back(CL_GLX_DISPLAY_KHR);
+  props.push_back((cl_context_properties) glXGetCurrentDisplay());
+  props.push_back(0);
+
 #endif
 
+  return std::move(props);
+}
+
+static void CreateCLContext(cl_context *result, const cl_context_properties *props,
+                            cl_device_id device) {
   cl_int errCreateContext;
-  //  *result = clCreateContext(properties, nDevices, devices,
-  //                             ContextErrorCallback, NULL, &errCreateContext);
-  *result = clCreateContext(properties, 1, device,
-                            ContextErrorCallback, NULL, &errCreateContext);
+  *result = clCreateContext(props, 1, &device, ContextErrorCallback, NULL,
+                            &errCreateContext);
   CHECK_CL((cl_int), errCreateContext);
 }
 
-void InitializeOpenCLKernel() {
-  size_t strLen;
+cl_context InitializeOpenCL(bool share_opengl) {
   const cl_uint kMaxPlatforms = 8;
   cl_platform_id platforms[kMaxPlatforms];
   cl_uint nPlatforms;
   CHECK_CL(clGetPlatformIDs, kMaxPlatforms, platforms, &nPlatforms);
 
 #ifndef NDEBUG
+  size_t strLen;
   fprintf(stdout, "\n");
   fprintf(stdout, "Found %d OpenCL platform%s.\n", nPlatforms, nPlatforms == 1? "" : "s");
 
@@ -268,9 +213,6 @@ void InitializeOpenCLKernel() {
 #endif
 
   cl_platform_id platform = platforms[0];
-  //if(nPlatforms > 1) {
-  //  assert(!"FIXME - Choose a platform");
-  //}
 
   const cl_uint kMaxDevices = 8;
   cl_device_id devices[kMaxDevices];
@@ -289,133 +231,122 @@ void InitializeOpenCLKernel() {
 #endif
 
   // Create OpenCL context...
-  CreateCLContext(&gContext, platform, devices);
+  cl_context ctx;
+  if (share_opengl) {
+    std::vector<cl_context_properties> props = GetSharedCLGLProps();
+    CreateCLContext(&ctx, props.data(), devices[0]);
+  } else {
+    cl_context_properties props[] = {
+      CL_CONTEXT_PLATFORM, (cl_context_properties) platform, 0
+    };
 
-  cl_device_id existing_ids[16];
-  size_t nDeviceIds;
-  CHECK_CL(clGetContextInfo, gContext, CL_CONTEXT_DEVICES,
-           sizeof(existing_ids), existing_ids, &nDeviceIds);
-  nDeviceIds /= sizeof(existing_ids[0]);
+    CreateCLContext(&ctx, props, devices[0]);
+  }
+
+  return ctx;
+}
+
+cl_device_id GetDeviceForSharedContext(cl_context ctx) {
+  std::vector<cl_context_properties> props = GetSharedCLGLProps();
+
+  size_t device_id_size_bytes;
+  cl_device_id device;
+
+  typedef CL_API_ENTRY cl_int (CL_API_CALL *CtxInfoFunc)
+    (const cl_context_properties *properties, cl_gl_context_info param_name,
+     size_t param_value_size, void *param_value, size_t *param_value_size_ret);
+  static CtxInfoFunc getCtxInfoFunc = NULL;
+  if (NULL == getCtxInfoFunc) {
+    getCtxInfoFunc = (CtxInfoFunc)(clGetExtensionFunctionAddress("clGetGLContextInfoKHR"));
+  }
+
+  assert (getCtxInfoFunc);
+  CHECK_CL(getCtxInfoFunc, props.data(), CL_CURRENT_DEVICE_FOR_GL_CONTEXT_KHR,
+           sizeof(device), &device, &device_id_size_bytes);
 
   // If we're sharing an openGL context, there should really only
   // be one device ID...
-  assert (nDeviceIds == 1);
+  assert (device_id_size_bytes == sizeof(cl_device_id));
+  return device;
+}
 
-  std::cout << "Num devices after shared context: " << nDeviceIds << std::endl;
+std::vector<cl_device_id> GetAllDevicesForContext(cl_context ctx) {
+  std::vector<cl_device_id> devices(16);
+  size_t nDeviceIds;
+  CHECK_CL(clGetContextInfo, ctx, CL_CONTEXT_DEVICES, devices.size() * sizeof(cl_device_id),
+           devices.data(), &nDeviceIds);
+  nDeviceIds /= sizeof(cl_device_id);
+  devices.resize(nDeviceIds);
+  return std::move(devices);
+}
 
-  cl_device_id shared_device = existing_ids[0];
-  
+LoadedCLKernel InitializeOpenCLKernel(const char *source_filename, const char *kernel_name,
+                                      cl_context ctx, cl_device_id device) {
+#ifndef NDEBUG
   // If the total local memory required is greater than the minimum specified.. check!
+  size_t strLen;
   cl_ulong totalLocalMemory;
-  CHECK_CL(clGetDeviceInfo,
-           shared_device,
-           CL_DEVICE_LOCAL_MEM_SIZE,
-           sizeof(cl_ulong),
-           &totalLocalMemory,
-           &strLen);
+  CHECK_CL(clGetDeviceInfo, device, CL_DEVICE_LOCAL_MEM_SIZE, sizeof(cl_ulong),
+           &totalLocalMemory, &strLen);
   assert(strLen == sizeof(cl_ulong));
   assert(totalLocalMemory >= 16384);
   while(GetTotalLocalMemory() > totalLocalMemory) {
     kLocalWorkSizeX >>= 1;
     kLocalWorkSizeY >>= 1;
   }
+#endif
 
-  std::ifstream progfs(OPENCL_KERNEL_PATH);
+  std::ifstream progfs(source_filename);
   std::string progStr((std::istreambuf_iterator<char>(progfs)),
                       std::istreambuf_iterator<char>());
   const char *progCStr = progStr.c_str();
 
   cl_int errCreateProgram;
   cl_program program;
-  program = clCreateProgramWithSource(gContext, 1, &progCStr, NULL, &errCreateProgram);
+  program = clCreateProgramWithSource(ctx, 1, &progCStr, NULL, &errCreateProgram);
   CHECK_CL((cl_int), errCreateProgram);
 
-  if(clBuildProgram(program, 1, &shared_device, "", NULL, NULL) != CL_SUCCESS) {
+  if(clBuildProgram(program, 1, &device, "-Werror", NULL, NULL) != CL_SUCCESS) {
     size_t bufferSz;
-    clGetProgramBuildInfo(program, shared_device,
-                          CL_PROGRAM_BUILD_LOG, sizeof(size_t), NULL, &bufferSz);
+    clGetProgramBuildInfo(program, device, CL_PROGRAM_BUILD_LOG,
+                          sizeof(size_t), NULL, &bufferSz);
+
     char *buffer = new char[bufferSz + 1];
     buffer[bufferSz] = '\0';
-    clGetProgramBuildInfo(program, shared_device,
-                          CL_PROGRAM_BUILD_LOG, bufferSz, buffer, NULL);
+    clGetProgramBuildInfo(program, device, CL_PROGRAM_BUILD_LOG,
+                          bufferSz, buffer, NULL);
+
     std::cerr << "CL Compilation failed:" << std::endl;
     std::cerr << buffer + 1 << std::endl;
     abort();
   } else {
     std::cerr << "CL Kernel compiled successfully!" << std::endl;
   }
-  CHECK_CL(gUnloadCompilerFunc, platform);
+  // !FIXME!
+  // CHECK_CL(gUnloadCompilerFunc, platform);
+
+  LoadedCLKernel kernel;
 
   cl_int errCreateCommandQueue;
-  gCommandQueue = clCreateCommandQueue(gContext, shared_device, 0, &errCreateCommandQueue);
+  kernel._command_queue = clCreateCommandQueue(ctx, device, 0, &errCreateCommandQueue);
   CHECK_CL((cl_int), errCreateCommandQueue);
 
   cl_int errCreateKernel;
-  gKernel = clCreateKernel(program, "compressDXT", &errCreateKernel);
+  kernel._kernel = clCreateKernel(program, kernel_name, &errCreateKernel);
   CHECK_CL((cl_int), errCreateKernel);
 
   CHECK_CL(clReleaseProgram, program);
+
+  return kernel;
 }
 
-void DestroyOpenCLKernel() {
-  CHECK_CL(clReleaseKernel, gKernel);
-
-  CHECK_CL(clReleaseCommandQueue, gCommandQueue);
-  CHECK_CL(clReleaseContext, gContext);
+void DestroyOpenCLKernel(const LoadedCLKernel &kernel) {
+  CHECK_CL(clReleaseKernel, kernel._kernel);
+  CHECK_CL(clReleaseCommandQueue, kernel._command_queue);
 }
 
-void RunKernel(unsigned char *data, GLuint pbo, int x, int y, int channels) {
-  unsigned char *src_data = data;
-  if (3 == channels) {
-    unsigned char *new_data = (unsigned char *)malloc(x * y * 4);
-    int nPixels = x * y;
-    for (int i = 0; i < nPixels; ++i) {
-      new_data[4*i] = src_data[3*i];
-      new_data[4*i + 1] = src_data[3*i + 1];
-      new_data[4*i + 2] = src_data[3*i + 2];
-      new_data[4*i + 3] = 0xFF;
-    }
-
-    src_data = new_data;
-  }
-
-  cl_image_format fmt;
-  fmt.image_channel_data_type = CL_UNSIGNED_INT8;
-  fmt.image_channel_order = CL_RGBA;
-
-  const size_t nBlocksX = ((x + 3) / 4);
-  const size_t nBlocksY = ((y + 3) / 4);
-
-  // Upload the data to the GPU...
-  cl_int errCreateImage;
-  cl_mem input = gCreateImage2DFunc(gContext, CL_MEM_USE_HOST_PTR | CL_MEM_READ_ONLY, &fmt,
-                                    x, y, 4*x, src_data, &errCreateImage);
-  CHECK_CL((cl_int), errCreateImage);
-
-  // Finished all OpenGL calls, now we can start making OpenCL calls...
-  cl_int errCreateFromGL;
-  cl_mem dxt_mem = clCreateFromGLBuffer(gContext, CL_MEM_WRITE_ONLY, pbo, &errCreateFromGL);
-  CHECK_CL((cl_int), errCreateFromGL);
-
-  // Acquire lock on GL objects...
-  CHECK_CL(clEnqueueAcquireGLObjects, gCommandQueue, 1, &dxt_mem, 0, NULL, NULL);
-
-  // Set the arguments
-  CHECK_CL(clSetKernelArg, gKernel, 0, sizeof(input), &input);
-  CHECK_CL(clSetKernelArg, gKernel, 1, sizeof(dxt_mem), &dxt_mem);
-
-  size_t global_work_size[2] = { nBlocksX, nBlocksY };
-  CHECK_CL(clEnqueueNDRangeKernel, gCommandQueue, gKernel, 2, NULL,
-           global_work_size, 0, 0, NULL, NULL);
-
-  // Release the GL objects
-  CHECK_CL(clEnqueueReleaseGLObjects, gCommandQueue, 1, &dxt_mem, 0, NULL, NULL);
-  CHECK_CL(clFinish, gCommandQueue);
-
-  // Release the buffers
-  CHECK_CL(clReleaseMemObject, input);
-
-  if (data != src_data) {
-    free(src_data);
-  }
+void ShutdownOpenCL(cl_context ctx) {
+  CHECK_CL(clReleaseContext, ctx);
 }
+
+}  // namespace gpu

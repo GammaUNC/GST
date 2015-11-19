@@ -13,6 +13,7 @@
 #include "stb_image.h"
 
 #include "gpu.h"
+#include "config.h"
 
 #ifdef _WIN32
 #  include <GL/glew.h>
@@ -55,6 +56,94 @@ const char *kFragProg =
   "void main() {\n"
   "  gl_FragColor = vec4(texture2D(tex, uv).rgb, 1);\n"
   "}\n";
+
+#ifdef CL_VERSION_1_2
+// If we're using OpenCL 1.2 or later, we should use the non-deprecated version of
+// the clCreateImage2D function to avoid those pesky compiler warnings...
+static cl_mem clCreateImage2D12(cl_context ctx, cl_mem_flags flags,
+                                const cl_image_format *fmt, size_t w, size_t h,
+                                size_t rowBytes, void *host_ptr, cl_int *errCode) {
+  cl_image_desc desc;
+  desc.image_type = CL_MEM_OBJECT_IMAGE2D;
+  desc.image_width = w;
+  desc.image_height = h;
+  desc.image_depth = 0;
+  desc.image_array_size = 0;
+  desc.image_row_pitch = rowBytes;
+  desc.image_slice_pitch = 0;
+  desc.num_mip_levels = 0;
+  desc.num_samples = 0;
+  desc.buffer = NULL;
+
+  return clCreateImage(ctx, flags, fmt, &desc, host_ptr, errCode);
+}
+#endif
+
+typedef cl_mem (*clCreateImage2DFunc)(cl_context, cl_mem_flags, const cl_image_format *,
+                                      size_t, size_t, size_t, void *, cl_int *);
+
+#ifdef CL_VERSION_1_2
+static const clCreateImage2DFunc gCreateImage2DFunc = clCreateImage2D12;
+#else
+static const clCreateImage2DFunc gCreateImage2DFunc = clCreateImage2D;
+#endif
+
+static void RunKernel(const cl_context ctx, const gpu::LoadedCLKernel &kernel,
+                      unsigned char *data, GLuint pbo, int x, int y, int channels) {
+  unsigned char *src_data = data;
+  if (3 == channels) {
+    unsigned char *new_data = (unsigned char *)malloc(x * y * 4);
+    int nPixels = x * y;
+    for (int i = 0; i < nPixels; ++i) {
+      new_data[4*i] = src_data[3*i];
+      new_data[4*i + 1] = src_data[3*i + 1];
+      new_data[4*i + 2] = src_data[3*i + 2];
+      new_data[4*i + 3] = 0xFF;
+    }
+
+    src_data = new_data;
+  }
+
+  cl_image_format fmt;
+  fmt.image_channel_data_type = CL_UNSIGNED_INT8;
+  fmt.image_channel_order = CL_RGBA;
+
+  const size_t nBlocksX = ((x + 3) / 4);
+  const size_t nBlocksY = ((y + 3) / 4);
+
+  // Upload the data to the GPU...
+  cl_int errCreateImage;
+  cl_mem input = gCreateImage2DFunc(ctx, CL_MEM_USE_HOST_PTR | CL_MEM_READ_ONLY, &fmt,
+                                    x, y, 4*x, src_data, &errCreateImage);
+  CHECK_CL((cl_int), errCreateImage);
+
+  // Finished all OpenGL calls, now we can start making OpenCL calls...
+  cl_int errCreateFromGL;
+  cl_mem dxt_mem = clCreateFromGLBuffer(ctx, CL_MEM_WRITE_ONLY, pbo, &errCreateFromGL);
+  CHECK_CL((cl_int), errCreateFromGL);
+
+  // Acquire lock on GL objects...
+  CHECK_CL(clEnqueueAcquireGLObjects, kernel._command_queue, 1, &dxt_mem, 0, NULL, NULL);
+
+  // Set the arguments
+  CHECK_CL(clSetKernelArg, kernel._kernel, 0, sizeof(input), &input);
+  CHECK_CL(clSetKernelArg, kernel._kernel, 1, sizeof(dxt_mem), &dxt_mem);
+
+  size_t global_work_size[2] = { nBlocksX, nBlocksY };
+  CHECK_CL(clEnqueueNDRangeKernel, kernel._command_queue, kernel._kernel, 2, NULL,
+           global_work_size, 0, 0, NULL, NULL);
+
+  // Release the GL objects
+  CHECK_CL(clEnqueueReleaseGLObjects, kernel._command_queue, 1, &dxt_mem, 0, NULL, NULL);
+  CHECK_CL(clFinish, kernel._command_queue);
+
+  // Release the buffers
+  CHECK_CL(clReleaseMemObject, input);
+
+  if (data != src_data) {
+    free(src_data);
+  }
+}
 
 GLuint LoadShaders() {
   GLuint vertShdrID = glCreateShader(GL_VERTEX_SHADER);
@@ -146,7 +235,8 @@ void LoadTexture(GLuint texID, const std::string &filePath) {
   stbi_image_free(data);
 }
 
-void LoadTexture2(GLuint pbo, GLuint texID, const std::string &filePath) {
+void LoadTexture2(cl_context ctx, const gpu::LoadedCLKernel &kernel, GLuint pbo,
+                  GLuint texID, const std::string &filePath) {
 
   // Load the image data...
   int x = 0, y = 0, channels = 0;
@@ -161,7 +251,7 @@ void LoadTexture2(GLuint pbo, GLuint texID, const std::string &filePath) {
   
   glFinish();
 
-  RunKernel(data, pbo, x, y, channels);
+  RunKernel(ctx, kernel, data, pbo, x, y, channels);
   
   // "Bind" the newly created texture : all future texture functions will modify this texture
   glBindBuffer(GL_PIXEL_UNPACK_BUFFER_ARB, pbo);
@@ -244,7 +334,9 @@ int main(int argc, char* argv[])
     }
 #endif
 
-    InitializeOpenCLKernel();
+    cl_context ctx = gpu::InitializeOpenCL(true);
+    cl_device_id device = gpu::GetDeviceForSharedContext(ctx);
+    gpu::LoadedCLKernel kernel = gpu::InitializeOpenCLKernel(OPENCL_KERNEL_PATH, "compressDXT", ctx, device);
 
     glfwSetKeyCallback(window, key_callback);
 
@@ -330,7 +422,7 @@ int main(int argc, char* argv[])
       }
       stream << ".jpg";
       // LoadTexture(texID, stream.str());
-      LoadTexture2(pbo, texID, stream.str());
+      LoadTexture2(ctx, kernel, pbo, texID, stream.str());
 
       glActiveTexture(GL_TEXTURE0);
       glBindTexture(GL_TEXTURE_2D, texID);
@@ -370,10 +462,12 @@ int main(int argc, char* argv[])
     }
     std::cout << std::endl;
 
-    DestroyOpenCLKernel();
+    gpu::DestroyOpenCLKernel(kernel);
 
     glDeleteTextures(1, &texID);
     glDeleteBuffers(1, &pbo);
+
+    gpu::ShutdownOpenCL(ctx);
 
     glfwDestroyWindow(window);
 
