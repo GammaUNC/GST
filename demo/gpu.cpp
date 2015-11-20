@@ -247,10 +247,11 @@ cl_context InitializeOpenCL(bool share_opengl) {
 }
 
 cl_device_id GetDeviceForSharedContext(cl_context ctx) {
-  std::vector<cl_context_properties> props = GetSharedCLGLProps();
-
   size_t device_id_size_bytes;
   cl_device_id device;
+
+#ifndef __APPLE__
+  std::vector<cl_context_properties> props = GetSharedCLGLProps();
 
   typedef CL_API_ENTRY cl_int (CL_API_CALL *CtxInfoFunc)
     (const cl_context_properties *properties, cl_gl_context_info param_name,
@@ -263,7 +264,15 @@ cl_device_id GetDeviceForSharedContext(cl_context ctx) {
   assert (getCtxInfoFunc);
   CHECK_CL(getCtxInfoFunc, props.data(), CL_CURRENT_DEVICE_FOR_GL_CONTEXT_KHR,
            sizeof(device), &device, &device_id_size_bytes);
-
+#else
+  // Get current CGL Context and CGL Share group
+  CGLContextObj kCGLContext = CGLGetCurrentContext();
+  // And now we can ask OpenCL which particular device is being used by
+  // OpenGL to do the rendering, currently:
+  clGetGLContextInfoAPPLE(ctx, kCGLContext,
+                          CL_CGL_DEVICE_FOR_CURRENT_VIRTUAL_SCREEN_APPLE,
+                          sizeof(device), &device, &device_id_size_bytes);
+#endif
   // If we're sharing an openGL context, there should really only
   // be one device ID...
   assert (device_id_size_bytes == sizeof(cl_device_id));
