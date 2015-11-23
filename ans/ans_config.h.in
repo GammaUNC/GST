@@ -1,0 +1,20 @@
+#ifndef __GENTC_ANS_CONFIG_H__
+#define __GENTC_ANS_CONFIG_H__
+
+#cmakedefine BUILD_TABLE_KERNEL_PATH "${BUILD_TABLE_KERNEL_PATH}"
+
+namespace ans {
+
+enum EANSOpenCLKernel {
+  eANSOpenCLKernel_BuildTable,
+
+  kNumANSOpenCLKernels
+};
+
+static const char *kANSOpenCLKernels[kNumANSOpenCLKernels] = {
+	BUILD_TABLE_KERNEL_PATH,
+};
+
+}  // namespace ans
+
+#endif  // __GENTC_ANS_CONFIG_H__

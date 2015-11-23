@@ -9,7 +9,7 @@
 
 namespace ans {
 
-  // rANS encode.
+  // rANS decode.
   template<uint32_t b, uint32_t k>
   class Decoder {
   public:
@@ -45,7 +45,7 @@ namespace ans {
       assert(_L <= _state && _state < (b * _L));
 
       // Decode
-      int symbol = FindSymbol(_state % _M);
+      size_t symbol = FindSymbol(_state % _M);
       _state = (_state / _M) * _F[symbol] - _B[symbol] + (_state % _M);
 
       // Renormalize

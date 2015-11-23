@@ -414,7 +414,7 @@ TEST(Codec, CanInterleaveStreamsWithDifferentSymbolsFromDistributions) {
   for (size_t i = 0; i < max_num_symbols; ++i) {
     size_t symbol_idx = max_num_symbols - 1 - i;
     for (size_t j = 0; j < num_cases; ++j) {
-      const int test_idx = num_cases - 1 - j;
+      const size_t test_idx = num_cases - 1 - j;
       if (symbol_idx >= num_symbols[test_idx]) {
         continue;
       }

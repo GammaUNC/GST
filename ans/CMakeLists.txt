@@ -1,15 +1,32 @@
 include_directories("${GenTC_SOURCE_DIR}/ans")
 include_directories("${GenTC_BINARY_DIR}/ans")
 
+include_directories("${GenTC_SOURCE_DIR}/gpu")
+INCLUDE_DIRECTORIES( ${OPENCL_INCLUDE_DIRS} )
+
+SET( BUILD_TABLE_KERNEL_PATH ${GenTC_SOURCE_DIR}/ans/build_table.cl )
+
+CONFIGURE_FILE(
+  "ans_config.h.in"
+  "ans_config.h"
+)
+
 SET( HEADERS
+  "ans_config.h"
+  "ans_decode.h"
+  "ans_encode.h"
+  "bits.h"
   "histogram.h"
+  "ans_ocl.h"
 )  
 
 SET( SOURCES
   "histogram.cpp"
+  "ans_ocl.cpp"
 )
 
 ADD_LIBRARY(ans ${HEADERS} ${SOURCES})
+TARGET_LINK_LIBRARIES(ans gentc_gpu)
 
 # Add flag for link time code generation. This was used to build the libpng
 # libraries, so we should probably also include it for this project as well...
