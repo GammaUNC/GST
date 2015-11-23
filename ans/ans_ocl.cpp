@@ -9,11 +9,11 @@ template<typename T>
 static void InspectBuffer(cl_command_queue queue, cl_mem buffer, size_t num_elements) {
   std::vector<T> host_mem(num_elements);
   clEnqueueReadBuffer(queue, buffer, true, 0, num_elements * sizeof(T), host_mem.data(), 0, NULL, NULL);
-  std::cout << "Inspecting buffer: ";
+  std::cout << "Inspecting buffer: " << std::endl;
   size_t idx = 0;
   while (idx < host_mem.size()) {
     for (int i = 0; i < 10; ++i) {
-      std::cout << host_mem[idx] << " ";
+      std::cout << static_cast<uint32_t>(host_mem[idx]) << " ";
     }
     std::cout << std::endl;
     idx++;
@@ -49,6 +49,10 @@ OpenCLDecoder::OpenCLDecoder(
 
   const gpu::LoadedCLKernel *build_table_kernel = GetTableBuildingKernel(ctx, device);
 
+  size_t work_group_size;
+  CHECK_CL(clGetKernelWorkGroupInfo, build_table_kernel->_kernel, device, CL_KERNEL_WORK_GROUP_SIZE,
+    sizeof(size_t), &work_group_size, NULL);
+
   uint32_t *freqs_ptr = const_cast<uint32_t *>(F.data());
 
   cl_int errCreateBuffer;
@@ -57,8 +61,8 @@ OpenCLDecoder::OpenCLDecoder(
 
   CHECK_CL(clSetKernelArg, build_table_kernel->_kernel, 0, sizeof(freqs_buffer), &freqs_buffer);
 
-  size_t num_freqs = F.size();
-  CHECK_CL(clSetKernelArg, build_table_kernel->_kernel, 1, sizeof(size_t *), &num_freqs);
+  cl_uint num_freqs = static_cast<cl_uint>(F.size());
+  CHECK_CL(clSetKernelArg, build_table_kernel->_kernel, 1, sizeof(cl_uint), &num_freqs);
 
   cl_mem table_freqs = clCreateBuffer(ctx, CL_MEM_WRITE_ONLY, _M * sizeof(cl_ushort), NULL, &errCreateBuffer);
   CHECK_CL((cl_int), errCreateBuffer);
@@ -73,9 +77,9 @@ OpenCLDecoder::OpenCLDecoder(
   CHECK_CL(clSetKernelArg, build_table_kernel->_kernel, 3, sizeof(table_cumulative_freqs), &table_cumulative_freqs);
   CHECK_CL(clSetKernelArg, build_table_kernel->_kernel, 4, sizeof(table_symbols), &table_symbols);
 
-  size_t global_work_size = _M;
+  size_t global_work_size = (_M + work_group_size - 1) / work_group_size;
   CHECK_CL(clEnqueueNDRangeKernel, build_table_kernel->_command_queue, build_table_kernel->_kernel, 1, NULL,
-    &global_work_size, 0, 0, NULL, NULL);
+    &_M, &work_group_size, 0, NULL, NULL);
 
   InspectBuffer<cl_ushort>(build_table_kernel->_command_queue, table_freqs, _M);
   InspectBuffer<cl_ushort>(build_table_kernel->_command_queue, table_cumulative_freqs, _M);

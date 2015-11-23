@@ -24,6 +24,7 @@ SET( SOURCES
 ADD_LIBRARY(gentc_gpu ${HEADERS} ${SOURCES})
 
 TARGET_LINK_LIBRARIES( gentc_gpu ${OPENCL_LIBRARIES} )
+TARGET_LINK_LIBRARIES( gentc_gpu ${GLFW_LIBRARIES} )
 
 IF ( MSVC )
   # Add flag for link time code generation. This was used to build the libpng

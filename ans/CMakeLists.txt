@@ -11,6 +11,10 @@ CONFIGURE_FILE(
   "ans_config.h"
 )
 
+SET( KERNELS
+  "${GenTC_SOURCE_DIR}/ans/build_table.cl"
+)
+
 SET( HEADERS
   "ans_config.h"
   "ans_decode.h"
@@ -25,7 +29,8 @@ SET( SOURCES
   "ans_ocl.cpp"
 )
 
-ADD_LIBRARY(ans ${HEADERS} ${SOURCES})
+SOURCE_GROUP(OpenCL FILES ${KERNELS})
+ADD_LIBRARY(ans ${HEADERS} ${SOURCES} ${KERNELS})
 TARGET_LINK_LIBRARIES(ans gentc_gpu)
 
 # Add flag for link time code generation. This was used to build the libpng
@@ -46,10 +51,16 @@ if (MSVC AND MSVC_VERSION EQUAL 1700)
   add_definitions(/D _VARIADIC_MAX=10)
 endif()
 
-FOREACH(TEST "histogram" "bits" "ans")
+FOREACH(TEST "histogram" "bits" "ans" "ans_ocl")
   ADD_EXECUTABLE(${TEST}_test ${TEST}_test.cpp)
   TARGET_LINK_LIBRARIES(${TEST}_test ans)
   TARGET_LINK_LIBRARIES(${TEST}_test gtest)
-  TARGET_LINK_LIBRARIES(${TEST}_test gtest_main)
+
+  IF ("${TEST}" STREQUAL "ans_ocl")
+    TARGET_LINK_LIBRARIES(${TEST}_test gentc_gpu)
+  ELSE()
+    TARGET_LINK_LIBRARIES(${TEST}_test gtest_main)
+  ENDIF()
+
   ADD_TEST(Test_${TEST} ${TEST}_test)
 ENDFOREACH()

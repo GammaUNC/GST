@@ -14,6 +14,7 @@
 #endif
 
 #include <vector>
+#include <cassert>
 
 #ifndef NDEBUG
 static const char *clErrMsg(cl_int err) {
@@ -70,14 +71,14 @@ static const char *clErrMsg(cl_int err) {
   return errMsg;
 }
 
-#  define CHECK_CL(fn, ...)                                               \
-  do {                                                                    \
-    cl_int err = fn(__VA_ARGS__);                                         \
-    if(CL_SUCCESS != err) {                                               \
-      const char *errMsg = clErrMsg(err);                                 \
-      fprintf(stderr, "OpenCL error at line %d: %s\n", __LINE__, errMsg); \
-      assert (false);                                                     \
-    }                                                                     \
+#  define CHECK_CL(fn, ...)                                                        \
+  do {                                                                             \
+    cl_int err = fn(__VA_ARGS__);                                                  \
+    if(CL_SUCCESS != err) {                                                        \
+      const char *errMsg = clErrMsg(err);                                          \
+      fprintf(stderr, "OpenCL error (%s : %d): %s\n", __FILE__, __LINE__, errMsg); \
+      assert (false);                                                              \
+    }                                                                              \
   } while(0)
 #else
 #  define CHECK_CL(fn, ...) do { (void)(fn(__VA_ARGS__)); } while(0)
