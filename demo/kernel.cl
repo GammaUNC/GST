@@ -2,7 +2,12 @@
 
 uchar2 PackPixel(uchar3 p);
 
-const sampler_t gSampler =
+// !FIXME!
+// This is different from the following:
+// const sampler_t gSampler = ...
+// One implies storage in constant memory, the other a const global variable.
+// Bug here: https://www.khronos.org/bugzilla/show_bug.cgi?id=397
+__constant sampler_t gSampler =
   CLK_ADDRESS_REPEAT | CLK_NORMALIZED_COORDS_FALSE | CLK_FILTER_NEAREST;
 
 uchar2 PackPixel(uchar3 p) {
@@ -13,7 +18,7 @@ uchar2 PackPixel(uchar3 p) {
 }
 
 __kernel void compressDXT(__read_only image2d_t src,
-                          __global __write_only uchar8 *dst)
+                          __global uchar8 *dst)
 {
   const uint width = get_image_width(src);
   const uint nBlocksX = width / 4;
