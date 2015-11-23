@@ -2,25 +2,15 @@
 #define __GENTC_GPU_H__
 
 #ifdef __APPLE__
-#  define GL_GLEXT_PROTOTYPES 1
-#  define GLFW_INCLUDE_GLEXT 1
-#  include <GLFW/glfw3.h>
 #  include <OpenCL/opencl.h>
-#  include <OpenGL/opengl.h>
 #elif defined (_WIN32)
 #  define NOMINMAX
 #  include "Windows.h"
-#  include <GL/glew.h>
-#  include <GLFW/glfw3.h>
 #  include <CL/cl.h>
 #  include <CL/cl_gl.h>
 #else
-#  define GL_GLEXT_PROTOTYPES 1
-#  define GLFW_INCLUDE_GLEXT 1
-#  include <GLFW/glfw3.h>
 #  include <CL/cl_ext.h>
 #  include <CL/cl_gl.h>
-#  include <GL/glx.h>
 #endif
 
 #include <vector>
@@ -106,7 +96,6 @@ namespace gpu {
 
   LoadedCLKernel InitializeOpenCLKernel(const char *source_filename, const char *kernel_name,
                                         cl_context ctx, cl_device_id device);
-  void RunKernel(unsigned char *data, GLuint texID, int x, int y, int channels);
   void DestroyOpenCLKernel(const LoadedCLKernel &);
   void ShutdownOpenCL(cl_context ctx);
 }  // namespace gpu

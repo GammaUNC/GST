@@ -2,18 +2,22 @@ include_directories("${GLFW_SOURCE_DIR}/include")
 include_directories("${GenTC_SOURCE_DIR}/demo")
 include_directories("${GenTC_BINARY_DIR}/demo")
 
+include_directories("${GenTC_SOURCE_DIR}/gpu")
+
 if ("${OPENGL_INCLUDE_DIR}")
   include_directories("${OPENGL_INCLUDE_DIR}")
 endif()
 
-FIND_PACKAGE(OpenCL REQUIRED)
-
-INCLUDE_DIRECTORIES( ${OPENCL_INCLUDE_DIRS} )
 SET( OPENCL_KERNEL_PATH ${GenTC_SOURCE_DIR}/demo/kernel.cl )
 
 IF ( MSVC )
   INCLUDE_DIRECTORIES( ${GenTC_SOURCE_DIR}/lib/include )
 ENDIF()
+
+# !HACK! We still need OpenCL because we don't use our 'gpu' library properly...
+FIND_PACKAGE(OpenCL REQUIRED)
+INCLUDE_DIRECTORIES( ${OPENCL_INCLUDE_DIRS} )
+
 
 CONFIGURE_FILE(
   "config.h.in"
@@ -21,18 +25,17 @@ CONFIGURE_FILE(
 )
 
 SET( HEADERS
-  "gpu.h"
 )  
 
 SET( SOURCES
   "demo.cpp"
-  "gpu.cpp"
 )
 
 ADD_EXECUTABLE(demo ${HEADERS} ${SOURCES})
 
 TARGET_LINK_LIBRARIES( demo glfw )
 TARGET_LINK_LIBRARIES( demo ${GLFW_LIBRARIES} )
+TARGET_LINK_LIBRARIES( demo gentc_gpu )
 TARGET_LINK_LIBRARIES( demo ${OPENCL_LIBRARIES} )
 TARGET_LINK_LIBRARIES( demo ${OPENGL_gl_LIBRARY} )
 TARGET_LINK_LIBRARIES( demo ${OPENGL_glu_LIBRARY} )

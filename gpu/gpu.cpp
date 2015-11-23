@@ -257,9 +257,19 @@ cl_device_id GetDeviceForSharedContext(cl_context ctx) {
     (const cl_context_properties *properties, cl_gl_context_info param_name,
      size_t param_value_size, void *param_value, size_t *param_value_size_ret);
   static CtxInfoFunc getCtxInfoFunc = NULL;
-  if (NULL == getCtxInfoFunc) {
-    getCtxInfoFunc = (CtxInfoFunc)(clGetExtensionFunctionAddress("clGetGLContextInfoKHR"));
-  }
+#ifndef CL_VERSION_1_1
+  getCtxInfoFunc = reinterpret_cast<CtxInfoFunc>(
+    clGetExtensionFunctionAddress("clGetGLContextInfoKHR"));
+#else
+  cl_platform_id platform;
+  CHECK_CL(clGetPlatformIDs, 1, &platform, NULL);
+  std::vector<cl_context_properties> extra_props = { CL_CONTEXT_PLATFORM, (cl_context_properties)platform };
+  extra_props.insert(extra_props.end(), props.begin(), props.end());
+  props = extra_props;
+
+  getCtxInfoFunc = reinterpret_cast<CtxInfoFunc>(
+    clGetExtensionFunctionAddressForPlatform(platform, "clGetGLContextInfoKHR"));
+#endif  // CL_VERSION_1_1
 
   assert (getCtxInfoFunc);
   CHECK_CL(getCtxInfoFunc, props.data(), CL_CURRENT_DEVICE_FOR_GL_CONTEXT_KHR,
@@ -272,7 +282,7 @@ cl_device_id GetDeviceForSharedContext(cl_context ctx) {
   clGetGLContextInfoAPPLE(ctx, kCGLContext,
                           CL_CGL_DEVICE_FOR_CURRENT_VIRTUAL_SCREEN_APPLE,
                           sizeof(device), &device, &device_id_size_bytes);
-#endif
+#endif  // __APPLE
   // If we're sharing an openGL context, there should really only
   // be one device ID...
   assert (device_id_size_bytes == sizeof(cl_device_id));
@@ -337,7 +347,11 @@ LoadedCLKernel InitializeOpenCLKernel(const char *source_filename, const char *k
   LoadedCLKernel kernel;
 
   cl_int errCreateCommandQueue;
+#ifndef CL_VERSION_2_0
   kernel._command_queue = clCreateCommandQueue(ctx, device, 0, &errCreateCommandQueue);
+#else
+  kernel._command_queue = clCreateCommandQueueWithProperties(ctx, device, 0, &errCreateCommandQueue);
+#endif
   CHECK_CL((cl_int), errCreateCommandQueue);
 
   cl_int errCreateKernel;
