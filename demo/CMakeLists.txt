@@ -25,6 +25,7 @@ CONFIGURE_FILE(
 )
 
 SET( HEADERS
+  "config.h.in"
 )  
 
 SET( SOURCES
