@@ -9,35 +9,25 @@ __kernel void build_table(const __constant uint *frequencies,
 {
   uint id = get_global_id(0);
 
-  // First initialize everything to zero...
-  table_frequencies[id] = 0;
-  table_cumulative_frequencies[id] = 0;
-  table_symbols[id] = 0;
+  // Binary search...
+  uint low = 0;
+  uint high = num_symbols - 1;
+  uint x = (high + low) / 2;
 
-  barrier(CLK_GLOBAL_MEM_FENCE | CLK_LOCAL_MEM_FENCE);
-
-  // Initialize table
-  if (id < num_symbols) {
-	int cum_freq = cumulative_frequencies[id];
-	int freq = frequencies[id];
-	table_frequencies[cum_freq] = freq;
-	table_cumulative_frequencies[cum_freq] = freq;
-	table_symbols[cum_freq] = id;
-  }
-
-  barrier(CLK_GLOBAL_MEM_FENCE | CLK_LOCAL_MEM_FENCE);
-
+  // condition:
+  // cumulative_frequencies[x] <= id < cumulative_frequencies[x + 1]
   int lgM = 31 - clz(cumulative_frequencies[num_symbols - 1] + frequencies[num_symbols - 1]);
   for (int i = 0; i < lgM; ++i) {
-	int x = table_cumulative_frequencies[id];
-	int halfx = x >> 1;
-	if ( halfx > 0 ) {
-	  table_cumulative_frequencies[id] = halfx;
-	  table_cumulative_frequencies[id + halfx] = x - halfx;
-	  table_symbols[id + halfx] = table_symbols[id];
-	  table_frequencies[id + halfx] = table_frequencies[id];
-	}
-	barrier(CLK_GLOBAL_MEM_FENCE | CLK_LOCAL_MEM_FENCE);
+    uint too_high = (uint)(id < cumulative_frequencies[x]);
+	uint too_low = (uint)(x < num_symbols - 1 && cumulative_frequencies[x + 1] <= id);
+
+	low = (too_low) * max(low + 1, x) + ((1 - too_low) * low);
+	high = (too_high) * min(high - 1, x) + ((1 - too_high) * high);
+    x = (high + low) / 2;
   }
-  table_cumulative_frequencies[id] = cumulative_frequencies[table_symbols[id]];
+
+  // First initialize everything to zero...
+  table_frequencies[id] = frequencies[x];
+  table_cumulative_frequencies[id] = cumulative_frequencies[x];
+  table_symbols[id] = x;
 }

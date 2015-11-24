@@ -62,7 +62,6 @@ TEST(ANS_OpenCL, Initialization) {
   }
 }
 
-#if 0
 TEST(ANS_OpenCL, TableRebuilding) {
   std::vector<uint32_t> F = { 3, 2, 1, 4, 3, 406 };
   std::vector<uint32_t> new_F = { 80, 300, 2, 14, 1, 1, 1, 20 };
@@ -79,9 +78,9 @@ TEST(ANS_OpenCL, TableRebuilding) {
   int sum = 0;
   for (size_t i = 0; i < new_F.size(); ++i) {
     for (size_t j = 0; j < new_F[i]; ++j) {
-      expected_symbols[j] = static_cast<cl_uchar>(i);
-      expected_frequencies[j] = new_F[i];
-      expected_cumulative_frequencies[j] = sum;
+      expected_symbols[sum + j] = static_cast<cl_uchar>(i);
+      expected_frequencies[sum + j] = new_F[i];
+      expected_cumulative_frequencies[sum + j] = sum;
     }
     sum += new_F[i];
   }
@@ -111,7 +110,6 @@ TEST(ANS_OpenCL, TableRebuilding) {
       << "Cumulative frequencies differ at index " << i;
   }
 }
-#endif
 
 int main(int argc, char** argv) {
   ::testing::InitGoogleTest(&argc, argv);
