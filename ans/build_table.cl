@@ -27,8 +27,7 @@ __kernel void build_table(const __constant uint *frequencies,
 
   barrier(CLK_GLOBAL_MEM_FENCE | CLK_LOCAL_MEM_FENCE);
 
-  // int lgM = 31 - clz(cumulative_frequencies[num_symbols - 1] + frequencies[num_symbols - 1]);
-  int lgM = 2;
+  int lgM = 31 - clz(cumulative_frequencies[num_symbols - 1] + frequencies[num_symbols - 1]);
   for (int i = 0; i < lgM; ++i) {
 	int x = table_cumulative_frequencies[id];
 	int halfx = x >> 1;
