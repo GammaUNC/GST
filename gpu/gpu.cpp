@@ -338,9 +338,12 @@ LoadedCLKernel InitializeOpenCLKernel(const char *source_filename, const char *k
     std::cerr << "CL Compilation failed:" << std::endl;
     std::cerr << buffer + 1 << std::endl;
     abort();
-  } else {
+  }
+#ifndef NDEBUG
+  else {
     std::cerr << "CL Kernel compiled successfully!" << std::endl;
   }
+#endif
   // !FIXME!
   // CHECK_CL(gUnloadCompilerFunc, platform);
 
