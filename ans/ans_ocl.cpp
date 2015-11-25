@@ -128,9 +128,8 @@ void OpenCLDecoder::RebuildTable(const std::vector<uint32_t> &F) const {
   CHECK_CL(clSetKernelArg, build_table_kernel->_kernel, 4, sizeof(_table_cumulative_frequencies), &_table_cumulative_frequencies);
   CHECK_CL(clSetKernelArg, build_table_kernel->_kernel, 5, sizeof(_table_symbols), &_table_symbols);
 
-  size_t local_work_size = 256;
   CHECK_CL(clEnqueueNDRangeKernel, build_table_kernel->_command_queue,
-    build_table_kernel->_kernel, 1, NULL, &_M, &local_work_size, 0, NULL, NULL);
+    build_table_kernel->_kernel, 1, NULL, &_M, NULL, 0, NULL, NULL);
 
   CHECK_CL(clReleaseMemObject, freqs_buffer);
   CHECK_CL(clReleaseMemObject, cum_freqs_buffer);
