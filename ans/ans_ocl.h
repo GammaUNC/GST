@@ -26,7 +26,7 @@ namespace ans {
     bool Decode(
       std::vector<std::vector<uint32_t> > *out,
       const std::vector<uint32_t> &states,
-      const std::vector<uint16_t> &data);
+      const std::vector<uint8_t> &data);
 
     void RebuildTable(const std::vector<uint32_t> &F) const;
 

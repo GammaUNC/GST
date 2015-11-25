@@ -3,7 +3,11 @@
 #include <numeric>
 #include <vector>
 
+#include "ans_encode.h"
 #include "ans_ocl.h"
+#include "bits.h"
+
+using ans::OpenCLDecoder;
 
 static class OpenCLEnvironment : public ::testing::Environment {
 public:
@@ -32,7 +36,7 @@ private:
 TEST(ANS_OpenCL, Initialization) {
   std::vector<uint32_t> F = { 3, 2, 1, 4, 3 };
   const uint32_t M = std::accumulate(F.begin(), F.end(), 0);
-  ans::OpenCLDecoder decoder(gTestEnv->GetContext(), gTestEnv->GetDevice(), F, 1);
+  OpenCLDecoder decoder(gTestEnv->GetContext(), gTestEnv->GetDevice(), F, 1);
 
   std::vector<cl_uchar> expected_symbols = { 0, 0, 0, 1, 1, 2, 3, 3, 3, 3, 4, 4, 4 };
   std::vector<cl_ushort> expected_frequencies = { 3, 3, 3, 2, 2, 1, 4, 4, 4, 4, 3, 3, 3 };
@@ -68,7 +72,7 @@ TEST(ANS_OpenCL, TableRebuilding) {
   const uint32_t M = std::accumulate(F.begin(), F.end(), 0);
   ASSERT_EQ(std::accumulate(new_F.begin(), new_F.end(), 0), M);
 
-  ans::OpenCLDecoder decoder(gTestEnv->GetContext(), gTestEnv->GetDevice(), F, 1);
+  OpenCLDecoder decoder(gTestEnv->GetContext(), gTestEnv->GetDevice(), F, 1);
   decoder.RebuildTable(new_F);
 
   std::vector<cl_uchar> expected_symbols(M, 0);
@@ -108,6 +112,57 @@ TEST(ANS_OpenCL, TableRebuilding) {
   for (size_t i = 0; i < cumulative_frequencies.size(); ++i) {
     EXPECT_EQ(expected_cumulative_frequencies[i], cumulative_frequencies[i])
       << "Cumulative frequencies differ at index " << i;
+  }
+}
+
+TEST(ANS_OpenCL, DecodeSingleNPOTStream) {
+  std::vector<uint32_t> F = { 12, 14, 17, 1, 1, 2, 372 };
+
+  const size_t num_symbols = 256;
+  std::vector<int> symbols;
+  symbols.reserve(num_symbols);
+
+  ans::Encoder<1 << 16, 1 << 16> encoder(F);
+  std::vector<uint8_t> stream(10);
+
+  size_t bytes_written = 0;
+  srand(0);
+  for (int i = 0; i < num_symbols; ++i) {
+    uint32_t M = std::accumulate(F.begin(), F.end(), 0);
+    int r = rand() % M;
+    int symbol = 0;
+    int freq = 0;
+    for (auto f : F) {
+      freq += f;
+      if (r < freq) {
+        break;
+      }
+      symbol++;
+    }
+    ASSERT_LT(symbol, F.size());
+    symbols.push_back(symbol);
+
+    ans::BitWriter w(stream.data() + bytes_written);
+    encoder.Encode(symbol, w);
+
+    bytes_written += w.BytesWritten();
+    if (bytes_written > (stream.size() / 2)) {
+      stream.resize(stream.size() * 2);
+    }
+  }
+  stream.resize(bytes_written);
+  ASSERT_EQ(symbols.size(), num_symbols);
+
+  ans::OpenCLDecoder decoder(gTestEnv->GetContext(), gTestEnv->GetDevice(), F, 1);
+  std::vector<std::vector<uint32_t> > decoded_symbols;
+  std::vector<uint32_t> encoded_states(1, encoder.GetState());
+
+  decoder.Decode(&decoded_symbols, encoded_states, stream);
+
+  ASSERT_EQ(decoded_symbols.size(), 1);
+  ASSERT_EQ(decoded_symbols[0].size(), num_symbols);
+  for (size_t i = 0; i < num_symbols; ++i) {
+    EXPECT_EQ(decoded_symbols[0][i], symbols[i]) << "Symbols differ at index " << i;
   }
 }
 
