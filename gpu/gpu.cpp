@@ -4,6 +4,17 @@
 #include <iostream>
 #include <fstream>
 
+#ifdef __APPLE__
+#  include <OpenGL/opengl.h>
+#elif defined (_WIN32)
+#  define NOMINMAX
+#  include "Windows.h"
+#  include <CL/cl_gl.h>
+#else
+#  include <CL/cl_gl.h>
+#endif
+
+
 static const size_t kBlockWidth = 4;
 static const size_t kBlockHeight = 4;
 static const size_t kNumComponents = 4;

@@ -3,15 +3,10 @@
 
 #ifdef __APPLE__
 #  include <OpenCL/opencl.h>
-#  include <OpenGL/opengl.h>
 #elif defined (_WIN32)
-#  define NOMINMAX
-#  include "Windows.h"
 #  include <CL/cl.h>
-#  include <CL/cl_gl.h>
 #else
 #  include <CL/cl_ext.h>
-#  include <CL/cl_gl.h>
 #endif
 
 #include <vector>
