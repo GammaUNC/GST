@@ -15,7 +15,7 @@
 #include "gpu.h"
 #include "config.h"
 
-#ifdef __APPLE_
+#ifdef __APPLE__
 #  define GL_GLEXT_PROTOTYPES 1
 #  define GLFW_INCLUDE_GLEXT 1
 #  include <GLFW/glfw3.h>
