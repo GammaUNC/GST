@@ -5,6 +5,7 @@
 #  include <OpenCL/opencl.h>
 #elif defined (_WIN32)
 #  include <CL/cl.h>
+#  include <CL/cl_gl.h>
 #else
 #  include <CL/cl_ext.h>
 #endif
