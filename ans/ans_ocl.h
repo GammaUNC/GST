@@ -46,9 +46,7 @@ namespace ans {
     cl_context _ctx;
     cl_device_id _device;
 
-    cl_mem _table_symbols;
-    cl_mem _table_frequencies;
-    cl_mem _table_cumulative_frequencies;
+    cl_mem _table;
   };
 
 }  // namespace ans

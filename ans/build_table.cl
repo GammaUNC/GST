@@ -1,11 +1,17 @@
 #pragma OPENCL EXTENSION cl_khr_byte_addressable_store : enable
 
+#define ANS_TABLE_SIZE_LOG  11
+
+typedef struct AnsTableEntry_Struct {
+	ushort freq;
+	ushort cum_freq;
+	uchar  symbol;
+} AnsTableEntry;
+
 __kernel void build_table(const __constant uint *frequencies,
 						  const __constant uint *cumulative_frequencies,
 					      const uint num_symbols,
-                          __global ushort *table_frequencies,
-						  __global ushort *table_cumulative_frequencies,
-						  __global uchar *table_symbols)
+                          __global AnsTableEntry *table)
 {
   uint id = get_global_id(0);
 
@@ -16,8 +22,7 @@ __kernel void build_table(const __constant uint *frequencies,
 
   // condition:
   // cumulative_frequencies[x] <= id < cumulative_frequencies[x + 1]
-  int lgM = 31 - clz(cumulative_frequencies[num_symbols - 1] + frequencies[num_symbols - 1]);
-  for (int i = 0; i < lgM; ++i) {
+  for (int i = 0; i < ANS_TABLE_SIZE_LOG; ++i) {
     uint too_high = (uint)(id < cumulative_frequencies[x]);
 	uint too_low = (uint)(x < num_symbols - 1 && cumulative_frequencies[x + 1] <= id);
 
@@ -27,7 +32,7 @@ __kernel void build_table(const __constant uint *frequencies,
   }
 
   // First initialize everything to zero...
-  table_frequencies[id] = frequencies[x];
-  table_cumulative_frequencies[id] = cumulative_frequencies[x];
-  table_symbols[id] = x;
+  table[id].freq = frequencies[x];
+  table[id].cum_freq = cumulative_frequencies[x];
+  table[id].symbol = x;
 }

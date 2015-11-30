@@ -5,6 +5,12 @@
 
 #include "ans_config.h"
 
+struct AnsTableEntry {
+  cl_ushort freq;
+  cl_ushort cum_freq;
+  cl_uchar  symbol;
+};
+
 template<typename T>
 static std::vector<T> ReadBuffer(cl_command_queue queue, cl_mem buffer, size_t num_elements) {
   std::vector<T> host_mem(num_elements);
@@ -14,18 +20,6 @@ static std::vector<T> ReadBuffer(cl_command_queue queue, cl_mem buffer, size_t n
   CHECK_CL(clEnqueueBarrier, queue);
 #endif
   CHECK_CL(clEnqueueReadBuffer, queue, buffer, true, 0, num_elements * sizeof(T), host_mem.data(), 0, NULL, NULL);
-#ifndef NDEBUG
-  std::cout << "Reading buffer..." << std::endl;
-  int cnt = 0;
-  for (auto e : host_mem) {
-    std::cout << static_cast<uint32_t>(e) << " ";
-    if (++cnt == 10) {
-      cnt = 0;
-      std::cout << std::endl;
-    }
-  }
-  if (10 != cnt) std::cout << std::endl;
-#endif
   return std::move(host_mem);
 }
 
@@ -53,37 +47,59 @@ OpenCLDecoder::OpenCLDecoder(
   , _device(device)
 {
   cl_int errCreateBuffer;
-  _table_frequencies = clCreateBuffer(_ctx, CL_MEM_READ_WRITE, _M * sizeof(cl_ushort), NULL, &errCreateBuffer);
-  CHECK_CL((cl_int), errCreateBuffer);
-
-  _table_cumulative_frequencies = clCreateBuffer(_ctx, CL_MEM_READ_WRITE, _M * sizeof(cl_ushort), NULL, &errCreateBuffer);
-  CHECK_CL((cl_int), errCreateBuffer);
-
-  _table_symbols = clCreateBuffer(_ctx, CL_MEM_READ_WRITE, _M * sizeof(cl_uchar), NULL, &errCreateBuffer);
+  _table = clCreateBuffer(_ctx, CL_MEM_READ_WRITE, _M * sizeof(AnsTableEntry), NULL, &errCreateBuffer);
   CHECK_CL((cl_int), errCreateBuffer);
 
   RebuildTable(F);
 }
 
 OpenCLDecoder::~OpenCLDecoder() {
-  CHECK_CL(clReleaseMemObject, _table_frequencies);
-  CHECK_CL(clReleaseMemObject, _table_cumulative_frequencies);
-  CHECK_CL(clReleaseMemObject, _table_symbols);
+  CHECK_CL(clReleaseMemObject, _table);
 }
 
 std::vector<cl_uchar> OpenCLDecoder::GetSymbols() const {
   const gpu::LoadedCLKernel *build_table_kernel = GetTableBuildingKernel(_ctx, _device);
-  return std::move(ReadBuffer<cl_uchar>(build_table_kernel->_command_queue, _table_symbols, _M));
+  std::vector<AnsTableEntry> table =
+    std::move(ReadBuffer<AnsTableEntry>(build_table_kernel->_command_queue, _table, _M));
+
+  std::vector<cl_uchar> result;
+  result.reserve(table.size());
+
+  for (auto entry : table) {
+    result.push_back(entry.symbol);
+  }
+
+  return std::move(result);
 }
 
 std::vector<cl_ushort> OpenCLDecoder::GetFrequencies() const {
   const gpu::LoadedCLKernel *build_table_kernel = GetTableBuildingKernel(_ctx, _device);
-  return std::move(ReadBuffer<cl_ushort>(build_table_kernel->_command_queue, _table_frequencies, _M));
+  std::vector<AnsTableEntry> table =
+    std::move(ReadBuffer<AnsTableEntry>(build_table_kernel->_command_queue, _table, _M));
+
+  std::vector<cl_ushort> result;
+  result.reserve(table.size());
+
+  for (auto entry : table) {
+    result.push_back(entry.freq);
+  }
+
+  return std::move(result);
 }
 
 std::vector<cl_ushort> OpenCLDecoder::GetCumulativeFrequencies() const {
   const gpu::LoadedCLKernel *build_table_kernel = GetTableBuildingKernel(_ctx, _device);
-  return std::move(ReadBuffer<cl_ushort>(build_table_kernel->_command_queue, _table_cumulative_frequencies, _M));
+  std::vector<AnsTableEntry> table =
+    std::move(ReadBuffer<AnsTableEntry>(build_table_kernel->_command_queue, _table, _M));
+
+  std::vector<cl_ushort> result;
+  result.reserve(table.size());
+
+  for (auto entry : table) {
+    result.push_back(entry.cum_freq);
+  }
+
+  return std::move(result);
 }
 
 void OpenCLDecoder::RebuildTable(const std::vector<uint32_t> &F) const {
@@ -124,9 +140,7 @@ void OpenCLDecoder::RebuildTable(const std::vector<uint32_t> &F) const {
   CHECK_CL(clSetKernelArg, build_table_kernel->_kernel, 0, sizeof(freqs_buffer), &freqs_buffer);
   CHECK_CL(clSetKernelArg, build_table_kernel->_kernel, 1, sizeof(cum_freqs_buffer), &cum_freqs_buffer);
   CHECK_CL(clSetKernelArg, build_table_kernel->_kernel, 2, sizeof(cl_uint), &num_freqs);
-  CHECK_CL(clSetKernelArg, build_table_kernel->_kernel, 3, sizeof(_table_frequencies), &_table_frequencies);
-  CHECK_CL(clSetKernelArg, build_table_kernel->_kernel, 4, sizeof(_table_cumulative_frequencies), &_table_cumulative_frequencies);
-  CHECK_CL(clSetKernelArg, build_table_kernel->_kernel, 5, sizeof(_table_symbols), &_table_symbols);
+  CHECK_CL(clSetKernelArg, build_table_kernel->_kernel, 3, sizeof(_table), &_table);
 
   CHECK_CL(clEnqueueNDRangeKernel, build_table_kernel->_command_queue,
     build_table_kernel->_kernel, 1, NULL, &_M, NULL, 0, NULL, NULL);
