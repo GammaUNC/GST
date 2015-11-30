@@ -6,6 +6,7 @@
 #include "ans_encode.h"
 #include "ans_ocl.h"
 #include "bits.h"
+#include "histogram.h"
 
 using ans::OpenCLDecoder;
 
@@ -34,16 +35,25 @@ private:
 } *gTestEnv;
 
 TEST(ANS_OpenCL, Initialization) {
-  std::vector<uint32_t> F = { 3, 2, 1, 4, 3 };
-  const uint32_t M = std::accumulate(F.begin(), F.end(), 0);
+  std::vector<int> F = { 3, 2, 1, 4, 3 };
   OpenCLDecoder decoder(gTestEnv->GetContext(), gTestEnv->GetDevice(), F, 1);
 
-  std::vector<cl_uchar> expected_symbols = { 0, 0, 0, 1, 1, 2, 3, 3, 3, 3, 4, 4, 4 };
-  std::vector<cl_ushort> expected_frequencies = { 3, 3, 3, 2, 2, 1, 4, 4, 4, 4, 3, 3, 3 };
-  std::vector<cl_ushort> expected_cumulative_frequencies = { 0, 0, 0, 3, 3, 5, 6, 6, 6, 6, 10, 10, 10 };
-  ASSERT_EQ(expected_symbols.size(), M);
-  ASSERT_EQ(expected_frequencies.size(), M);
-  ASSERT_EQ(expected_cumulative_frequencies.size(), M);
+  std::vector<int> normalized_F = ans::GenerateHistogram(F, ans::kANSTableSize);
+
+  std::vector<cl_uchar> expected_symbols(ans::kANSTableSize, 0);
+  std::vector<cl_ushort> expected_frequencies(ans::kANSTableSize, 0);
+  std::vector<cl_ushort> expected_cumulative_frequencies(ans::kANSTableSize, 0);
+
+  int sum = 0;
+  for (size_t i = 0; i < normalized_F.size(); ++i) {
+    for (size_t j = 0; j < normalized_F[i]; ++j) {
+      expected_symbols[sum + j] = static_cast<cl_uchar>(i);
+      expected_frequencies[sum + j] = normalized_F[i];
+      expected_cumulative_frequencies[sum + j] = sum;
+    }
+    sum += normalized_F[i];
+  }
+  ASSERT_EQ(sum, ans::kANSTableSize);
 
   std::vector<cl_uchar> symbols = std::move(decoder.GetSymbols());
   std::vector<cl_ushort> frequencies = std::move(decoder.GetFrequencies());
@@ -67,32 +77,31 @@ TEST(ANS_OpenCL, Initialization) {
 }
 
 TEST(ANS_OpenCL, TableRebuilding) {
-  std::vector<uint32_t> F = { 3, 2, 1, 4, 3, 406 };
-  std::vector<uint32_t> new_F = { 80, 300, 2, 14, 1, 1, 1, 20 };
-  const uint32_t M = std::accumulate(F.begin(), F.end(), 0);
-  ASSERT_EQ(std::accumulate(new_F.begin(), new_F.end(), 0), M);
+  std::vector<int> F = { 3, 2, 1, 4, 3, 406 };
+  std::vector<int> new_F = { 80, 300, 2, 14, 1, 1, 1, 20 };
+  std::vector<int> normalized_F = ans::GenerateHistogram(new_F, ans::kANSTableSize);
 
   OpenCLDecoder decoder(gTestEnv->GetContext(), gTestEnv->GetDevice(), F, 1);
   decoder.RebuildTable(new_F);
 
-  std::vector<cl_uchar> expected_symbols(M, 0);
-  std::vector<cl_ushort> expected_frequencies(M, 0);
-  std::vector<cl_ushort> expected_cumulative_frequencies(M, 0);
+  std::vector<cl_uchar> expected_symbols(ans::kANSTableSize, 0);
+  std::vector<cl_ushort> expected_frequencies(ans::kANSTableSize, 0);
+  std::vector<cl_ushort> expected_cumulative_frequencies(ans::kANSTableSize, 0);
 
   int sum = 0;
-  for (size_t i = 0; i < new_F.size(); ++i) {
-    for (size_t j = 0; j < new_F[i]; ++j) {
+  for (size_t i = 0; i < normalized_F.size(); ++i) {
+    for (size_t j = 0; j < normalized_F[i]; ++j) {
       expected_symbols[sum + j] = static_cast<cl_uchar>(i);
-      expected_frequencies[sum + j] = new_F[i];
+      expected_frequencies[sum + j] = normalized_F[i];
       expected_cumulative_frequencies[sum + j] = sum;
     }
-    sum += new_F[i];
+    sum += normalized_F[i];
   }
-  ASSERT_EQ(sum, M);
+  ASSERT_EQ(sum, ans::kANSTableSize);
 
-  ASSERT_EQ(expected_symbols.size(), M);
-  ASSERT_EQ(expected_frequencies.size(), M);
-  ASSERT_EQ(expected_cumulative_frequencies.size(), M);
+  ASSERT_EQ(expected_symbols.size(), ans::kANSTableSize);
+  ASSERT_EQ(expected_frequencies.size(), ans::kANSTableSize);
+  ASSERT_EQ(expected_cumulative_frequencies.size(), ans::kANSTableSize);
 
   std::vector<cl_uchar> symbols = std::move(decoder.GetSymbols());
   std::vector<cl_ushort> frequencies = std::move(decoder.GetFrequencies());

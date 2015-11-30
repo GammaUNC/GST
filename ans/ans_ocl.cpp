@@ -4,6 +4,7 @@
 #include <iostream>
 
 #include "ans_config.h"
+#include "histogram.h"
 
 struct AnsTableEntry {
   cl_ushort freq;
@@ -25,6 +26,18 @@ static std::vector<T> ReadBuffer(cl_command_queue queue, cl_mem buffer, size_t n
 
 namespace ans {
 
+static std::vector<uint32_t> NormalizeFrequencies(const std::vector<int> &F) {
+  std::vector<int> freqs = std::move(ans::GenerateHistogram(F, kANSTableSize));
+  assert(freqs.size() == F.size());
+
+  std::vector<uint32_t> result;
+  result.reserve(freqs.size());
+  for (const auto freq : freqs) {
+    result.push_back(static_cast<uint32_t>(freq));
+  }
+  return std::move(result);
+}
+
 // !FIXME! We should really put in some sort of logic to unload these kernels...
 gpu::LoadedCLKernel _ourTableBuildingKernel;
 gpu::LoadedCLKernel *gTableBuildingKernel = NULL;
@@ -39,10 +52,16 @@ const gpu::LoadedCLKernel *OpenCLDecoder::GetTableBuildingKernel(cl_context ctx,
   return gTableBuildingKernel;
 }
 
+OpenCLEncoder::OpenCLEncoder(const std::vector<int> &F)
+  : OpenCLEncoderBase(std::move(NormalizeFrequencies(F))) { }
+
+OpenCLCPUDecoder::OpenCLCPUDecoder(uint32_t state, const std::vector<int> &F)
+  : OpenCLDecoderBase(state, std::move(NormalizeFrequencies(F))) { }
+
 OpenCLDecoder::OpenCLDecoder(
-  cl_context ctx, cl_device_id device, const std::vector<uint32_t> &F, const int num_interleaved)
+  cl_context ctx, cl_device_id device, const std::vector<int> &F, const int num_interleaved)
   : _num_interleaved(num_interleaved)
-  , _M(std::accumulate(F.begin(), F.end(), 0))
+  , _M(kANSTableSize)
   , _ctx(ctx)
   , _device(device)
 {
@@ -102,8 +121,9 @@ std::vector<cl_ushort> OpenCLDecoder::GetCumulativeFrequencies() const {
   return std::move(result);
 }
 
-void OpenCLDecoder::RebuildTable(const std::vector<uint32_t> &F) const {
-  assert(_M == std::accumulate(F.begin(), F.end(), 0));
+void OpenCLDecoder::RebuildTable(const std::vector<int> &F) const {
+  std::vector<uint32_t> freqs = std::move(NormalizeFrequencies(F));
+  assert(_M == std::accumulate(freqs.begin(), freqs.end(), 0));
 #ifdef CL_VERSION_1_2
   const cl_mem_flags flags = CL_MEM_READ_ONLY | CL_MEM_COPY_HOST_PTR | CL_MEM_HOST_NO_ACCESS;
 #else
@@ -119,19 +139,19 @@ void OpenCLDecoder::RebuildTable(const std::vector<uint32_t> &F) const {
   assert(work_group_size >= 32);
 #endif
 
-  cl_uint num_freqs = static_cast<cl_uint>(F.size());
+  cl_uint num_freqs = static_cast<cl_uint>(freqs.size());
 
   // Note: we could do this on the GPU as well, but the array size here is almost never more than
   // about 256, so the CPU is actually much better at doing it. We can also stick it in constant
   // memory, which makes the upload not that bad...
   std::vector<uint32_t> cum_freqs(num_freqs, 0);
-  std::partial_sum(F.begin(), F.end() - 1, cum_freqs.begin() + 1);
+  std::partial_sum(freqs.begin(), freqs.end() - 1, cum_freqs.begin() + 1);
 
-  uint32_t *freqs_ptr = const_cast<uint32_t *>(F.data());
+  uint32_t *freqs_ptr = const_cast<uint32_t *>(freqs.data());
   uint32_t *cum_freqs_ptr = cum_freqs.data();
 
   cl_int errCreateBuffer;
-  cl_mem freqs_buffer = clCreateBuffer(_ctx, flags, F.size() * sizeof(freqs_ptr[0]), freqs_ptr, &errCreateBuffer);
+  cl_mem freqs_buffer = clCreateBuffer(_ctx, flags, freqs.size() * sizeof(freqs_ptr[0]), freqs_ptr, &errCreateBuffer);
   CHECK_CL((cl_int), errCreateBuffer);
 
   cl_mem cum_freqs_buffer = clCreateBuffer(_ctx, flags, cum_freqs.size() * sizeof(cum_freqs_ptr[0]), cum_freqs_ptr, &errCreateBuffer);
