@@ -35,49 +35,36 @@ TEST(Histogram, HandlesAlreadyNormalized) {
       counts[i] = j;
     }
 
-    std::vector<int> hist;
-    ans::GenerateHistogram(&hist, counts, 10*j);
+    std::vector<int> hist = ans::GenerateHistogram(counts, 10*j);
     EXPECT_TRUE(VectorsAreEqual(hist, counts));
   }
 }
 
 TEST(Histogram, HandlesEmptyFreqs) {
   std::vector<int> counts(10, 0);
-  std::vector<int> hist;
 #ifndef NDEBUG
-  ASSERT_DEATH(ans::GenerateHistogram(&hist, counts, 10), "No symbols have any frequency!");
+  ASSERT_DEATH(ans::GenerateHistogram(counts, 10), "No symbols have any frequency!");
 #else
-  ans::GenerateHistogram(&hist, counts, 10);
+  std::vector<int> hist = ans::GenerateHistogram(counts, 10);
   EXPECT_TRUE(VectorsAreEqual(hist, std::vector<int>()));
-#endif
-}
-
-TEST(Histogram, HandlesNULL) {
-  std::vector<int> counts(10, 0);
-#ifndef NDEBUG
-  ASSERT_DEATH(ans::GenerateHistogram(NULL, counts, 10), "NULL passed for output!");
-#else
-  ASSERT_NO_FATAL_FAILURE(ans::GenerateHistogram(NULL, counts, 10));
 #endif
 }
 
 TEST(Histogram, HandlesImproperTargetSum) {
   std::vector<int> counts(10, 0); 
- std::vector<int> hist;
 #ifndef NDEBUG
-  EXPECT_DEATH(ans::GenerateHistogram(&hist, counts, 0), "Improper target sum for frequencies!");
-  EXPECT_DEATH(ans::GenerateHistogram(&hist, counts, -4), "Improper target sum for frequencies!");
+  EXPECT_DEATH(ans::GenerateHistogram(counts, 0), "Improper target sum for frequencies!");
+  EXPECT_DEATH(ans::GenerateHistogram(counts, -4), "Improper target sum for frequencies!");
 #else
-  ASSERT_NO_FATAL_FAILURE(ans::GenerateHistogram(&hist, counts, 0));
-  ASSERT_NO_FATAL_FAILURE(ans::GenerateHistogram(&hist, counts, -4));
+  ASSERT_NO_FATAL_FAILURE(ans::GenerateHistogram(counts, 0));
+  ASSERT_NO_FATAL_FAILURE(ans::GenerateHistogram(counts, -4));
 #endif
 }
 
 TEST(Histogram, ProperlyDistributesPOTFreqs) {
   const int counts_vec[3] = { 1, 1, 2 };
   std::vector<int> counts(counts_vec, counts_vec + (sizeof(counts_vec)/sizeof(counts_vec[0])));
-  std::vector<int> hist;
-  ans::GenerateHistogram(&hist, counts, 256);
+  std::vector<int> hist = ans::GenerateHistogram(counts, 256);
 
   const int expected_vec[3] = { 64, 64, 128 };
   std::vector<int> expected(expected_vec, expected_vec + (sizeof(expected_vec)/sizeof(expected_vec[0])));
@@ -87,8 +74,7 @@ TEST(Histogram, ProperlyDistributesPOTFreqs) {
 TEST(Histogram, ProperlyDistributesFreqs) {
   const int counts_vec[10] = { 1, 2, 3, 4, 5, 6, 7, 8, 9, 10 };
   std::vector<int> counts(counts_vec, counts_vec + (sizeof(counts_vec)/sizeof(counts_vec[0])));
-  std::vector<int> hist;
-  ans::GenerateHistogram(&hist, counts, 256);
+  std::vector<int> hist = ans::GenerateHistogram(counts, 256);
 
   const int expected_vec[10] = { 5, 9, 14, 19, 23, 28, 33, 37, 42, 46 };
   std::vector<int> expected(expected_vec, expected_vec + (sizeof(expected_vec)/sizeof(expected_vec[0])));
@@ -98,8 +84,7 @@ TEST(Histogram, ProperlyDistributesFreqs) {
 TEST(Histogram, ProperlyDistributesFreqsNPOT) {
   const int counts_vec[10] = { 1, 2, 3, 4, 5, 6, 7, 8, 9, 10 };
   std::vector<int> counts(counts_vec, counts_vec + (sizeof(counts_vec)/sizeof(counts_vec[0])));
-  std::vector<int> hist;
-  ans::GenerateHistogram(&hist, counts, 11);
+  std::vector<int> hist = ans::GenerateHistogram(counts, 11);
 
   const int expected_vec[10] = { 1, 1, 1, 1, 1, 1, 1, 1, 1, 2 };
   std::vector<int> expected(expected_vec, expected_vec + (sizeof(expected_vec)/sizeof(expected_vec[0])));
