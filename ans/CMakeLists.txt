@@ -13,6 +13,7 @@ CONFIGURE_FILE(
 
 SET( KERNELS
   "${GenTC_SOURCE_DIR}/ans/build_table.cl"
+  "${GenTC_SOURCE_DIR}/ans/ans_decode.cl"
 )
 
 SET( HEADERS
