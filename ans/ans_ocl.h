@@ -70,8 +70,6 @@ namespace ans {
     const int _num_interleaved;
     const size_t _M;
 
-    static const gpu::LoadedCLKernel *GetTableBuildingKernel(cl_context ctx, cl_device_id device);
-
     cl_context _ctx;
     cl_device_id _device;
 

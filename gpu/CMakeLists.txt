@@ -15,10 +15,12 @@ ENDIF()
 
 SET( HEADERS
   "gpu.h"
+  "kernel_cache.h"
 )  
 
 SET( SOURCES
   "gpu.cpp"
+  "kernel_cache.cpp"
 )
 
 ADD_LIBRARY(gentc_gpu ${HEADERS} ${SOURCES})

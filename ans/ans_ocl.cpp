@@ -4,6 +4,7 @@
 #include <iostream>
 
 #include "ans_config.h"
+#include "kernel_cache.h"
 #include "histogram.h"
 
 struct AnsTableEntry {
@@ -39,20 +40,6 @@ static std::vector<uint32_t> NormalizeFrequencies(const std::vector<int> &F) {
   return std::move(result);
 }
 
-// !FIXME! We should really put in some sort of logic to unload these kernels...
-gpu::LoadedCLKernel _ourTableBuildingKernel;
-gpu::LoadedCLKernel *gTableBuildingKernel = NULL;
-const gpu::LoadedCLKernel *OpenCLDecoder::GetTableBuildingKernel(cl_context ctx, cl_device_id device) {
-  if (NULL != gTableBuildingKernel) {
-    return gTableBuildingKernel;
-  }
-
-  _ourTableBuildingKernel = gpu::InitializeOpenCLKernel(
-    kANSOpenCLKernels[eANSOpenCLKernel_BuildTable], "build_table", ctx, device);
-  gTableBuildingKernel = &_ourTableBuildingKernel;
-  return gTableBuildingKernel;
-}
-
 OpenCLEncoder::OpenCLEncoder(const std::vector<int> &F)
   : OpenCLEncoderBase(std::move(NormalizeFrequencies(F))) { }
 
@@ -78,7 +65,10 @@ OpenCLDecoder::~OpenCLDecoder() {
 }
 
 std::vector<cl_uchar> OpenCLDecoder::GetSymbols() const {
-  const gpu::LoadedCLKernel *build_table_kernel = GetTableBuildingKernel(_ctx, _device);
+  gpu::GPUKernelCache *cache = gpu::GPUKernelCache::Instance(_ctx, _device);
+  const gpu::LoadedCLKernel *build_table_kernel = cache->GetKernel(
+    kANSOpenCLKernels[eANSOpenCLKernel_BuildTable], "build_table");
+
   std::vector<AnsTableEntry> table =
     std::move(ReadBuffer<AnsTableEntry>(build_table_kernel->_command_queue, _table, _M));
 
@@ -93,7 +83,10 @@ std::vector<cl_uchar> OpenCLDecoder::GetSymbols() const {
 }
 
 std::vector<cl_ushort> OpenCLDecoder::GetFrequencies() const {
-  const gpu::LoadedCLKernel *build_table_kernel = GetTableBuildingKernel(_ctx, _device);
+  gpu::GPUKernelCache *cache = gpu::GPUKernelCache::Instance(_ctx, _device);
+  const gpu::LoadedCLKernel *build_table_kernel = cache->GetKernel(
+    kANSOpenCLKernels[eANSOpenCLKernel_BuildTable], "build_table");
+
   std::vector<AnsTableEntry> table =
     std::move(ReadBuffer<AnsTableEntry>(build_table_kernel->_command_queue, _table, _M));
 
@@ -108,7 +101,10 @@ std::vector<cl_ushort> OpenCLDecoder::GetFrequencies() const {
 }
 
 std::vector<cl_ushort> OpenCLDecoder::GetCumulativeFrequencies() const {
-  const gpu::LoadedCLKernel *build_table_kernel = GetTableBuildingKernel(_ctx, _device);
+  gpu::GPUKernelCache *cache = gpu::GPUKernelCache::Instance(_ctx, _device);
+  const gpu::LoadedCLKernel *build_table_kernel = cache->GetKernel(
+    kANSOpenCLKernels[eANSOpenCLKernel_BuildTable], "build_table");
+
   std::vector<AnsTableEntry> table =
     std::move(ReadBuffer<AnsTableEntry>(build_table_kernel->_command_queue, _table, _M));
 
@@ -131,7 +127,9 @@ void OpenCLDecoder::RebuildTable(const std::vector<int> &F) const {
   const cl_mem_flags flags = CL_MEM_READ_ONLY | CL_MEM_COPY_HOST_PTR;
 #endif
 
-  const gpu::LoadedCLKernel *build_table_kernel = GetTableBuildingKernel(_ctx, _device);
+  gpu::GPUKernelCache *cache = gpu::GPUKernelCache::Instance(_ctx, _device);
+  const gpu::LoadedCLKernel *build_table_kernel = cache->GetKernel(
+    kANSOpenCLKernels[eANSOpenCLKernel_BuildTable], "build_table");
 
 #ifndef NDEBUG
   size_t work_group_size;

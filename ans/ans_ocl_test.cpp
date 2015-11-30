@@ -7,6 +7,7 @@
 #include "ans_ocl.h"
 #include "bits.h"
 #include "histogram.h"
+#include "kernel_cache.h"
 
 using ans::OpenCLDecoder;
 
@@ -21,6 +22,7 @@ public:
   }
 
   virtual void TearDown() {
+    gpu::GPUKernelCache::Clear();
     gpu::ShutdownOpenCL(_ctx);
     is_setup = false;
   }
