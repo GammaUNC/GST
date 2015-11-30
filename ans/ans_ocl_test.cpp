@@ -124,14 +124,14 @@ TEST(ANS_OpenCL, TableRebuilding) {
   }
 }
 
-TEST(ANS_OpenCL, DecodeSingleNPOTStream) {
-  std::vector<uint32_t> F = { 12, 14, 17, 1, 1, 2, 372 };
+TEST(ANS_OpenCL, DecodeSingleStream) {
+  std::vector<int> F = { 12, 14, 17, 1, 1, 2, 372 };
 
   const size_t num_symbols = 256;
-  std::vector<int> symbols;
+  std::vector<uint8_t> symbols;
   symbols.reserve(num_symbols);
 
-  ans::Encoder<1 << 16, 1 << 16> encoder(F);
+  ans::OpenCLEncoder encoder(F);
   std::vector<uint8_t> stream(10);
 
   size_t bytes_written = 0;
@@ -160,18 +160,41 @@ TEST(ANS_OpenCL, DecodeSingleNPOTStream) {
     }
   }
   stream.resize(bytes_written);
+  ASSERT_EQ(bytes_written % 2, 0);
   ASSERT_EQ(symbols.size(), num_symbols);
 
+  // First, make sure we can CPU decode it.
+  std::vector<uint16_t> short_stream;
+  short_stream.reserve(bytes_written / 2);
+  for (int i = 0; i < bytes_written; i += 2) {
+    uint16_t x = (static_cast<uint16_t>(stream[i + 1]) << 8) | stream[i];
+    short_stream.push_back(x);
+  }
+  std::reverse(short_stream.begin(), short_stream.end());
+
+  std::vector<uint8_t> cpu_decoded_symbols;
+  cpu_decoded_symbols.reserve(num_symbols);
+
+  ans::BitReader r(reinterpret_cast<const uint8_t *>(short_stream.data()));
+  ans::OpenCLCPUDecoder cpu_decoder(encoder.GetState(), F);
+  for (int i = 0; i < num_symbols; ++i) {
+    cpu_decoded_symbols.push_back(static_cast<uint8_t>(cpu_decoder.Decode(r)));
+  }
+  std::reverse(cpu_decoded_symbols.begin(), cpu_decoded_symbols.end()); // Decode in reverse
+  ASSERT_EQ(cpu_decoded_symbols.size(), num_symbols);
+  for (size_t i = 0; i < num_symbols; ++i) {
+    EXPECT_EQ(cpu_decoded_symbols[i], symbols[i]) << "Symbols differ at index " << i;
+  }
+
+  // Now make sure we can GPU decode it
   ans::OpenCLDecoder decoder(gTestEnv->GetContext(), gTestEnv->GetDevice(), F, 1);
-  std::vector<std::vector<uint32_t> > decoded_symbols;
+  std::vector<uint8_t> decoded_symbols;
   std::vector<uint32_t> encoded_states(1, encoder.GetState());
 
-  decoder.Decode(&decoded_symbols, encoded_states, stream);
-
-  ASSERT_EQ(decoded_symbols.size(), 1);
-  ASSERT_EQ(decoded_symbols[0].size(), num_symbols);
+  ASSERT_TRUE(decoder.Decode(&decoded_symbols, encoder.GetState(), stream));
+  ASSERT_EQ(decoded_symbols.size(), num_symbols);
   for (size_t i = 0; i < num_symbols; ++i) {
-    EXPECT_EQ(decoded_symbols[0][i], symbols[i]) << "Symbols differ at index " << i;
+    EXPECT_EQ(decoded_symbols[i], symbols[i]) << "Symbols differ at index " << i;
   }
 }
 

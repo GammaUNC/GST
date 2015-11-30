@@ -43,9 +43,19 @@ namespace ans {
     ~OpenCLDecoder();
 
     bool Decode(
-      std::vector<std::vector<uint32_t> > *out,
+      std::vector<uint8_t> *out,
+      const uint32_t state,
+      const std::vector<uint8_t> &data);
+
+    bool Decode(
+      std::vector<std::vector<uint8_t> > *out,
       const std::vector<uint32_t> &states,
       const std::vector<uint8_t> &data);
+
+    bool Decode(
+      std::vector<std::vector<uint8_t> > *out,
+      const std::vector<uint32_t> &states,
+      const std::vector<std::vector<uint8_t> > &data);
 
     void RebuildTable(const std::vector<int> &F) const;
 

@@ -12,6 +12,7 @@ struct AnsTableEntry {
   cl_uchar  symbol;
 };
 
+
 template<typename T>
 static std::vector<T> ReadBuffer(cl_command_queue queue, cl_mem buffer, size_t num_elements) {
   std::vector<T> host_mem(num_elements);
@@ -167,6 +168,28 @@ void OpenCLDecoder::RebuildTable(const std::vector<int> &F) const {
 
   CHECK_CL(clReleaseMemObject, freqs_buffer);
   CHECK_CL(clReleaseMemObject, cum_freqs_buffer);
+}
+
+bool OpenCLDecoder::Decode(
+  std::vector<uint8_t> *out,
+  const uint32_t state,
+  const std::vector<uint8_t> &data) {
+
+  return false;
+}
+
+bool OpenCLDecoder::Decode(
+  std::vector<std::vector<uint8_t> > *out,
+  const std::vector<uint32_t> &states,
+  const std::vector<uint8_t> &data) {
+  return false;
+}
+
+bool OpenCLDecoder::Decode(
+  std::vector<std::vector<uint8_t> > *out,
+  const std::vector<uint32_t> &states,
+  const std::vector<std::vector<uint8_t> > &data) {
+  return false;
 }
 
 }  // namespace ans
