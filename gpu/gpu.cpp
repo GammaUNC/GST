@@ -243,16 +243,18 @@ cl_context InitializeOpenCL(bool share_opengl) {
 
   // Create OpenCL context...
   cl_context ctx;
-  if (share_opengl) {
-    std::vector<cl_context_properties> props = GetSharedCLGLProps();
-    CreateCLContext(&ctx, props.data(), devices[0]);
-  } else {
-    cl_context_properties props[] = {
-      CL_CONTEXT_PLATFORM, (cl_context_properties) platform, 0
-    };
+  std::vector<cl_context_properties> props = {
+    CL_CONTEXT_PLATFORM, (cl_context_properties)platform
+  };
 
-    CreateCLContext(&ctx, props, devices[0]);
+  if (share_opengl) {
+    std::vector<cl_context_properties> clgl_props = std::move(GetSharedCLGLProps());
+    props.insert(props.end(), clgl_props.begin(), clgl_props.end());
+  } else {
+    props.push_back(0);
   }
+
+  CreateCLContext(&ctx, props.data(), devices[0]);
 
   return ctx;
 }
