@@ -103,7 +103,7 @@ static const clCreateImage2DFunc gCreateImage2DFunc = clCreateImage2D12;
 static const clCreateImage2DFunc gCreateImage2DFunc = clCreateImage2D;
 #endif
 
-static void RunKernel(const cl_context ctx, const gpu::LoadedCLKernel &kernel,
+static void RunKernel(const std::unique_ptr<gpu::GPUContext> &ctx, cl_kernel kernel,
                       unsigned char *data, GLuint pbo, int x, int y, int channels) {
   unsigned char *src_data = data;
   if (3 == channels) {
@@ -128,29 +128,29 @@ static void RunKernel(const cl_context ctx, const gpu::LoadedCLKernel &kernel,
 
   // Upload the data to the GPU...
   cl_int errCreateImage;
-  cl_mem input = gCreateImage2DFunc(ctx, CL_MEM_USE_HOST_PTR | CL_MEM_READ_ONLY, &fmt,
+  cl_mem input = gCreateImage2DFunc(ctx->GetOpenCLContext(), CL_MEM_USE_HOST_PTR | CL_MEM_READ_ONLY, &fmt,
                                     x, y, 4*x, src_data, &errCreateImage);
   CHECK_CL((cl_int), errCreateImage);
 
   // Finished all OpenGL calls, now we can start making OpenCL calls...
   cl_int errCreateFromGL;
-  cl_mem dxt_mem = clCreateFromGLBuffer(ctx, CL_MEM_WRITE_ONLY, pbo, &errCreateFromGL);
+  cl_mem dxt_mem = clCreateFromGLBuffer(ctx->GetOpenCLContext(), CL_MEM_WRITE_ONLY, pbo, &errCreateFromGL);
   CHECK_CL((cl_int), errCreateFromGL);
 
   // Acquire lock on GL objects...
-  CHECK_CL(clEnqueueAcquireGLObjects, kernel._command_queue, 1, &dxt_mem, 0, NULL, NULL);
+  cl_command_queue queue = ctx->GetCommandQueue();
+  CHECK_CL(clEnqueueAcquireGLObjects, queue, 1, &dxt_mem, 0, NULL, NULL);
 
   // Set the arguments
-  CHECK_CL(clSetKernelArg, kernel._kernel, 0, sizeof(input), &input);
-  CHECK_CL(clSetKernelArg, kernel._kernel, 1, sizeof(dxt_mem), &dxt_mem);
+  CHECK_CL(clSetKernelArg, kernel, 0, sizeof(input), &input);
+  CHECK_CL(clSetKernelArg, kernel, 1, sizeof(dxt_mem), &dxt_mem);
 
   size_t global_work_size[2] = { nBlocksX, nBlocksY };
-  CHECK_CL(clEnqueueNDRangeKernel, kernel._command_queue, kernel._kernel, 2, NULL,
-           global_work_size, 0, 0, NULL, NULL);
+  CHECK_CL(clEnqueueNDRangeKernel, queue, kernel, 2, NULL, global_work_size, 0, 0, NULL, NULL);
 
   // Release the GL objects
-  CHECK_CL(clEnqueueReleaseGLObjects, kernel._command_queue, 1, &dxt_mem, 0, NULL, NULL);
-  CHECK_CL(clFinish, kernel._command_queue);
+  CHECK_CL(clEnqueueReleaseGLObjects, queue, 1, &dxt_mem, 0, NULL, NULL);
+  CHECK_CL(clFinish, queue);
 
   // Release the buffers
   CHECK_CL(clReleaseMemObject, input);
@@ -250,7 +250,7 @@ void LoadTexture(GLuint texID, const std::string &filePath) {
   stbi_image_free(data);
 }
 
-void LoadTexture2(cl_context ctx, const gpu::LoadedCLKernel &kernel, GLuint pbo,
+void LoadTexture2(const std::unique_ptr<gpu::GPUContext> &ctx, cl_kernel kernel, GLuint pbo,
                   GLuint texID, const std::string &filePath) {
 
   // Load the image data...
@@ -349,9 +349,8 @@ int main(int argc, char* argv[])
     }
 #endif
 
-    cl_context ctx = gpu::InitializeOpenCL(true);
-    cl_device_id device = gpu::GetDeviceForSharedContext(ctx);
-    gpu::LoadedCLKernel kernel = gpu::InitializeOpenCLKernel(OPENCL_KERNEL_PATH, "compressDXT", ctx, device);
+    std::unique_ptr<gpu::GPUContext> ctx = gpu::GPUContext::InitializeOpenCL(true);
+    cl_kernel kernel = ctx->GetOpenCLKernel(OPENCL_KERNEL_PATH, "compressDXT");
 
     glfwSetKeyCallback(window, key_callback);
 
@@ -477,12 +476,11 @@ int main(int argc, char* argv[])
     }
     std::cout << std::endl;
 
-    gpu::DestroyOpenCLKernel(kernel);
-
     glDeleteTextures(1, &texID);
     glDeleteBuffers(1, &pbo);
 
-    gpu::ShutdownOpenCL(ctx);
+    // Delete OpenCL crap before we destroy everything else...
+    ctx = nullptr;
 
     glfwDestroyWindow(window);
 

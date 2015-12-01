@@ -14,8 +14,8 @@ public:
   static GPUKernelCache *Instance(cl_context ctx, cl_device_id device);
   static void Clear();
 
-  const LoadedCLKernel *GetKernel(const std::string &filename,
-                                  const std::string &kernel);
+  cl_kernel GetKernel(const std::string &filename,
+                      const std::string &kernel);
 private:
   // disallow copying...
   GPUKernelCache(cl_context ctx, cl_device_id device)
@@ -26,7 +26,7 @@ private:
   cl_context _ctx;
   cl_device_id _device;
 
-  std::unordered_map<std::string, LoadedCLKernel> _kernels;
+  std::unordered_map<std::string, cl_kernel> _kernels;
 };
 
 }

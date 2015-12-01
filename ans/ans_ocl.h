@@ -38,7 +38,7 @@ namespace ans {
   class OpenCLDecoder {
   public:
     OpenCLDecoder(
-      cl_context ctx, cl_device_id device,
+      const std::unique_ptr<gpu::GPUContext> &ctx,
       const std::vector<int> &F,
       const int num_interleaved);
     ~OpenCLDecoder();
@@ -68,8 +68,7 @@ namespace ans {
     const int _num_interleaved;
     const size_t _M;
 
-    cl_context _ctx;
-    cl_device_id _device;
+    const std::unique_ptr<gpu::GPUContext> &_gpu_ctx;
 
     cl_mem _table;
 

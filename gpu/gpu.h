@@ -10,8 +10,9 @@
 #  include <CL/cl_ext.h>
 #endif
 
-#include <vector>
 #include <cassert>
+#include <memory>
+#include <vector>
 
 #ifndef NDEBUG
 static const char *clErrMsg(cl_int err) {
@@ -82,20 +83,27 @@ static const char *clErrMsg(cl_int err) {
 #endif
 
 namespace gpu {
-  struct LoadedCLKernel {
+
+  class GPUContext {
+  public:
+    ~GPUContext();
+    static std::unique_ptr<GPUContext> InitializeOpenCL(bool share_opengl);
+
+    cl_command_queue GetCommandQueue() const { return _command_queue; }
+    cl_device_id GetDeviceID() const { return _device;  }
+    cl_context GetOpenCLContext() const { return _ctx; }
+
+    cl_kernel GetOpenCLKernel(const std::string &filename, const std::string &kernel) const;
+  private:
+    GPUContext() { }
+    GPUContext(const GPUContext &);
+    GPUContext &operator=(const GPUContext &);
+
     cl_command_queue _command_queue;
-    cl_kernel _kernel;
+    cl_device_id _device;
+    cl_context _ctx;
   };
 
-  cl_context InitializeOpenCL(bool share_opengl);
-
-  cl_device_id GetDeviceForSharedContext(cl_context ctx);
-  std::vector<cl_device_id> GetAllDevicesForContext(cl_context ctx);
-
-  LoadedCLKernel InitializeOpenCLKernel(const char *source_filename, const char *kernel_name,
-                                        cl_context ctx, cl_device_id device);
-  void DestroyOpenCLKernel(const LoadedCLKernel &);
-  void ShutdownOpenCL(cl_context ctx);
 }  // namespace gpu
 
 #endif //  __GENTC_GPU_H__

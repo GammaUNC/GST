@@ -46,14 +46,13 @@ OpenCLCPUDecoder::OpenCLCPUDecoder(cl_uint state, const std::vector<int> &F)
   : OpenCLDecoderBase(state, std::move(NormalizeFrequencies(F))) { }
 
 OpenCLDecoder::OpenCLDecoder(
-  cl_context ctx, cl_device_id device, const std::vector<int> &F, const int num_interleaved)
+  const std::unique_ptr<gpu::GPUContext> &ctx, const std::vector<int> &F, const int num_interleaved)
   : _num_interleaved(num_interleaved)
   , _M(kANSTableSize)
-  , _ctx(ctx)
-  , _device(device)
+  , _gpu_ctx(ctx)
 {
   cl_int errCreateBuffer;
-  _table = clCreateBuffer(_ctx, CL_MEM_READ_WRITE, _M * sizeof(AnsTableEntry), NULL, &errCreateBuffer);
+  _table = clCreateBuffer(_gpu_ctx->GetOpenCLContext(), CL_MEM_READ_WRITE, _M * sizeof(AnsTableEntry), NULL, &errCreateBuffer);
   CHECK_CL((cl_int), errCreateBuffer);
 
   RebuildTable(F);
@@ -64,12 +63,8 @@ OpenCLDecoder::~OpenCLDecoder() {
 }
 
 std::vector<cl_uchar> OpenCLDecoder::GetSymbols() const {
-  gpu::GPUKernelCache *cache = gpu::GPUKernelCache::Instance(_ctx, _device);
-  const gpu::LoadedCLKernel *build_table_kernel = cache->GetKernel(
-    kANSOpenCLKernels[eANSOpenCLKernel_BuildTable], "build_table");
-
   std::vector<AnsTableEntry> table =
-    std::move(ReadBuffer<AnsTableEntry>(build_table_kernel->_command_queue, _table, _M));
+    std::move(ReadBuffer<AnsTableEntry>(_gpu_ctx->GetCommandQueue(), _table, _M));
 
   std::vector<cl_uchar> result;
   result.reserve(table.size());
@@ -82,12 +77,8 @@ std::vector<cl_uchar> OpenCLDecoder::GetSymbols() const {
 }
 
 std::vector<cl_ushort> OpenCLDecoder::GetFrequencies() const {
-  gpu::GPUKernelCache *cache = gpu::GPUKernelCache::Instance(_ctx, _device);
-  const gpu::LoadedCLKernel *build_table_kernel = cache->GetKernel(
-    kANSOpenCLKernels[eANSOpenCLKernel_BuildTable], "build_table");
-
   std::vector<AnsTableEntry> table =
-    std::move(ReadBuffer<AnsTableEntry>(build_table_kernel->_command_queue, _table, _M));
+    std::move(ReadBuffer<AnsTableEntry>(_gpu_ctx->GetCommandQueue(), _table, _M));
 
   std::vector<cl_ushort> result;
   result.reserve(table.size());
@@ -100,12 +91,8 @@ std::vector<cl_ushort> OpenCLDecoder::GetFrequencies() const {
 }
 
 std::vector<cl_ushort> OpenCLDecoder::GetCumulativeFrequencies() const {
-  gpu::GPUKernelCache *cache = gpu::GPUKernelCache::Instance(_ctx, _device);
-  const gpu::LoadedCLKernel *build_table_kernel = cache->GetKernel(
-    kANSOpenCLKernels[eANSOpenCLKernel_BuildTable], "build_table");
-
   std::vector<AnsTableEntry> table =
-    std::move(ReadBuffer<AnsTableEntry>(build_table_kernel->_command_queue, _table, _M));
+    std::move(ReadBuffer<AnsTableEntry>(_gpu_ctx->GetCommandQueue(), _table, _M));
 
   std::vector<cl_ushort> result;
   result.reserve(table.size());
@@ -121,13 +108,12 @@ void OpenCLDecoder::RebuildTable(const std::vector<int> &F) const {
   std::vector<cl_uint> freqs = std::move(NormalizeFrequencies(F));
   assert(_M == std::accumulate(freqs.begin(), freqs.end(), 0));
 
-  gpu::GPUKernelCache *cache = gpu::GPUKernelCache::Instance(_ctx, _device);
-  const gpu::LoadedCLKernel *build_table_kernel = cache->GetKernel(
+  cl_kernel build_table_kernel = _gpu_ctx->GetOpenCLKernel(
     kANSOpenCLKernels[eANSOpenCLKernel_BuildTable], "build_table");
 
 #ifndef NDEBUG
   size_t work_group_size;
-  CHECK_CL(clGetKernelWorkGroupInfo, build_table_kernel->_kernel, _device, CL_KERNEL_WORK_GROUP_SIZE,
+  CHECK_CL(clGetKernelWorkGroupInfo, build_table_kernel, _gpu_ctx->GetDeviceID(), CL_KERNEL_WORK_GROUP_SIZE,
     sizeof(size_t), &work_group_size, NULL);
   assert(work_group_size >= 32);
 #endif
@@ -145,20 +131,19 @@ void OpenCLDecoder::RebuildTable(const std::vector<int> &F) const {
   cl_uint *cum_freqs_ptr = cum_freqs.data();
 
   cl_int errCreateBuffer;
-  cl_mem freqs_buffer = clCreateBuffer(_ctx, flags, freqs.size() * sizeof(freqs_ptr[0]), freqs_ptr, &errCreateBuffer);
+  cl_mem freqs_buffer = clCreateBuffer(_gpu_ctx->GetOpenCLContext(), flags, freqs.size() * sizeof(freqs_ptr[0]), freqs_ptr, &errCreateBuffer);
   CHECK_CL((cl_int), errCreateBuffer);
 
   const size_t cum_freqs_buf_size = cum_freqs.size() * sizeof(cum_freqs_ptr[0]);
-  cl_mem cum_freqs_buffer = clCreateBuffer(_ctx, flags, cum_freqs_buf_size, cum_freqs_ptr, &errCreateBuffer);
+  cl_mem cum_freqs_buffer = clCreateBuffer(_gpu_ctx->GetOpenCLContext(), flags, cum_freqs_buf_size, cum_freqs_ptr, &errCreateBuffer);
   CHECK_CL((cl_int), errCreateBuffer);
 
-  CHECK_CL(clSetKernelArg, build_table_kernel->_kernel, 0, sizeof(freqs_buffer), &freqs_buffer);
-  CHECK_CL(clSetKernelArg, build_table_kernel->_kernel, 1, sizeof(cum_freqs_buffer), &cum_freqs_buffer);
-  CHECK_CL(clSetKernelArg, build_table_kernel->_kernel, 2, sizeof(cl_uint), &num_freqs);
-  CHECK_CL(clSetKernelArg, build_table_kernel->_kernel, 3, sizeof(_table), &_table);
+  CHECK_CL(clSetKernelArg, build_table_kernel, 0, sizeof(freqs_buffer), &freqs_buffer);
+  CHECK_CL(clSetKernelArg, build_table_kernel, 1, sizeof(cum_freqs_buffer), &cum_freqs_buffer);
+  CHECK_CL(clSetKernelArg, build_table_kernel, 2, sizeof(cl_uint), &num_freqs);
+  CHECK_CL(clSetKernelArg, build_table_kernel, 3, sizeof(_table), &_table);
 
-  CHECK_CL(clEnqueueNDRangeKernel, build_table_kernel->_command_queue,
-    build_table_kernel->_kernel, 1, NULL, &_M, NULL, 0, NULL, NULL);
+  CHECK_CL(clEnqueueNDRangeKernel, _gpu_ctx->GetCommandQueue(), build_table_kernel, 1, NULL, &_M, NULL, 0, NULL, NULL);
 
   CHECK_CL(clReleaseMemObject, freqs_buffer);
   CHECK_CL(clReleaseMemObject, cum_freqs_buffer);
@@ -169,29 +154,29 @@ std::vector<cl_uchar> OpenCLDecoder::Decode(
   const std::vector<cl_uchar> &data) const {
 
   cl_int errCreateBuffer;
-  gpu::GPUKernelCache *cache = gpu::GPUKernelCache::Instance(_ctx, _device);
-  const gpu::LoadedCLKernel *decode_kernel = cache->GetKernel(
+  cl_kernel decode_kernel = _gpu_ctx->GetOpenCLKernel(
     kANSOpenCLKernels[eANSOpenCLKernel_ANSDecode], "ans_decode");
+  cl_context ctx = _gpu_ctx->GetOpenCLContext();
 
   // First, just set our table buffers...
-  CHECK_CL(clSetKernelArg, decode_kernel->_kernel, 0, sizeof(_table), &_table);
+  CHECK_CL(clSetKernelArg, decode_kernel, 0, sizeof(_table), &_table);
 
   // Offsets: sizeof the singular data stream
   cl_uint offset = static_cast<cl_uint>(data.size() / 2);
-  cl_mem offset_buffer = clCreateBuffer(_ctx, GetHostReadOnlyFlags(), sizeof(cl_uint), &offset, &errCreateBuffer);
+  cl_mem offset_buffer = clCreateBuffer(ctx, GetHostReadOnlyFlags(), sizeof(cl_uint), &offset, &errCreateBuffer);
   CHECK_CL((cl_int), errCreateBuffer);
-  CHECK_CL(clSetKernelArg, decode_kernel->_kernel, 1, sizeof(offset_buffer), &offset_buffer);
+  CHECK_CL(clSetKernelArg, decode_kernel, 1, sizeof(offset_buffer), &offset_buffer);
 
   // Data: just send the data pointer...
   cl_uchar *data_ptr = const_cast<cl_uchar *>(data.data());
-  cl_mem data_buffer = clCreateBuffer(_ctx, GetHostReadOnlyFlags(), data.size() * sizeof(data_ptr[0]), data_ptr, &errCreateBuffer);
+  cl_mem data_buffer = clCreateBuffer(ctx, GetHostReadOnlyFlags(), data.size() * sizeof(data_ptr[0]), data_ptr, &errCreateBuffer);
   CHECK_CL((cl_int), errCreateBuffer);
-  CHECK_CL(clSetKernelArg, decode_kernel->_kernel, 2, sizeof(data_buffer), &data_buffer);
+  CHECK_CL(clSetKernelArg, decode_kernel, 2, sizeof(data_buffer), &data_buffer);
 
   // State: single state...
-  cl_mem state_buffer = clCreateBuffer(_ctx, GetHostReadOnlyFlags(), sizeof(cl_uint), &state, &errCreateBuffer);
+  cl_mem state_buffer = clCreateBuffer(ctx, GetHostReadOnlyFlags(), sizeof(cl_uint), &state, &errCreateBuffer);
   CHECK_CL((cl_int), errCreateBuffer);
-  CHECK_CL(clSetKernelArg, decode_kernel->_kernel, 3, sizeof(state_buffer), &state_buffer);
+  CHECK_CL(clSetKernelArg, decode_kernel, 3, sizeof(state_buffer), &state_buffer);
 
 #ifdef CL_VERSION_1_2
   cl_mem_flags out_flags = CL_MEM_WRITE_ONLY | CL_MEM_HOST_READ_ONLY;
@@ -200,17 +185,16 @@ std::vector<cl_uchar> OpenCLDecoder::Decode(
 #endif
 
   // Allocate 256 slots for result
-  cl_mem out_buffer = clCreateBuffer(_ctx, out_flags, kNumEncodedSymbols, NULL, &errCreateBuffer);
+  cl_mem out_buffer = clCreateBuffer(ctx, out_flags, kNumEncodedSymbols, NULL, &errCreateBuffer);
   CHECK_CL((cl_int), errCreateBuffer);
-  CHECK_CL(clSetKernelArg, decode_kernel->_kernel, 4, sizeof(out_buffer), &out_buffer);
+  CHECK_CL(clSetKernelArg, decode_kernel, 4, sizeof(out_buffer), &out_buffer);
 
   // Run the kernel...
   const size_t num_streams = 1;
-  CHECK_CL(clEnqueueNDRangeKernel, decode_kernel->_command_queue,
-    decode_kernel->_kernel, 1, NULL, &num_streams, NULL, 0, NULL, NULL);
+  CHECK_CL(clEnqueueNDRangeKernel, _gpu_ctx->GetCommandQueue(), decode_kernel, 1, NULL, &num_streams, NULL, 0, NULL, NULL);
 
   std::vector<cl_uchar> out = std::move(
-    ReadBuffer<cl_uchar>(decode_kernel->_command_queue, out_buffer, kNumEncodedSymbols));
+    ReadBuffer<cl_uchar>(_gpu_ctx->GetCommandQueue(), out_buffer, kNumEncodedSymbols));
 
   // Release buffer objects...
   CHECK_CL(clReleaseMemObject, offset_buffer);

@@ -16,29 +16,25 @@ public:
   OpenCLEnvironment() : ::testing::Environment() { is_setup = false;  }
   virtual ~OpenCLEnvironment() { }
   virtual void SetUp() {
-    _ctx = gpu::InitializeOpenCL(false);
-    _device = gpu::GetAllDevicesForContext(_ctx).front();
+    _ctx = std::move(gpu::GPUContext::InitializeOpenCL(false));
     is_setup = true;
   }
 
   virtual void TearDown() {
-    gpu::GPUKernelCache::Clear();
-    gpu::ShutdownOpenCL(_ctx);
+    _ctx = nullptr;
     is_setup = false;
   }
 
-  cl_context GetContext() const { assert(is_setup);  return _ctx; }
-  cl_device_id GetDevice() const { assert(is_setup);  return _device; }
+  const std::unique_ptr<gpu::GPUContext> &GetContext() const { assert(is_setup);  return _ctx; }
 
 private:
   bool is_setup;
-  cl_context _ctx;
-  cl_device_id _device;
+  std::unique_ptr<gpu::GPUContext> _ctx;
 } *gTestEnv;
 
 TEST(ANS_OpenCL, Initialization) {
   std::vector<int> F = { 3, 2, 1, 4, 3 };
-  OpenCLDecoder decoder(gTestEnv->GetContext(), gTestEnv->GetDevice(), F, 1);
+  OpenCLDecoder decoder(gTestEnv->GetContext(), F, 1);
 
   std::vector<int> normalized_F = ans::GenerateHistogram(F, ans::kANSTableSize);
 
@@ -83,7 +79,7 @@ TEST(ANS_OpenCL, TableRebuilding) {
   std::vector<int> new_F = { 80, 300, 2, 14, 1, 1, 1, 20 };
   std::vector<int> normalized_F = ans::GenerateHistogram(new_F, ans::kANSTableSize);
 
-  OpenCLDecoder decoder(gTestEnv->GetContext(), gTestEnv->GetDevice(), F, 1);
+  OpenCLDecoder decoder(gTestEnv->GetContext(), F, 1);
   decoder.RebuildTable(new_F);
 
   std::vector<cl_uchar> expected_symbols(ans::kANSTableSize, 0);
@@ -189,7 +185,7 @@ TEST(ANS_OpenCL, DecodeSingleStream) {
   }
 
   // Now make sure we can GPU decode it
-  ans::OpenCLDecoder decoder(gTestEnv->GetContext(), gTestEnv->GetDevice(), F, 1);
+  ans::OpenCLDecoder decoder(gTestEnv->GetContext(), F, 1);
   std::vector<cl_uchar> decoded_symbols = std::move(decoder.Decode(encoder.GetState(), stream));
   ASSERT_EQ(decoded_symbols.size(), num_symbols);
   for (size_t i = 0; i < num_symbols; ++i) {
