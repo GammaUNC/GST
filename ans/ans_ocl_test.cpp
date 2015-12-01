@@ -193,6 +193,16 @@ TEST(ANS_OpenCL, DecodeSingleStream) {
   }
 }
 
+TEST(ANS_OpenCL, DecodeInterleavedStreams) {
+  // !FIXME! Write me...
+  FAIL();
+}
+
+TEST(ANS_OpenCL, DecodeMultipleInterleavedStreams) {
+  // !FIXME! Write me...
+  FAIL();
+}
+
 int main(int argc, char** argv) {
   ::testing::InitGoogleTest(&argc, argv);
   gTestEnv = dynamic_cast<OpenCLEnvironment *>(

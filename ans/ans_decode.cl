@@ -45,8 +45,7 @@ __kernel void ans_decode(const __constant AnsTableEntry *table,
 		if (normalization_bit != 0) {
 		  uint up_to_me_mask = normalization_bit - 1;
 		  uint num_to_skip = popcount(normalization_mask & up_to_me_mask);
-		  state <<= 16;
-		  state |= data[next_to_read - num_to_skip - 1];
+		  state = (state << 16) | data[next_to_read - num_to_skip - 1];
 		}
 
 		// Advance the read pointer by the number of shorts read
