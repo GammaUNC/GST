@@ -1,5 +1,4 @@
 #pragma OPENCL EXTENSION cl_khr_byte_addressable_store : enable
-// #pragma OPENCL EXTENSION cl_amd_printf : enable
 
 #define ANS_TABLE_SIZE_LOG  11
 #define ANS_TABLE_SIZE      (1 << ANS_TABLE_SIZE_LOG)
@@ -31,7 +30,6 @@ __kernel void ans_decode(const __constant AnsTableEntry *table,
 	for (int i = 0; i < NUM_ENCODED_SYMBOLS; ++i) {
 		const uint symbol = state & (ANS_TABLE_SIZE - 1);
 		const __constant AnsTableEntry *entry = table + symbol;
-		// printf((__constant char *)"state: %u\t\tsymbol: %u\t\tfreq: %u\t\tcum_freq: %u\t\tdecoded: %u\n", state, symbol, entry->freq, entry->cum_freq, entry->symbol);
 		state = (state >> ANS_TABLE_SIZE_LOG) * entry->freq - entry->cum_freq + symbol;
 
 		// Renormalize?
@@ -55,7 +53,7 @@ __kernel void ans_decode(const __constant AnsTableEntry *table,
 		next_to_read -= popcount(normalization_mask);
 
 		// Write the result
-		const int offset = (num_interleaved * get_group_id(0) + get_local_id(0)) * NUM_ENCODED_SYMBOLS + i;
+		const int offset = (num_interleaved * get_group_id(0) + get_local_id(0)) * NUM_ENCODED_SYMBOLS + (255 - i);
 		out_stream[offset] = entry->symbol;
 	}
 }

@@ -147,6 +147,15 @@ void OpenCLDecoder::RebuildTable(const std::vector<int> &F) const {
 
   CHECK_CL(clReleaseMemObject, freqs_buffer);
   CHECK_CL(clReleaseMemObject, cum_freqs_buffer);
+
+  // !SPEED! Enqueue barrier with no wait list... Actually we can do better
+  // here, since we know that the kernel invocation will need to finish, we
+  // can pass an event to the barrier when the CL version is greater than 1.2...
+#ifdef CL_VERSION_1_2
+  CHECK_CL(clEnqueueBarrierWithWaitList, _gpu_ctx->GetCommandQueue(), 0, NULL, NULL);
+#else
+  CHECK_CL(clEnqueueBarrier, queue);
+#endif
 }
 
 std::vector<cl_uchar> OpenCLDecoder::Decode(
