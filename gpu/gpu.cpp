@@ -46,6 +46,22 @@ static const clUnloadCompilerFunc gUnloadCompilerFunc = clUnloadPlatformCompiler
 static const clUnloadCompilerFunc gUnloadCompilerFunc = clUnloadCompiler11;
 #endif
 
+static cl_platform_id GetPlatformForContext(cl_context ctx) {
+  size_t num_props;
+  cl_context_properties props[128];
+  CHECK_CL(clGetContextInfo, ctx, CL_CONTEXT_PROPERTIES, sizeof(props), &props, &num_props);
+  num_props /= sizeof(cl_context_properties);
+
+  for (int i = 0; i < num_props; i += 2) {
+    if (props[i] == CL_CONTEXT_PLATFORM) {
+      return (cl_platform_id)(props[i + 1]);
+    }
+  }
+
+  assert(!"Context has no platform??");
+  return (cl_platform_id)(-1);
+}
+
 namespace gpu {
 
 void ContextErrorCallback(const char *errinfo, const void *, size_t, void *) {
@@ -357,8 +373,7 @@ LoadedCLKernel InitializeOpenCLKernel(const char *source_filename, const char *k
     std::cerr << "CL Kernel compiled successfully!" << std::endl;
   }
 #endif
-  // !FIXME!
-  // CHECK_CL(gUnloadCompilerFunc, platform);
+  CHECK_CL(gUnloadCompilerFunc, GetPlatformForContext(ctx));
 
   LoadedCLKernel kernel;
 
