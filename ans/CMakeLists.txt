@@ -5,6 +5,7 @@ include_directories("${GenTC_SOURCE_DIR}/gpu")
 INCLUDE_DIRECTORIES( ${OPENCL_INCLUDE_DIRS} )
 
 SET( BUILD_TABLE_KERNEL_PATH ${GenTC_SOURCE_DIR}/ans/build_table.cl )
+SET( ANS_DECODE_KERNEL_PATH ${GenTC_SOURCE_DIR}/ans/ans_decode.cl )
 
 CONFIGURE_FILE(
   "ans_config.h.in"

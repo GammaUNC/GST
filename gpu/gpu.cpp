@@ -360,6 +360,7 @@ LoadedCLKernel InitializeOpenCLKernel(const char *source_filename, const char *k
 
   LoadedCLKernel kernel;
 
+  // !FIXME! Need to share the command queue across devices...
   cl_int errCreateCommandQueue;
 #ifndef CL_VERSION_2_0
   kernel._command_queue = clCreateCommandQueue(ctx, device, 0, &errCreateCommandQueue);

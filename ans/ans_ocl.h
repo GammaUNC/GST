@@ -23,6 +23,7 @@ namespace ans {
   typedef Encoder< (1 << 16), (1 << 4) > OpenCLEncoderBase;
   typedef Decoder< (1 << 16), (1 << 4) > OpenCLDecoderBase;
   static const int kANSTableSize = (1 << 11);
+  static const int kNumEncodedSymbols = 256;
 
   class OpenCLEncoder : public OpenCLEncoderBase {
   public:
@@ -42,20 +43,17 @@ namespace ans {
       const int num_interleaved);
     ~OpenCLDecoder();
 
-    bool Decode(
-      std::vector<uint8_t> *out,
-      const uint32_t state,
-      const std::vector<uint8_t> &data);
+    std::vector<cl_uchar> Decode(
+      cl_uint state,
+      const std::vector<cl_uchar> &data) const;
 
-    bool Decode(
-      std::vector<std::vector<uint8_t> > *out,
-      const std::vector<uint32_t> &states,
-      const std::vector<uint8_t> &data);
+    std::vector<std::vector<cl_uchar>> Decode(
+      const std::vector<cl_uint> &states,
+      const std::vector<cl_uchar> &data) const;
 
-    bool Decode(
-      std::vector<std::vector<uint8_t> > *out,
-      const std::vector<uint32_t> &states,
-      const std::vector<std::vector<uint8_t> > &data);
+    std::vector<std::vector<cl_uchar>> Decode(
+      const std::vector<cl_uint> &states,
+      const std::vector<std::vector<cl_uchar> > &data) const;
 
     void RebuildTable(const std::vector<int> &F) const;
 
@@ -74,6 +72,14 @@ namespace ans {
     cl_device_id _device;
 
     cl_mem _table;
+
+    cl_mem_flags GetHostReadOnlyFlags() const {
+      #ifdef CL_VERSION_1_2
+            return CL_MEM_READ_ONLY | CL_MEM_COPY_HOST_PTR | CL_MEM_HOST_NO_ACCESS;
+      #else
+            return CL_MEM_READ_ONLY | CL_MEM_COPY_HOST_PTR;
+      #endif
+    }
   };
 
 }  // namespace ans

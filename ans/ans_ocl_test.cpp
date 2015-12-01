@@ -134,7 +134,7 @@ TEST(ANS_OpenCL, DecodeSingleStream) {
   symbols.reserve(num_symbols);
 
   ans::OpenCLEncoder encoder(F);
-  std::vector<uint8_t> stream(10);
+  std::vector<cl_uchar> stream(10);
 
   size_t bytes_written = 0;
   srand(0);
@@ -190,10 +190,7 @@ TEST(ANS_OpenCL, DecodeSingleStream) {
 
   // Now make sure we can GPU decode it
   ans::OpenCLDecoder decoder(gTestEnv->GetContext(), gTestEnv->GetDevice(), F, 1);
-  std::vector<uint8_t> decoded_symbols;
-  std::vector<uint32_t> encoded_states(1, encoder.GetState());
-
-  ASSERT_TRUE(decoder.Decode(&decoded_symbols, encoder.GetState(), stream));
+  std::vector<cl_uchar> decoded_symbols = std::move(decoder.Decode(encoder.GetState(), stream));
   ASSERT_EQ(decoded_symbols.size(), num_symbols);
   for (size_t i = 0; i < num_symbols; ++i) {
     EXPECT_EQ(decoded_symbols[i], symbols[i]) << "Symbols differ at index " << i;

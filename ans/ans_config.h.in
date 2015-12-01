@@ -2,17 +2,20 @@
 #define __GENTC_ANS_CONFIG_H__
 
 #cmakedefine BUILD_TABLE_KERNEL_PATH "${BUILD_TABLE_KERNEL_PATH}"
+#cmakedefine ANS_DECODE_KERNEL_PATH "${ANS_DECODE_KERNEL_PATH}"
 
 namespace ans {
 
 enum EANSOpenCLKernel {
   eANSOpenCLKernel_BuildTable,
+  eANSOpenCLKernel_ANSDecode,
 
   kNumANSOpenCLKernels
 };
 
 static const char *kANSOpenCLKernels[kNumANSOpenCLKernels] = {
 	BUILD_TABLE_KERNEL_PATH,
+	ANS_DECODE_KERNEL_PATH,
 };
 
 }  // namespace ans
