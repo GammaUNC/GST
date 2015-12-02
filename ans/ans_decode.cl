@@ -42,14 +42,15 @@ __kernel void ans_decode(const __constant AnsTableEntry *table,
 		barrier(CLK_LOCAL_MEM_FENCE);
 
 		// If we need to renormalize, then do so...
+		const uint total_to_read = popcount(normalization_mask);
 		if (normalization_bit != 0) {
 		  uint up_to_me_mask = normalization_bit - 1;
-		  uint num_to_skip = popcount(normalization_mask & up_to_me_mask);
+		  uint num_to_skip = total_to_read - popcount(normalization_mask & up_to_me_mask) - 1;
 		  state = (state << 16) | data[next_to_read - num_to_skip - 1];
 		}
 
 		// Advance the read pointer by the number of shorts read
-		next_to_read -= popcount(normalization_mask);
+		next_to_read -= total_to_read;
 
 		// Write the result
 		const int offset = (num_interleaved * get_group_id(0) + get_local_id(0)) * NUM_ENCODED_SYMBOLS + (255 - i);

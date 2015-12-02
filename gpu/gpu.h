@@ -94,6 +94,17 @@ namespace gpu {
     cl_context GetOpenCLContext() const { return _ctx; }
 
     cl_kernel GetOpenCLKernel(const std::string &filename, const std::string &kernel) const;
+
+    template<typename T>
+    T GetDeviceInfo(cl_device_info param) const {
+      cl_uchar ret_buffer[256];
+      size_t bytes_read;
+      CHECK_CL(clGetDeviceInfo, GetDeviceID(), param, sizeof(ret_buffer),
+                                ret_buffer, &bytes_read);
+      assert(bytes_read < sizeof(ret_buffer));
+      assert(bytes_read == sizeof(T));
+      return reinterpret_cast<const T *>(ret_buffer)[0];
+    }
   private:
     GPUContext() { }
     GPUContext(const GPUContext &);

@@ -217,7 +217,113 @@ std::vector<cl_uchar> OpenCLDecoder::Decode(
 std::vector<std::vector<cl_uchar> > OpenCLDecoder::Decode(
   const std::vector<cl_uint> &states,
   const std::vector<cl_uchar> &data) const {
-  return std::vector<std::vector<cl_uchar> >();
+
+  cl_int errCreateBuffer;
+  cl_kernel decode_kernel = _gpu_ctx->GetOpenCLKernel(
+    kANSOpenCLKernels[eANSOpenCLKernel_ANSDecode], "ans_decode");
+  cl_context ctx = _gpu_ctx->GetOpenCLContext();
+
+  // First, just set our table buffers...
+  CHECK_CL(clSetKernelArg, decode_kernel, 0, sizeof(_table), &_table);
+
+  // Offsets: sizeof the singular data stream -- we're only launching a
+  // single work group
+  cl_uint offset = static_cast<cl_uint>(data.size() / 2);
+  cl_mem offset_buf =
+    clCreateBuffer(ctx, GetHostReadOnlyFlags(), sizeof(cl_uint), &offset,
+                   &errCreateBuffer);
+  CHECK_CL((cl_int), errCreateBuffer);
+  CHECK_CL(clSetKernelArg, decode_kernel, 1, sizeof(offset_buf), &offset_buf);
+
+  // Data: just send the data pointer...
+  cl_uchar *data_ptr = const_cast<cl_uchar *>(data.data());
+  cl_mem data_buf =
+    clCreateBuffer(ctx, GetHostReadOnlyFlags(),
+                   data.size() * sizeof(data_ptr[0]), data_ptr,
+                   &errCreateBuffer);
+  CHECK_CL((cl_int), errCreateBuffer);
+  CHECK_CL(clSetKernelArg, decode_kernel, 2, sizeof(data_buf), &data_buf);
+
+  // States -- we have multiple here, so deal with it properly...
+  cl_uint *states_ptr = const_cast<cl_uint *>(states.data());
+  cl_mem state_buf =
+    clCreateBuffer(ctx, GetHostReadOnlyFlags(),
+                   states.size() * sizeof(states_ptr[0]), states_ptr,
+                   &errCreateBuffer);
+  CHECK_CL((cl_int), errCreateBuffer);
+  CHECK_CL(clSetKernelArg, decode_kernel, 3, sizeof(state_buf), &state_buf);
+
+#ifdef CL_VERSION_1_2
+  cl_mem_flags out_flags = CL_MEM_WRITE_ONLY | CL_MEM_HOST_READ_ONLY;
+#else
+  cl_mem_flags out_flags = CL_MEM_WRITE_ONLY;
+#endif
+
+  // Allocate 256 * num interleaved slots for result
+  size_t total_encoded = states.size() * kNumEncodedSymbols;
+  cl_mem out_buf = clCreateBuffer(ctx, out_flags, total_encoded, NULL,
+                                  &errCreateBuffer);
+  CHECK_CL((cl_int), errCreateBuffer);
+  CHECK_CL(clSetKernelArg, decode_kernel, 4, sizeof(out_buf), &out_buf);
+
+  // Run the kernel...
+  const size_t num_streams = _num_interleaved;
+  assert(num_streams == states.size());
+  const size_t streams_per_work_group = num_streams;
+
+#ifndef NDEBUG
+  // Make sure that we can launch enough kernels and that we have sufficient
+  // space on the device.
+  assert(streams_per_work_group <
+    _gpu_ctx->GetDeviceInfo<size_t>(CL_DEVICE_MAX_WORK_GROUP_SIZE));
+
+  // I don't know of a GPU implementation that uses more than 3 dims..
+  assert(3 ==
+    _gpu_ctx->GetDeviceInfo<cl_uint>(CL_DEVICE_MAX_WORK_ITEM_DIMENSIONS));
+
+  struct WorkGroupSizes {
+    size_t sizes[3];
+  };
+  WorkGroupSizes wgsz =
+    _gpu_ctx->GetDeviceInfo<WorkGroupSizes>(CL_DEVICE_MAX_WORK_ITEM_SIZES);
+  assert(streams_per_work_group < wgsz.sizes[0] );
+
+  size_t total_constant_memory = 0;
+  total_constant_memory += sizeof(cl_uint);
+  total_constant_memory += data.size() * sizeof(data_ptr[0]);
+  total_constant_memory += states.size() * sizeof(states_ptr[0]);
+  total_constant_memory += _M * sizeof(AnsTableEntry);
+
+  assert(total_constant_memory <
+    _gpu_ctx->GetDeviceInfo<cl_ulong>(CL_DEVICE_MAX_CONSTANT_BUFFER_SIZE));
+  assert(4 < _gpu_ctx->GetDeviceInfo<cl_uint>(CL_DEVICE_MAX_CONSTANT_ARGS));
+#endif
+
+  CHECK_CL(clEnqueueNDRangeKernel, _gpu_ctx->GetCommandQueue(), decode_kernel,
+                                   1, NULL, &num_streams,
+                                   &streams_per_work_group, 0, NULL, NULL);
+
+  // Read back the buffer...
+  std::vector<cl_uchar> all_symbols = std::move(
+    ReadBuffer<cl_uchar>(_gpu_ctx->GetCommandQueue(), out_buf, total_encoded));
+
+  std::vector<std::vector<cl_uchar> > out;
+  out.reserve(num_streams);
+  for (int i = 0; i < num_streams; ++i) {
+    std::vector<cl_uchar> stream;
+    size_t stream_start = i * kNumEncodedSymbols;
+    size_t stream_end = stream_start + kNumEncodedSymbols;
+    stream.insert(stream.begin(), all_symbols.begin() + stream_start, all_symbols.begin() + stream_end);
+    out.push_back(std::move(stream));
+  }
+
+  // Release buffer objects...
+  CHECK_CL(clReleaseMemObject, offset_buf);
+  CHECK_CL(clReleaseMemObject, data_buf);
+  CHECK_CL(clReleaseMemObject, state_buf);
+  CHECK_CL(clReleaseMemObject, out_buf);
+
+  return std::move(out);
 }
 
 std::vector<std::vector<cl_uchar> > OpenCLDecoder::Decode(
