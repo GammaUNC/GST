@@ -253,7 +253,7 @@ TEST(ANS_OpenCL, DecodeInterleavedStreams) {
   );
 
   // Now decode it!
-  ans::OpenCLDecoder decoder(gTestEnv->GetContext(), F, 1);
+  ans::OpenCLDecoder decoder(gTestEnv->GetContext(), F, num_interleaved);
   std::vector<std::vector<cl_uchar> > decoded_symbols = std::move(decoder.Decode(states, stream));
   ASSERT_EQ(decoded_symbols.size(), num_interleaved);
   for (int strm_idx = 0; strm_idx < num_interleaved; ++strm_idx) {
@@ -270,8 +270,73 @@ TEST(ANS_OpenCL, DecodeInterleavedStreams) {
 }
 
 TEST(ANS_OpenCL, DecodeMultipleInterleavedStreams) {
-  // !FIXME! Write me...
-  FAIL();
+  std::vector<int> F = { 65, 4, 6, 132, 135, 64, 879, 87, 456, 13, 2, 12, 33, 16, 546, 987, 98, 74, 65, 43, 21, 32, 1 };
+  const int num_interleaved = 1;
+  const int num_independent_data_streams = 2;
+  const int total_num_streams = num_interleaved * num_independent_data_streams;
+
+  std::vector<cl_uchar> symbols[total_num_streams];
+  std::vector<ans::OpenCLEncoder> encoders;
+  encoders.reserve(total_num_streams);
+
+  for (int i = 0; i < total_num_streams; ++i) {
+    symbols[i] = std::move(GenerateSymbols(F, ans::kNumEncodedSymbols));
+    ASSERT_EQ(symbols[i].size(), ans::kNumEncodedSymbols);
+
+    encoders.push_back(std::move(ans::OpenCLEncoder(F)));
+  }
+
+  std::vector<std::vector<cl_uchar> > data_streams =
+    std::vector<std::vector<cl_uchar> >(
+      num_independent_data_streams, std::vector<cl_uchar>(10, 0));
+
+  for (int grp_idx = 0; grp_idx < num_independent_data_streams; ++grp_idx) {
+
+    std::vector<cl_uchar> &stream = data_streams[grp_idx];
+
+    size_t bytes_written = 0;
+    const int enc_idx = grp_idx * num_interleaved;
+    for (int sym_idx = 0; sym_idx < ans::kNumEncodedSymbols; ++sym_idx) {
+      for (int strm_idx = 0; strm_idx < num_interleaved; ++strm_idx) {
+        ans::BitWriter w(stream.data() + bytes_written);
+        encoders[enc_idx + strm_idx].Encode(symbols[enc_idx + strm_idx][sym_idx], w);
+
+        bytes_written += w.BytesWritten();
+        if (bytes_written >(stream.size() / 2)) {
+          stream.resize(stream.size() * 2);
+        }
+      }
+    }
+
+    stream.resize(bytes_written);
+    ASSERT_EQ(bytes_written % 2, 0);
+  }
+
+  // Let's get our states...
+  std::vector<cl_uint> states(total_num_streams, 0);
+  std::transform(encoders.begin(), encoders.end(), states.begin(),
+    [](const ans::OpenCLEncoder &enc) { return enc.GetState(); }
+  );
+
+  // Now decode it!
+  ans::OpenCLDecoder decoder(gTestEnv->GetContext(), F, num_interleaved);
+  std::vector<std::vector<cl_uchar> > decoded_symbols =
+    std::move(decoder.Decode(states, data_streams));
+
+  ASSERT_EQ(decoded_symbols.size(), total_num_streams);
+  for (int strm_idx = 0; strm_idx < total_num_streams; ++strm_idx) {
+    ASSERT_EQ(decoded_symbols[strm_idx].size(), ans::kNumEncodedSymbols)
+      << "Issue with decoded stream at index: ("
+      << (strm_idx / num_interleaved) << ", "
+      << (strm_idx % num_interleaved) << ")";
+
+    for (int sym_idx = 0; sym_idx < ans::kNumEncodedSymbols; ++sym_idx) {
+      EXPECT_EQ(decoded_symbols[strm_idx][sym_idx], symbols[strm_idx][sym_idx])
+        << "Symbols differ at stream and index: ("
+        << (strm_idx / num_interleaved) << ", "
+        << (strm_idx % num_interleaved) << "): " << sym_idx;
+    }
+  }
 }
 
 int main(int argc, char** argv) {

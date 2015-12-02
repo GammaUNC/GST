@@ -21,39 +21,42 @@ __kernel void ans_decode(const __constant AnsTableEntry *table,
 	__local uint normalization_mask;
 	normalization_mask = 0;
 
-	const int num_interleaved = get_local_size(0);
 	uint next_to_read = offsets[get_group_id(0)];
 
 	barrier(CLK_LOCAL_MEM_FENCE | CLK_GLOBAL_MEM_FENCE);
 
-	uint state = states[get_group_id(0) * num_interleaved + get_local_id(0)];
+	uint state = states[get_global_id(0)];
 	for (int i = 0; i < NUM_ENCODED_SYMBOLS; ++i) {
 		const uint symbol = state & (ANS_TABLE_SIZE - 1);
 		const __constant AnsTableEntry *entry = table + symbol;
-		state = (state >> ANS_TABLE_SIZE_LOG) * entry->freq - entry->cum_freq + symbol;
-
-		// Renormalize?
-		normalization_mask = 0;
-		barrier(CLK_LOCAL_MEM_FENCE);
+		state = (state >> ANS_TABLE_SIZE_LOG) * entry->freq
+			- entry->cum_freq + symbol;
 
 		// Set the bit for this invocation...
-		const uint normalization_bit = ((uint)(state < ANS_DECODER_L)) << get_local_id(0);
+		const uint normalization_bit =
+		  ((uint)(state < ANS_DECODER_L)) << get_local_id(0);
 		atomic_or(&normalization_mask, normalization_bit);
+
+		// I'm not totally sure I need this
 		barrier(CLK_LOCAL_MEM_FENCE);
 
 		// If we need to renormalize, then do so...
 		const uint total_to_read = popcount(normalization_mask);
 		if (normalization_bit != 0) {
 		  uint up_to_me_mask = normalization_bit - 1;
-		  uint num_to_skip = total_to_read - popcount(normalization_mask & up_to_me_mask) - 1;
+		  uint num_to_skip =
+			total_to_read - popcount(normalization_mask & up_to_me_mask) - 1;
 		  state = (state << 16) | data[next_to_read - num_to_skip - 1];
 		}
+
+		// Clear the bit in the normalization mask...
+		atomic_and(&normalization_mask, ~normalization_bit);
 
 		// Advance the read pointer by the number of shorts read
 		next_to_read -= total_to_read;
 
 		// Write the result
-		const int offset = (num_interleaved * get_group_id(0) + get_local_id(0)) * NUM_ENCODED_SYMBOLS + (255 - i);
+		const int offset = get_global_id(0) * NUM_ENCODED_SYMBOLS + (255 - i);
 		out_stream[offset] = entry->symbol;
 	}
 }
