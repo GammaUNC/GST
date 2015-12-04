@@ -216,43 +216,8 @@ GLuint LoadShaders() {
   return prog;
 }
 
-void LoadTexture(GLuint texID, const std::string &filePath) {
-  // "Bind" the newly created texture : all future texture functions will modify this texture
-  glBindTexture(GL_TEXTURE_2D, texID);
-  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_BASE_LEVEL, 0);
-  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAX_LEVEL, 0);
-
-  int x = 0, y = 0, channels = 0;
-  unsigned char *data = stbi_load(filePath.c_str(), &x, &y, &channels, 0);
-  if (!data) {
-    fprintf(stderr, "Error loading image: %s\n", filePath.c_str());
-    exit(1);
-  }
-
-  switch (channels) {
-  case 3:
-    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB8, x, y, 0, GL_RGB, GL_UNSIGNED_BYTE, data);
-    break;
-  case 4:
-    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, x, y, 0, GL_RGBA, GL_UNSIGNED_BYTE, data);
-    break;
-  default:
-    fprintf(stderr, "Unable to load image with %d channels!\n", channels);
-    exit(1);
-    break;
-  }
-
-  // Nice trilinear filtering.
-  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
-  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
-  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
-
-  stbi_image_free(data);
-}
-
-void LoadTexture2(const std::unique_ptr<gpu::GPUContext> &ctx, cl_kernel kernel, GLuint pbo,
-                  GLuint texID, const std::string &filePath) {
+void LoadTexture(const std::unique_ptr<gpu::GPUContext> &ctx, cl_kernel kernel, GLuint pbo,
+                 GLuint texID, const std::string &filePath) {
 
   // Load the image data...
   int x = 0, y = 0, channels = 0;
@@ -273,16 +238,8 @@ void LoadTexture2(const std::unique_ptr<gpu::GPUContext> &ctx, cl_kernel kernel,
   glBindBuffer(GL_PIXEL_UNPACK_BUFFER_ARB, pbo);
 
   glBindTexture(GL_TEXTURE_2D, texID);
-
-  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_BASE_LEVEL, 0);
-  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAX_LEVEL, 0);
-  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
-  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
-  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
-
-  glCompressedTexImage2D(GL_TEXTURE_2D, 0, GL_COMPRESSED_RGB_S3TC_DXT1_EXT,
-                         x, y, 0, x * y / 2, 0);
+  glCompressedTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, x, y,
+    GL_COMPRESSED_RGB_S3TC_DXT1_EXT, x * y / 2, 0);
 
   GLint query;
   glGetTexLevelParameteriv(GL_TEXTURE_2D, 0, GL_TEXTURE_COMPRESSED, &query);
@@ -368,6 +325,18 @@ int main(int argc, char* argv[])
 
     GLuint texID, pbo;
     glGenTextures(1, &texID);
+
+    // Initialize the texture...
+    glBindTexture(GL_TEXTURE_2D, texID);
+    glTexStorage2D(GL_TEXTURE_2D, 1, GL_COMPRESSED_RGB_S3TC_DXT1_EXT, 960, 540);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_BASE_LEVEL, 0);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAX_LEVEL, 0);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
+    glBindTexture(GL_TEXTURE_2D, 0);
+
     glGenBuffers(1, &pbo);
 
     glBindBuffer(GL_PIXEL_UNPACK_BUFFER_ARB, pbo);
@@ -436,8 +405,7 @@ int main(int argc, char* argv[])
         stream << (((gFrameNumber + 1) / i) % 10);
       }
       stream << ".jpg";
-      // LoadTexture(texID, stream.str());
-      LoadTexture2(ctx, kernel, pbo, texID, stream.str());
+      LoadTexture(ctx, kernel, pbo, texID, stream.str());
 
       glActiveTexture(GL_TEXTURE0);
       glBindTexture(GL_TEXTURE_2D, texID);
