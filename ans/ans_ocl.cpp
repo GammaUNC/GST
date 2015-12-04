@@ -106,7 +106,7 @@ std::vector<cl_ushort> OpenCLDecoder::GetCumulativeFrequencies() const {
 
 void OpenCLDecoder::RebuildTable(const std::vector<int> &F) const {
   std::vector<cl_uint> freqs = std::move(NormalizeFrequencies(F));
-  assert(_M == std::accumulate(freqs.begin(), freqs.end(), 0));
+  assert(_M == std::accumulate(freqs.begin(), freqs.end(), 0U));
 
   cl_kernel build_table_kernel = _gpu_ctx->GetOpenCLKernel(
     kANSOpenCLKernels[eANSOpenCLKernel_BuildTable], "build_table");
@@ -268,7 +268,7 @@ std::vector<std::vector<cl_uchar> > OpenCLDecoder::Decode(
 
   // Run the kernel...
   const size_t num_streams = states.size();
-  assert(num_streams <= _num_interleaved);
+  assert(num_streams <= static_cast<size_t>(_num_interleaved));
   const size_t streams_per_work_group = num_streams;
 
 #ifndef NDEBUG
@@ -309,7 +309,7 @@ std::vector<std::vector<cl_uchar> > OpenCLDecoder::Decode(
 
   std::vector<std::vector<cl_uchar> > out;
   out.reserve(num_streams);
-  for (int i = 0; i < num_streams; ++i) {
+  for (size_t i = 0; i < num_streams; ++i) {
     std::vector<cl_uchar> stream;
     size_t stream_start = i * kNumEncodedSymbols;
     size_t stream_end = stream_start + kNumEncodedSymbols;
@@ -428,7 +428,7 @@ std::vector<std::vector<cl_uchar> > OpenCLDecoder::Decode(
 
   std::vector<std::vector<cl_uchar> > out;
   out.reserve(total_streams);
-  for (int i = 0; i < total_streams; ++i) {
+  for (size_t i = 0; i < total_streams; ++i) {
     std::vector<cl_uchar> stream;
     size_t stream_start = i * kNumEncodedSymbols;
     size_t stream_end = stream_start + kNumEncodedSymbols;

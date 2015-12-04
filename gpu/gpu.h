@@ -8,6 +8,7 @@
 #  include <CL/cl_gl.h>
 #else
 #  include <CL/cl_ext.h>
+#  include <CL/cl_gl.h>
 #endif
 
 #include <cassert>
@@ -94,6 +95,7 @@ namespace gpu {
     cl_context GetOpenCLContext() const { return _ctx; }
 
     cl_kernel GetOpenCLKernel(const std::string &filename, const std::string &kernel) const;
+    void PrintDeviceInfo() const;
 
     template<typename T>
     T GetDeviceInfo(cl_device_info param) const {

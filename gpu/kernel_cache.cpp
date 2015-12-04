@@ -27,7 +27,7 @@ static cl_platform_id GetPlatformForContext(cl_context ctx) {
   CHECK_CL(clGetContextInfo, ctx, CL_CONTEXT_PROPERTIES, sizeof(props), &props, &num_props);
   num_props /= sizeof(cl_context_properties);
 
-  for (int i = 0; i < num_props; i += 2) {
+  for (size_t i = 0; i < num_props; i += 2) {
     if (props[i] == CL_CONTEXT_PLATFORM) {
       return (cl_platform_id)(props[i + 1]);
     }

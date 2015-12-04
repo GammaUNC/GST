@@ -8,9 +8,8 @@
 #elif defined (_WIN32)
 #  define NOMINMAX
 #  include "Windows.h"
-#  include <CL/cl_gl.h>
 #else
-#  include <CL/cl_gl.h>
+#  include <GL/glx.h>
 #endif
 
 #include "kernel_cache.h"
@@ -261,7 +260,7 @@ std::unique_ptr<GPUContext> GPUContext::InitializeOpenCL(bool share_opengl) {
   fprintf(stdout, "Found %d device%s on platform 0.\n", nDevices, nDevices == 1 ? "" : "s");
 
   for (cl_uint i = 0; i < nDevices; i++) {
-    PrintDeviceInfo(devices[i]);
+    gpu::PrintDeviceInfo(devices[i]);
   }
 
   std::cout << std::endl;
@@ -307,6 +306,10 @@ std::unique_ptr<GPUContext> GPUContext::InitializeOpenCL(bool share_opengl) {
   CHECK_CL((cl_int), errCreateCommandQueue);
 
   return std::move(gpu_ctx);
+}
+
+void GPUContext::PrintDeviceInfo() const {
+  gpu::PrintDeviceInfo(_device);
 }
 
 cl_kernel GPUContext::GetOpenCLKernel(const std::string &filename, const std::string &kernel) const {

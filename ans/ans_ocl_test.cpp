@@ -40,10 +40,10 @@ static std::vector<cl_uchar> GenerateSymbols(const std::vector<int> &freqs, size
   std::vector<cl_uchar> symbols;
   symbols.reserve(num_symbols);
 
-  for (int i = 0; i < num_symbols; ++i) {
+  for (size_t i = 0; i < num_symbols; ++i) {
     uint32_t M = std::accumulate(freqs.begin(), freqs.end(), 0);
     int r = rand() % M;
-    int symbol = 0;
+    cl_uchar symbol = 0;
     int freq = 0;
     for (auto f : freqs) {
       freq += f;
@@ -71,7 +71,7 @@ TEST(ANS_OpenCL, Initialization) {
 
   int sum = 0;
   for (size_t i = 0; i < normalized_F.size(); ++i) {
-    for (size_t j = 0; j < normalized_F[i]; ++j) {
+    for (int j = 0; j < normalized_F[i]; ++j) {
       expected_symbols[sum + j] = static_cast<cl_uchar>(i);
       expected_frequencies[sum + j] = normalized_F[i];
       expected_cumulative_frequencies[sum + j] = sum;
@@ -115,7 +115,7 @@ TEST(ANS_OpenCL, TableRebuilding) {
 
   int sum = 0;
   for (size_t i = 0; i < normalized_F.size(); ++i) {
-    for (size_t j = 0; j < normalized_F[i]; ++j) {
+    for (int j = 0; j < normalized_F[i]; ++j) {
       expected_symbols[sum + j] = static_cast<cl_uchar>(i);
       expected_frequencies[sum + j] = normalized_F[i];
       expected_cumulative_frequencies[sum + j] = sum;
@@ -152,7 +152,6 @@ TEST(ANS_OpenCL, TableRebuilding) {
 TEST(ANS_OpenCL, DecodeSingleStream) {
   std::vector<int> F = { 12, 14, 17, 1, 1, 2, 372 };
 
-  const size_t num_symbols = 256;
   std::vector<uint8_t> symbols = std::move(GenerateSymbols(F, ans::kNumEncodedSymbols));
   ASSERT_EQ(symbols.size(), ans::kNumEncodedSymbols);
 
@@ -176,7 +175,7 @@ TEST(ANS_OpenCL, DecodeSingleStream) {
   // First, make sure we can CPU decode it.
   std::vector<uint16_t> short_stream;
   short_stream.reserve(bytes_written / 2);
-  for (int i = 0; i < bytes_written; i += 2) {
+  for (size_t i = 0; i < bytes_written; i += 2) {
     uint16_t x = (static_cast<uint16_t>(stream[i + 1]) << 8) | stream[i];
     short_stream.push_back(x);
   }
@@ -264,7 +263,8 @@ TEST(ANS_OpenCL, DecodeInterleavedStreams) {
   for (int sym_idx = 0; sym_idx < ans::kNumEncodedSymbols; ++sym_idx) {
     for (int strm_idx = 0; strm_idx < num_interleaved; ++strm_idx) {
       EXPECT_EQ(decoded_symbols[strm_idx][sym_idx], symbols[strm_idx][sym_idx])
-        << "Symbols differ at stream and index: " << (strm_idx, sym_idx);
+        << "Symbols differ at stream and index: (" << strm_idx
+        << ", " << sym_idx << ")";
     }
   }
 }
