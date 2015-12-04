@@ -17,7 +17,7 @@
 
 #ifndef NDEBUG
 static const char *clErrMsg(cl_int err) {
-  const char *errMsg = "Unknown error";
+  const char *errMsg = NULL;
   switch(err) {
   case CL_SUCCESS:                         errMsg = "Success!"; break;
   case CL_DEVICE_NOT_FOUND:                errMsg = "Device not found."; break;
@@ -65,19 +65,26 @@ static const char *clErrMsg(cl_int err) {
   case CL_INVALID_GL_OBJECT:               errMsg = "Invalid OpenGL object"; break;
   case CL_INVALID_BUFFER_SIZE:             errMsg = "Invalid buffer size"; break;
   case CL_INVALID_MIP_LEVEL:               errMsg = "Invalid mip-map level"; break;
+  case CL_PLATFORM_NOT_FOUND_KHR:          errMsg = "Platform not found"; break;
   }
 
   return errMsg;
 }
 
-#  define CHECK_CL(fn, ...)                                                        \
-  do {                                                                             \
-    cl_int err = fn(__VA_ARGS__);                                                  \
-    if(CL_SUCCESS != err) {                                                        \
-      const char *errMsg = clErrMsg(err);                                          \
-      fprintf(stderr, "OpenCL error (%s : %d): %s\n", __FILE__, __LINE__, errMsg); \
-      assert (false);                                                              \
-    }                                                                              \
+#  define CHECK_CL(fn, ...)                                                     \
+  do {                                                                          \
+    cl_int err = fn(__VA_ARGS__);                                               \
+    if(CL_SUCCESS != err) {                                                     \
+      const char *errMsg = clErrMsg(err);                                       \
+      if (NULL != errMsg) {                                                     \
+        fprintf(stderr, "OpenCL error (%s : %d): %s\n",                         \
+          __FILE__, __LINE__, errMsg);                                          \
+      } else {                                                                  \
+        fprintf(stderr, "Unknown OpenCL error (%s : %d): 0x%x\n",               \
+          __FILE__, __LINE__, err);                                             \
+      }                                                                         \
+      assert (false);                                                           \
+    }                                                                           \
   } while(0)
 #else
 #  define CHECK_CL(fn, ...) do { (void)(fn(__VA_ARGS__)); } while(0)

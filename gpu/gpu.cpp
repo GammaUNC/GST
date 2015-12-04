@@ -221,9 +221,16 @@ std::unique_ptr<GPUContext> GPUContext::InitializeOpenCL(bool share_opengl) {
   const cl_uint kMaxPlatforms = 8;
   cl_platform_id platforms[kMaxPlatforms];
   cl_uint nPlatforms;
-  CHECK_CL(clGetPlatformIDs, kMaxPlatforms, platforms, &nPlatforms);
 
-#ifndef NDEBUG
+#ifdef NDEBUG
+  CHECK_CL(clGetPlatformIDs, kMaxPlatforms, platforms, &nPlatforms);
+#else
+  CHECK_CL(clGetPlatformIDs, kMaxPlatforms, NULL, &nPlatforms);
+  std::cout << "OpenCL has " << nPlatforms << " platform"
+            << ((nPlatforms != 1)? "s" : "")
+            << " available. Querying... " << std::endl;
+  CHECK_CL(clGetPlatformIDs, nPlatforms, platforms, &nPlatforms);
+
   size_t strLen;
   fprintf(stdout, "\n");
   fprintf(stdout, "Found %d OpenCL platform%s.\n", nPlatforms, nPlatforms == 1 ? "" : "s");
