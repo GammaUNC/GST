@@ -154,6 +154,7 @@ static void RunKernel(const std::unique_ptr<gpu::GPUContext> &ctx, cl_kernel ker
 
   // Release the buffers
   CHECK_CL(clReleaseMemObject, input);
+  CHECK_CL(clReleaseMemObject, dxt_mem);
 
   if (data != src_data) {
     free(src_data);
@@ -476,8 +477,17 @@ int main(int argc, char* argv[])
     }
     std::cout << std::endl;
 
+    // Finish GPU things
+    clFlush(ctx->GetCommandQueue());
+    clFinish(ctx->GetCommandQueue());
+    glFlush();
+    glFinish();
+
     glDeleteTextures(1, &texID);
     glDeleteBuffers(1, &pbo);
+    glDeleteBuffers(1, &vertexBuffer);
+    glDeleteBuffers(1, &uvBuffer);
+    glDeleteProgram(prog);
 
     // Delete OpenCL crap before we destroy everything else...
     ctx = nullptr;

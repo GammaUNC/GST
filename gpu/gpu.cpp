@@ -213,6 +213,7 @@ static std::vector<cl_device_id> GetAllDevicesForContext(cl_context ctx) {
 
 
 GPUContext::~GPUContext() {
+  GPUKernelCache::Instance(_ctx, _device)->Clear();
   CHECK_CL(clReleaseCommandQueue, _command_queue);
   CHECK_CL(clReleaseContext, _ctx);
 }
