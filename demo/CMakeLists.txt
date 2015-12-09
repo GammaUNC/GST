@@ -10,9 +10,7 @@ endif()
 
 SET( OPENCL_KERNEL_PATH ${GenTC_SOURCE_DIR}/demo/kernel.cl )
 
-IF ( MSVC )
-  INCLUDE_DIRECTORIES( ${GenTC_SOURCE_DIR}/lib/include )
-ENDIF()
+INCLUDE_DIRECTORIES( ${GenTC_SOURCE_DIR}/lib/include )
 
 # !HACK! We still need OpenCL because we don't use our 'gpu' library properly...
 FIND_PACKAGE(OpenCL REQUIRED)
