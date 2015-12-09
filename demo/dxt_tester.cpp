@@ -17,34 +17,37 @@
 #include "stb_dxt.h"
 #pragma GCC diagnostic pop
 
-static uint64_t CompressRGB(const uint8_t *img, int width, int x, int y) {
+static uint64_t CompressRGB(const uint8_t *img, int width) {
   unsigned char block[64];
   memset(block, 0, sizeof(block));
 
   for (int j = 0; j < 4; ++j) {
     for (int i = 0; i < 4; ++i) {
-      int src_idx = ((j + y) * width + (x + i)) * 3;
-      int dst_idx = ((j * 4) + i) * 4;
+      int src_idx = (j * width + i) * 3;
+      int dst_idx = (j * 4 + i) * 4;
 
-      block[dst_idx + 0] = img[src_idx + 0];
-      block[dst_idx + 1] = img[src_idx + 1];
-      block[dst_idx + 2] = img[src_idx + 2];
-      block[dst_idx + 3] = 0xFF;
+      unsigned char *block_pixel = block + dst_idx;
+      const unsigned char *img_pixel = img + src_idx;
+
+      block_pixel[0] = img_pixel[0];
+      block_pixel[1] = img_pixel[1];
+      block_pixel[2] = img_pixel[2];
+      block_pixel[3] = 0xFF;
     }
   }
 
   uint64_t result;
   stb_compress_dxt_block(reinterpret_cast<unsigned char *>(&result),
-                         block, 0, STB_DXT_NORMAL);
+                         block, 0, STB_DXT_HIGHQUAL);
   return result;
 }
 
-static uint64_t CompressRGBA(const uint8_t *img, int width, int x, int y) {
+static uint64_t CompressRGBA(const uint8_t *img, int width) {
   unsigned char block[64];
   memset(block, 0, sizeof(block));
 
   for (int j = 0; j < 4; ++j) {
-    memcpy(block + j*16, img + width*4*(y + j), 16);
+    memcpy(block + j*16, img + width*4*j, 16);
   }
 
   uint64_t result;
@@ -75,9 +78,9 @@ int main(int argc, char **argv) {
   // Now do the dxt compression...
   union DXTBlock {
     struct {
-      uint32_t interpolation;
-      uint16_t ep2;
       uint16_t ep1;
+      uint16_t ep2;
+      uint32_t interpolation;
     };
     uint64_t dxt_block;
   } *dxt_blocks = new DXTBlock[num_blocks];
@@ -85,10 +88,11 @@ int main(int argc, char **argv) {
   for (int j = 0; j < h; j += 4) {
     for (int i = 0; i < w; i += 4) {
       int block_idx = (j / 4) * num_blocks_x + (i / 4);
+      unsigned char *offset_data = data + (j*w + i) * channels;
       if (3 == channels) {
-        dxt_blocks[block_idx].dxt_block = CompressRGB(data, w, i, j);
+        dxt_blocks[block_idx].dxt_block = CompressRGB(offset_data, w);
       } else if (4 == channels) {
-        dxt_blocks[block_idx].dxt_block = CompressRGBA(data, w, i, j);
+        dxt_blocks[block_idx].dxt_block = CompressRGBA(offset_data, w);
       } else {
         std::cerr << "Error! Only accepts RGB or RGBA images!" << std::endl;
       }
