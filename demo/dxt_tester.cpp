@@ -4,6 +4,14 @@
 #include <vector>
 #include <algorithm>
 
+#define USE_FAST_DCT
+
+#ifdef USE_FAST_DCT
+#include "fast_dct.hpp"
+#else
+#include "opencv_dct.hpp"
+#endif
+
 #include <opencv2/opencv.hpp>
 
 #pragma GCC diagnostic push
@@ -176,6 +184,15 @@ int main(int argc, char **argv) {
   cv::split(img_A_YCrCb, channels);
 
   cv::imwrite("dxt_img_A_Y.png", channels[0]);
+  dct::RunDCT(channels);
+#ifdef USE_FAST_DCT
+  cv::imwrite("dxt_img_A_Y_fast_dct.png", channels[0]);
+#endif
+  dct::RunIDCT(channels);
+#ifdef USE_FAST_DCT
+  cv::imwrite("dxt_img_A_Y_fast_idct.png", channels[0]);
+#endif
+
   cv::imwrite("dxt_img_A_Cr.png", channels[1]);
   cv::imwrite("dxt_img_A_Cb.png", channels[2]);
 
