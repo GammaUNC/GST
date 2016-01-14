@@ -1,17 +1,18 @@
 #ifndef __FAST__DCT_H__
 #define __FAST__DCT_H__
 
+#define _USE_MATH_DEFINES
 #include <opencv2/opencv.hpp>
 #include <cmath>
 
 namespace dct {
   // Constants:
-  static const float s1 = sin(1. * M_PI / 16.f);
-  static const float c1 = cos(1. * M_PI / 16.f);
-  static const float s3 = sin(3. * M_PI / 16.f);
-  static const float c3 = cos(3. * M_PI / 16.f);
-  static const float s6 = sin(3. * M_PI / 8.f);
-  static const float c6 = cos(3. * M_PI / 8.f);
+  static const float s1 = sinf(1.f * static_cast<float>(M_PI) / 16.f);
+  static const float c1 = cosf(1.f * static_cast<float>(M_PI) / 16.f);
+  static const float s3 = sinf(3.f * static_cast<float>(M_PI) / 16.f);
+  static const float c3 = cosf(3.f * static_cast<float>(M_PI) / 16.f);
+  static const float s6 = sinf(3.f * static_cast<float>(M_PI) / 8.f);
+  static const float c6 = cosf(3.f * static_cast<float>(M_PI) / 8.f);
 
   static void fdct(float in[8], float out[8]) {
     // After stage 1:
