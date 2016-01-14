@@ -12,6 +12,9 @@
 #include "opencv_dct.hpp"
 #endif
 
+#include "histogram.h"
+#include "ans_ocl.h"
+
 #include <opencv2/opencv.hpp>
 
 #pragma GCC diagnostic push
@@ -82,19 +85,10 @@ uint32_t Cvt565(uint16_t x) {
 }
 
 void encode(const cv::Mat &img, std::vector<uint8_t> *result) {
-  // Collect the average of all the DC coefficients...
-  uint32_t avg_dc = 0;
-  uint32_t num_dcs = 0;
-  for (int j = 0; j < img.rows; j += 8) {
-    for (int i = 0; i < img.cols; i += 8) {
-      avg_dc += img.at<int16_t>(j, i);
-      num_dcs++;
-    }
-  }
-
-  avg_dc /= num_dcs;
-
   // Collect stats for frequency analysis
+  std::vector<int16_t> coeffs(img.rows * img.cols, 0);
+  assert(coeffs.size() % (256 * 16) == 0);
+
   int16_t min_coeff = std::numeric_limits<int16_t>::max();
   int16_t max_coeff = std::numeric_limits<int16_t>::min();
   int32_t num_outliers = 0;
@@ -102,30 +96,141 @@ void encode(const cv::Mat &img, std::vector<uint8_t> *result) {
   for (int j = 0; j < img.rows; j++) {
     for (int i = 0; i < img.cols; i++) {
       int16_t coeff = img.at<int16_t>(j, i);
-      if (i % 8 == 0 && j % 8 == 0) {
-        coeff = avg_dc - coeff;
-      }
-
-      if (coeff < -128 || coeff > 127) {
+      if (coeff < -127 || coeff > 127) {
         num_outliers++;
-        continue;
       }
 
       if (coeff == 0) {
         num_zeros++;
-        continue;
       }
 
       min_coeff = std::min(min_coeff, coeff);
       max_coeff = std::max(max_coeff, coeff);
+
+      coeffs[j*img.cols + i] = coeff;
     }
   }
 
-  std::cout << "Total symbols: " << img.cols * img.rows << std::endl;
+  std::vector<uint8_t> symbols;
+  symbols.reserve(coeffs.size());
+
+  for (const auto coeff : coeffs) {
+    if (coeff < -127 || coeff > 127) {
+      symbols.push_back(0);
+    } else {
+      symbols.push_back(static_cast<uint8_t>(coeff + 128));
+    }
+  }
+
+  const std::vector<int> counts = std::move(ans::CountSymbols(symbols));
+  assert(counts.size() == 256);
+
+  std::vector<uint8_t> encoded_symbols(256, 0);
+  std::vector<int> encoded_counts;
+  encoded_counts.reserve(256);
+
+  uint32_t bytes_written = result->size();
+  uint32_t sym_idx = 0;
+  for (uint32_t i = 0; i < 256; ++i) {
+    if (counts[i] == 0) {
+      continue;
+    }
+
+    while (bytes_written + 3 > result->size()) {
+      result->resize(std::max<uint32_t>(1, result->size() * 2));
+    }
+
+    uint8_t *symbol_ptr = result->data() + bytes_written;
+    uint16_t *count_ptr = reinterpret_cast<uint16_t *>(symbol_ptr + 1);
+
+    *symbol_ptr = static_cast<uint8_t>(i);
+    *count_ptr = static_cast<uint16_t>(counts[i]);
+    bytes_written += 3;
+
+    encoded_symbols[i] = sym_idx++;
+    encoded_counts.push_back(counts[i]);
+  }
+
+  std::cout << std::endl << "Total symbols: " << img.cols * img.rows << std::endl;
   std::cout << "Num outliers: " << num_outliers << std::endl;
   std::cout << "Num zeros: " << num_zeros << std::endl;
+  std::cout << "Num unique symbols: " << encoded_counts.size() << std::endl;
   std::cout << "Min coefficient: " << min_coeff << std::endl;
-  std::cout << "Max coefficient: " << max_coeff << std::endl << std::endl;
+  std::cout << "Max coefficient: " << max_coeff << std::endl;
+
+  for (uint32_t i = 0; i < counts.size(); ++i) {
+    std::cout << counts[i] << ", ";
+    if ((i + 1) % 16 == 0) {
+      std::cout << std::endl;
+    }
+  }
+
+  // Write counts to output
+  std::vector<ans::OpenCLEncoder> encoders;
+  static const uint32_t kNumStreams = 16;
+  encoders.reserve(kNumStreams);
+  for (uint32_t i = 0; i < kNumStreams; ++i) {
+    encoders.push_back(std::move(ans::OpenCLEncoder(encoded_counts)));
+  }
+
+  std::vector<uint8_t> encoded(10, 0);
+  uint32_t encoded_bytes_written = 0;
+  uint32_t last_encoded_bytes_written = 0;
+
+  uint32_t symbol_offset = 0;
+  while(symbol_offset < symbols.size()) {
+    for (uint32_t sym_idx = 0; sym_idx < ans::kNumEncodedSymbols; ++sym_idx) {
+      // Make sure that we have at least 4*kNumStreams bytes available
+      encoded.resize(encoded_bytes_written + (4*kNumStreams));
+
+      for (uint32_t strm_idx = 0; strm_idx < kNumStreams; ++strm_idx) {
+        ans::BitWriter w(encoded.data() + encoded_bytes_written);
+        uint32_t sidx = symbol_offset + strm_idx * ans::kNumEncodedSymbols + sym_idx;
+        uint8_t symbol = encoded_symbols[symbols[sidx]];
+
+        assert(symbol < encoded_counts.size());
+        assert(counts[symbols[sidx]] > 0);
+
+        encoders[strm_idx].Encode(symbol, w);
+        encoded_bytes_written += w.BytesWritten();
+      }
+
+      int16_t *output = reinterpret_cast<int16_t *>(encoded.data() + encoded_bytes_written);
+      for (uint32_t strm_idx = 0; strm_idx < kNumStreams; strm_idx++) {
+        uint32_t sidx = symbol_offset + strm_idx * ans::kNumEncodedSymbols + sym_idx;
+        if (symbols[sidx] == 0) {
+          *output = coeffs[sym_idx];
+          output++;
+          encoded_bytes_written += 2;
+        }
+      }
+    }
+
+    // Dump all of the encoder states
+    encoded.resize(encoded_bytes_written + 4*kNumStreams);
+
+    uint32_t *encoder_state = reinterpret_cast<uint32_t *>(encoded.data() + encoded_bytes_written);
+    for (uint32_t i = 0; i < kNumStreams; ++i) {
+      encoder_state[i] = encoders[i].GetState();
+    }
+    encoded_bytes_written += 4 * kNumStreams;
+
+    // Add the offset to the stream...
+    uint32_t offset = encoded_bytes_written - last_encoded_bytes_written;
+    result->resize(bytes_written + 2);
+    uint16_t *offset_ptr = reinterpret_cast<uint16_t *>(result->data() + bytes_written);
+    assert(offset <= ((1 << 16) - 1));
+    *offset_ptr = static_cast<uint16_t>(offset);
+    bytes_written += 2;
+    last_encoded_bytes_written = encoded_bytes_written;
+
+    // Advance the symbol offset...
+    symbol_offset += kNumStreams * ans::kNumEncodedSymbols;
+  }
+
+  // Add the encoded bytes
+  result->resize(bytes_written + encoded_bytes_written);
+  memcpy(result->data() + bytes_written, encoded.data(), encoded_bytes_written);
 }
 
 void quantize(cv::Mat *dct, bool is_chroma) {
@@ -174,7 +279,7 @@ void compressChannel(const cv::Mat &img, std::vector<uint8_t> *result, bool is_c
   cv::Mat dct_img = img.clone();
   dct::RunDCT(&dct_img);
 
-  assert(img.type() == CV_16SC1);
+  assert(dct_img.type() == CV_16SC1);
 
   // Quantize
   quantize(&dct_img, is_chroma);
@@ -204,6 +309,9 @@ std::vector<uint8_t> compress(const cv::Mat &img) {
   compressChannel(channels[0], &result, false);
   compressChannel(channels[1], &result, true);
   compressChannel(channels[2], &result, true);
+
+  std::cout << "Uncompressed size: " << img.cols * img.rows * 2 << std::endl;
+  std::cout << "Compressed size: " << result.size() << std::endl;
 
   return std::move(result);
 }
