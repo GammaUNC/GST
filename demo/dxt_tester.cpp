@@ -4,6 +4,7 @@
 #include <vector>
 #include <algorithm>
 
+// #define VERBOSE
 #define USE_FAST_DCT
 
 #ifdef USE_FAST_DCT
@@ -62,16 +63,7 @@ static uint64_t CompressRGBA(const uint8_t *img, int width) {
   return result;
 }
 
-union DXTBlock {
-  struct {
-    uint16_t ep1;
-    uint16_t ep2;
-    uint32_t interpolation;
-  };
-  uint64_t dxt_block;
-};
-
-uint32_t Cvt565(uint16_t x) {
+uint32_t From565(uint16_t x) {
   uint32_t r = (x >> 11);
   r = (r << 3) | (r >> 2);
 
@@ -84,6 +76,84 @@ uint32_t Cvt565(uint16_t x) {
   return 0xFF000000 | (b << 16) | (g << 8) | r;
 }
 
+uint16_t Into565(uint8_t r, uint8_t g, uint8_t b) {
+  uint16_t rr = (r >> 3) & 0x1F;
+  uint16_t gg = (g >> 2) & 0x3F;
+  uint16_t bb = (b >> 3) & 0x1F;
+
+  return (rr << 11) | (gg << 5) | bb;
+}
+
+union DXTBlock {
+  struct {
+    uint16_t ep1;
+    uint16_t ep2;
+    uint32_t interpolation;
+  };
+  uint64_t dxt_block;
+};
+
+uint32_t LerpChannels(uint32_t a, uint32_t b, int num, int div) {
+  uint8_t *a_ptr = reinterpret_cast<uint8_t *>(&a);
+  uint8_t *b_ptr = reinterpret_cast<uint8_t *>(&b);
+
+  uint32_t result;
+  uint8_t *result_ptr = reinterpret_cast<uint8_t *>(&result);
+  for (int i = 0; i < 4; ++i) {
+    result_ptr[i] = (static_cast<int>(a_ptr[i]) * (div - num) + static_cast<int>(b_ptr[i]) * num) / div;
+  }
+  return result;
+}
+
+cv::Mat DecompressDXT(const std::vector<DXTBlock> &blocks, int width, int height) {
+  cv::Mat result(height, width, CV_8UC4);
+
+  int block_idx = 0;
+  for (int j = 0; j < height; j += 4) {
+    for (int i = 0; i < width; i += 4) {
+      // get the block bytes
+      uint8_t const* bytes = reinterpret_cast<const uint8_t *>(blocks.data() + block_idx);
+        
+      // unpack the endpoints
+      uint32_t palette[4];
+      palette[0] = From565(blocks[block_idx].ep1);
+      palette[1] = From565(blocks[block_idx].ep2);
+
+      if (blocks[block_idx].ep1 <= blocks[block_idx].ep2) {
+        palette[2] = LerpChannels(palette[0], palette[1], 1, 2);
+        palette[3] = 0;
+      } else {
+        palette[2] = LerpChannels(palette[0], palette[1], 1, 3);
+        palette[3] = LerpChannels(palette[0], palette[1], 2, 3);
+      }
+        
+      // unpack the indices
+      uint8_t indices[16];
+      for( int k = 0; k < 4; ++k ) {
+        uint8_t packed = bytes[4 + k];
+        
+        indices[0 + 4*k] = packed & 0x3;
+        indices[1 + 4*k] = ( packed >> 2 ) & 0x3;
+        indices[2 + 4*k] = ( packed >> 4 ) & 0x3;
+        indices[3 + 4*k] = ( packed >> 6 ) & 0x3;
+      }
+
+      // store out the colours
+      for (int y = 0; y < 4; ++y) {
+        for (int x = 0; x < 4; ++x) {
+          uint8_t offset = indices[y*4 + x];
+          result.at<uint32_t>(j+y, i+x) = palette[offset];
+        }
+      }
+
+      block_idx++;
+    }
+  }
+
+  return result;
+}
+
+static const int coeff_offset = 512;
 static const uint32_t kNumStreams = 16;
 void encode(const cv::Mat &img, std::vector<uint8_t> *result) {
   // Collect stats for frequency analysis
@@ -94,6 +164,11 @@ void encode(const cv::Mat &img, std::vector<uint8_t> *result) {
   int16_t max_coeff = std::numeric_limits<int16_t>::min();
   int32_t num_outliers = 0;
   int32_t num_zeros = 0;
+
+#ifdef VERBOSE
+  std::cout << std::endl << "First 16 encoded values: ";
+#endif // Verbose
+
   for (int j = 0; j < img.rows; j++) {
     for (int i = 0; i < img.cols; i++) {
       int16_t coeff = img.at<int16_t>(j, i);
@@ -108,7 +183,17 @@ void encode(const cv::Mat &img, std::vector<uint8_t> *result) {
       min_coeff = std::min(min_coeff, coeff);
       max_coeff = std::max(max_coeff, coeff);
 
-      coeffs[j*img.cols + i] = coeff;
+      int coeff_idx = j*img.cols + i;
+#ifdef VERBOSE
+      if (coeff_offset <= coeff_idx && coeff_idx < coeff_offset + 16) {
+        std::cout << coeff << ", ";
+        if (coeff_idx == coeff_offset + 15) {
+          std::cout << std::endl;
+        }
+      }
+#endif // VERBOSE
+
+      coeffs[coeff_idx] = coeff;
     }
   }
 
@@ -160,8 +245,8 @@ void encode(const cv::Mat &img, std::vector<uint8_t> *result) {
     *count_ptr = static_cast<uint16_t>(counts[i]);
     bytes_written += 3;
   }
-
-  std::cout << std::endl << "Total symbols: " << img.cols * img.rows << std::endl;
+#ifdef VERBOSE
+  std::cout << "Total symbols: " << img.cols * img.rows << std::endl;
   std::cout << "Num outliers: " << num_outliers << std::endl;
   std::cout << "Num zeros: " << num_zeros << std::endl;
   std::cout << "Num unique symbols: " << encoded_counts.size() << std::endl;
@@ -174,6 +259,7 @@ void encode(const cv::Mat &img, std::vector<uint8_t> *result) {
       std::cout << std::endl;
     }
   }
+#endif  //  VERBOSE
 
   // Write counts to output
   std::vector<ans::OpenCLEncoder> encoders;
@@ -196,7 +282,7 @@ void encode(const cv::Mat &img, std::vector<uint8_t> *result) {
       for (uint32_t strm_idx = 0; strm_idx < kNumStreams; strm_idx++) {
         uint32_t sidx = symbol_offset + strm_idx * ans::kNumEncodedSymbols + sym_idx;
         if (symbols[sidx] == 0) {
-          *output = coeffs[sym_idx];
+          *output = coeffs[sidx];
           output++;
           encoded_bytes_written += 2;
         }
@@ -262,6 +348,14 @@ static const cv::Mat quant_table_chroma = (cv::Mat_<int16_t>(8, 8) <<
   99, 99, 99, 99, 99, 99, 99, 99);
 
 void quantize(cv::Mat *dct, bool is_chroma) {
+#ifdef VERBOSE
+  static int prequantized_copy = 0;
+  char fname[256];
+  sprintf(fname, "prequantized_%d.png", prequantized_copy);
+  cv::imwrite(fname, *dct);
+  prequantized_copy++;
+#endif // VERBOSE
+
   for (int j = 0; j < dct->rows / 8; ++j) {
     for (int i = 0; i < dct->cols / 8; ++i) {
       cv::Rect_<int> window(i * 8, j * 8, 8, 8);
@@ -273,14 +367,23 @@ void quantize(cv::Mat *dct, bool is_chroma) {
     }
   }
 
+#ifdef VERBOSE
   static int quantized_copy = 0;
-  char fname[256];
   sprintf(fname, "quantized_%d.png", quantized_copy);
   cv::imwrite(fname, *dct);
   quantized_copy++;
+#endif // VERBOSE
 }
 
 void dequantize(cv::Mat *dct, bool is_chroma) {
+#ifdef VERBOSE
+  static int predequantized_copy = 0;
+  char fname[256];
+  sprintf(fname, "predequantized_%d.png", predequantized_copy);
+  cv::imwrite(fname, *dct);
+  predequantized_copy++;
+#endif // VERBOSE
+
   for (int j = 0; j < dct->rows / 8; ++j) {
     for (int i = 0; i < dct->cols / 8; ++i) {
       cv::Rect_<int> window(i * 8, j * 8, 8, 8);
@@ -292,11 +395,12 @@ void dequantize(cv::Mat *dct, bool is_chroma) {
     }
   }
 
-  static int quantized_copy = 0;
-  char fname[256];
-  sprintf(fname, "dequantized_%d.png", quantized_copy);
+#ifdef VERBOSE
+  static int dequantized_copy = 0;
+  sprintf(fname, "dequantized_%d.png", dequantized_copy);
   cv::imwrite(fname, *dct);
-  quantized_copy++;
+  dequantized_copy++;
+#endif // VERBOSE
 }
 
 void compressChannel(const cv::Mat &img, std::vector<uint8_t> *result, bool is_chroma) {
@@ -337,8 +441,10 @@ std::vector<uint8_t> compress(const cv::Mat &img) {
   compressChannel(channels[1], &result, true);
   compressChannel(channels[2], &result, true);
 
-  std::cout << "Uncompressed size: " << img.cols * img.rows * 2 << std::endl;
-  std::cout << "Compressed size: " << result.size() << std::endl;
+#ifdef VERBOSE
+  std::cout << "Endpoint Image uncompressed size: " << img.cols * img.rows * 2 << std::endl;
+  std::cout << "Endpoint Image compressed size: " << result.size() << std::endl;
+#endif
 
   return std::move(result);
 }
@@ -359,22 +465,22 @@ int decode(cv::Mat *result, const uint8_t *buf) {
   }
 
   int num_macroblocks = (result->cols * result->rows) / (kNumStreams * ans::kNumEncodedSymbols);
-  assert(num_macroblocks * kNumStreams * ans::kNumEncodedSymbols == result->cols * result->rows);
-  std::vector<uint16_t> macroblock_offsets(num_macroblocks);
+  assert(num_macroblocks * kNumStreams * ans::kNumEncodedSymbols == 
+         static_cast<uint32_t>(result->cols * result->rows));
+  std::vector<uint16_t> macroblock_sizes(num_macroblocks);
 
   for (int i = 0; i < num_macroblocks; ++i) {
-    macroblock_offsets[i] = *reinterpret_cast<const uint16_t *>(buf + offset);
+    macroblock_sizes[i] = *reinterpret_cast<const uint16_t *>(buf + offset);
     offset += 2;
   }
 
   std::vector<int16_t> coeffs(result->cols * result->rows);
 
   int symbol_offset = 0;
-  int last_offset = 0;
-  for (uint16_t mb_off : macroblock_offsets) {
-    int mb_size = mb_off - last_offset;
+  for (uint16_t mb_size : macroblock_sizes) {
+    int mb_off = offset + mb_size;
 
-    const uint32_t *states = reinterpret_cast<const uint32_t *>(buf + offset + mb_off) - kNumStreams;
+    const uint32_t *states = reinterpret_cast<const uint32_t *>(buf + mb_off) - kNumStreams;
     std::vector<ans::OpenCLCPUDecoder> decoders;
     decoders.reserve(kNumStreams);
     for (uint32_t i = 0; i < kNumStreams; ++i) {
@@ -385,36 +491,44 @@ int decode(cv::Mat *result, const uint8_t *buf) {
     assert(data_sz_bytes % 2 == 0);
 
     std::vector<uint16_t> mb_data(data_sz_bytes / 2);
-    memcpy(mb_data.data(), buf + offset + last_offset, data_sz_bytes);
+    memcpy(mb_data.data(), buf + offset, data_sz_bytes);
     std::reverse(mb_data.begin(), mb_data.end());
 
     ans::BitReader r(reinterpret_cast<const uint8_t *>(mb_data.data()));
-    for (int sym_idx = 0; sym_idx < ans::kNumEncodedSymbols; sym_idx++) {
-      for (int strm_idx = 0; strm_idx < kNumStreams; ++strm_idx) {
-        uint32_t sidx = symbol_offset + (strm_idx + 1) * ans::kNumEncodedSymbols - sym_idx - 1;
-        coeffs[sidx] = static_cast<int16_t>(decoders[strm_idx].Decode(r)) - 128;
+    for (uint32_t sym_idx = 0; sym_idx < ans::kNumEncodedSymbols; sym_idx++) {
+      for (uint32_t strm_idx = 0; strm_idx < kNumStreams; ++strm_idx) {
+        uint32_t sidx = symbol_offset + (kNumStreams - strm_idx) * ans::kNumEncodedSymbols - sym_idx - 1;
+        coeffs[sidx] = static_cast<int16_t>(symbols[decoders[strm_idx].Decode(r)]) - 128;
       }
 
-      size_t coeffs_sz = coeffs.size();
-      for (int strm_idx = 0; strm_idx < kNumStreams; ++strm_idx) {
-        uint32_t idx = symbol_offset + (strm_idx + 1) * ans::kNumEncodedSymbols - sym_idx - 1;
+      for (uint32_t strm_idx = 0; strm_idx < kNumStreams; ++strm_idx) {
+        uint32_t idx = symbol_offset + (kNumStreams - strm_idx) * ans::kNumEncodedSymbols - sym_idx - 1;
         if (coeffs[idx] == -128) {
           coeffs[idx] = static_cast<int16_t>(r.ReadBits(16));
         }
       }
     }
 
-    last_offset = mb_off;
+    offset = mb_off;
     symbol_offset += kNumStreams * ans::kNumEncodedSymbols;
   }
-
-  offset += macroblock_offsets[num_macroblocks - 1];
 
   // Populate the image properly
   assert(result->type() == CV_16SC1);
   uint32_t coeff_idx = 0;
+#ifdef VERBOSE
+  std::cout << "First 16 decoded values: ";
+#endif
   for (int j = 0; j < result->rows; ++j) {
     for (int i = 0; i < result->cols; ++i) {
+#ifdef VERBOSE
+      if (coeff_offset <= coeff_idx && coeff_idx < coeff_offset + 16) {
+        std::cout << coeffs[coeff_idx] << ", ";
+        if (coeff_idx == coeff_offset + 15) {
+          std::cout << std::endl;
+        }
+      }
+#endif  // VERBOSE
       result->at<int16_t>(j, i) = coeffs[coeff_idx++];
     }
   }
@@ -423,8 +537,6 @@ int decode(cv::Mat *result, const uint8_t *buf) {
 }
 
 int decompressChannel(cv::Mat *result, const uint8_t *buf, int width, int height, bool is_chroma) {
-  int num_symbols = width * height;
-
   *result = cv::Mat(height, width, CV_16SC1);
   int offset = decode(result, buf);
 
@@ -441,9 +553,6 @@ cv::Mat decompress(const std::vector<uint8_t> &stream) {
   int width = size_buf[0];
   int height = size_buf[1];
 
-  int num_symbols_luma = width * height;
-  int num_symbols_chroma = ((width + 1) / 2) * ((height + 1) / 2);
-
   int offset = 8;
 
   cv::Mat channels[3];
@@ -458,13 +567,9 @@ cv::Mat decompress(const std::vector<uint8_t> &stream) {
   cv::Mat img_YCrCb;
   cv::merge(channels, 3, img_YCrCb);
 
-  cv::Mat result;
+  cv::Mat result(height, width, CV_8UC4);
   cv::cvtColor(img_YCrCb, result, CV_YCrCb2RGB);
   return result;
-}
-
-cv::Mat codec(const cv::Mat &img) {
-  return decompress(compress(img));
 }
 
 int main(int argc, char **argv) {
@@ -504,6 +609,10 @@ int main(int argc, char **argv) {
       }
     }
   }
+
+  // Decompress into image...
+  cv::Mat img_dxt = DecompressDXT(dxt_blocks, img.cols, img.rows);
+  cv::imwrite("img_dxt.png", img_dxt);
 
   // !FIXME! Find structure in interpolation values
   // Aidos this is where you work your magic.
@@ -547,26 +656,67 @@ int main(int argc, char **argv) {
     }
   }
 
-  cv::imwrite("dxt_interp.png", interp_vis);
+  cv::imwrite("img_dxt_interp.png", interp_vis);
 
   cv::Mat img_A(num_blocks_y, num_blocks_x, CV_8UC4);
   cv::Mat img_B(num_blocks_y, num_blocks_x, CV_8UC4);
   for (int j = 0; j < num_blocks_y; j ++) {
     for (int i = 0; i < num_blocks_x; i ++) {
       int block_idx = j * num_blocks_x + i;
-      img_A.at<uint32_t>(j, i) = Cvt565(dxt_blocks[block_idx].ep1);
-      img_B.at<uint32_t>(j, i) = Cvt565(dxt_blocks[block_idx].ep2);
+      img_A.at<uint32_t>(j, i) = From565(dxt_blocks[block_idx].ep1);
+      img_B.at<uint32_t>(j, i) = From565(dxt_blocks[block_idx].ep2);
     }
   }
 
-  cv::imwrite("dxt_img_A.png", img_A);
-  cv::imwrite("dxt_img_B.png", img_B);
+  cv::imwrite("img_dxtA.png", img_A);
+  cv::imwrite("img_dxtB.png", img_B);
 
-  cv::Mat decomp_A = codec(img_A);
-  cv::Mat decomp_B = codec(img_B);
+  std::vector<uint8_t> strm_A = compress(img_A);
+  cv::Mat decomp_A = decompress(strm_A);
 
-  cv::imwrite("dxt_img_codec_A.png", decomp_A);
-  cv::imwrite("dxt_img_codec_B.png", decomp_B);
+  std::vector<uint8_t> strm_B = compress(img_B);
+  cv::Mat decomp_B = decompress(strm_B);
+
+  uint32_t total_compressed_sz = strm_A.size() + strm_B.size() + dxt_blocks.size() * 4;
+  uint32_t dxt_sz = dxt_blocks.size() * 8;
+  uint32_t uncompressed_sz = img.cols * img.rows * 3;
+
+  std::cout << "Uncompressed size: " << uncompressed_sz << std::endl;
+  std::cout << "DXT compressed size: " << dxt_sz << std::endl;
+  std::cout << "GTC compressed size: " << total_compressed_sz << std::endl;
+
+  cv::imwrite("img_codec_dxtA.png", decomp_A);
+  cv::imwrite("img_codec_dxtB.png", decomp_B);
+
+  for (int j = 0; j < num_blocks_y; j ++) {
+    for (int i = 0; i < num_blocks_x; i ++) {
+      uint8_t *pixel;
+      int block_idx = j * num_blocks_x + i;
+
+      pixel = decomp_A.ptr(j) + i * 3;
+      uint16_t e1 = Into565(pixel[0], pixel[1], pixel[2]);
+
+      pixel = decomp_B.ptr(j) + i * 3;
+      uint16_t e2 = Into565(pixel[0], pixel[1], pixel[2]);
+
+      if (e1 > e2) {
+        dxt_blocks[block_idx].ep1 = e1;
+        dxt_blocks[block_idx].ep2 = e2;
+      } else if (e2 < e1) {
+        dxt_blocks[block_idx].interpolation ^= 0x55555555;
+
+        dxt_blocks[block_idx].ep1 = e2;
+        dxt_blocks[block_idx].ep2 = e1;
+      } else {
+        dxt_blocks[block_idx].ep1 = e1;
+        dxt_blocks[block_idx].ep2 = e1;
+        dxt_blocks[block_idx].interpolation = 0;
+      }
+    }
+  }  
+
+  cv::Mat img_dxt_codec = DecompressDXT(dxt_blocks, img.cols, img.rows);
+  cv::imwrite("img_gtc.png", img_dxt_codec);  
 
   cv::Mat img_A_YCrCb, img_B_YCrCb;
   cv::cvtColor(img_A, img_A_YCrCb, CV_RGB2YCrCb);
@@ -582,23 +732,23 @@ int main(int argc, char **argv) {
   bool is_fast = false;
 #endif
 
-  cv::imwrite("dxt_img_A_Y.png", channels[0][0]);
+  cv::imwrite("img_dxtA_Y.png", channels[0][0]);
 
   dct::RunDCT(channels[0]);
-  cv::imwrite(is_fast ? "dxt_img_A_Y_fast_dct.png" : "dxt_img_A_Y_dct.png", channels[0][0]);
+  cv::imwrite(is_fast ? "img_dxtA_Y_fast_dct.png" : "img_dxtA_Y_dct.png", channels[0][0]);
   dct::RunIDCT(channels[0]);
-  cv::imwrite(is_fast ? "dxt_img_A_Y_fast_idct.png" : "dxt_img_A_Y_idct.png", channels[0][0]);
+  cv::imwrite(is_fast ? "img_dxtA_Y_fast_idct.png" : "img_dxtA_Y_idct.png", channels[0][0]);
 
-  cv::imwrite("dxt_img_A_Cr.png", channels[0][1]);
-  cv::imwrite("dxt_img_A_Cb.png", channels[0][2]);
+  cv::imwrite("img_dxtA_Cr.png", channels[0][1]);
+  cv::imwrite("img_dxtA_Cb.png", channels[0][2]);
 
   dct::RunDCT(channels[1]);
-  cv::imwrite(is_fast ? "dxt_img_B_Y_fast_dct.png" : "dxt_img_B_Y_dct.png", channels[1][0]);
+  cv::imwrite(is_fast ? "dxt_imgB_Y_fast_dct.png" : "dxt_imgB_Y_dct.png", channels[1][0]);
   dct::RunIDCT(channels[1]);
-  cv::imwrite(is_fast ? "dxt_img_B_Y_fast_idct.png" : "dxt_img_B_Y_idct.png", channels[1][0]);
+  cv::imwrite(is_fast ? "dxt_imgB_Y_fast_idct.png" : "dxt_imgB_Y_idct.png", channels[1][0]);
 
-  cv::imwrite("dxt_img_B_Cr.png", channels[1][1]);
-  cv::imwrite("dxt_img_B_Cb.png", channels[1][2]);
+  cv::imwrite("dxt_imgB_Cr.png", channels[1][1]);
+  cv::imwrite("dxt_imgB_Cb.png", channels[1][2]);
 
   return 0;
 }
