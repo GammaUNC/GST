@@ -327,6 +327,93 @@ void encode(const cv::Mat &img, std::vector<uint8_t> *result) {
   memcpy(result->data() + bytes_written, encoded.data(), encoded_bytes_written);
 }
 
+int decode(cv::Mat *result, const uint8_t *buf) {
+  int offset = 0;
+
+  uint16_t num_symbols = *reinterpret_cast<const uint16_t *>(buf + offset);
+  offset += 2;
+
+  std::vector<uint8_t> symbols(num_symbols, 0);
+  std::vector<int> counts(num_symbols, 0);
+
+  for (uint32_t i = 0; i < num_symbols; ++i) {
+    symbols[i] = *reinterpret_cast<const uint8_t *>(buf + offset);
+    counts[i] = static_cast<int>(*reinterpret_cast<const uint16_t *>(buf + offset + 1));
+    offset += 3;
+  }
+
+  int num_macroblocks = (result->cols * result->rows) / (kNumStreams * ans::kNumEncodedSymbols);
+  assert(num_macroblocks * kNumStreams * ans::kNumEncodedSymbols == 
+         static_cast<uint32_t>(result->cols * result->rows));
+  std::vector<uint16_t> macroblock_sizes(num_macroblocks);
+
+  for (int i = 0; i < num_macroblocks; ++i) {
+    macroblock_sizes[i] = *reinterpret_cast<const uint16_t *>(buf + offset);
+    offset += 2;
+  }
+
+  std::vector<int16_t> coeffs(result->cols * result->rows);
+
+  int symbol_offset = 0;
+  for (uint16_t mb_size : macroblock_sizes) {
+    int mb_off = offset + mb_size;
+
+    const uint32_t *states = reinterpret_cast<const uint32_t *>(buf + mb_off) - kNumStreams;
+    std::vector<ans::OpenCLCPUDecoder> decoders;
+    decoders.reserve(kNumStreams);
+    for (uint32_t i = 0; i < kNumStreams; ++i) {
+      decoders.push_back(ans::OpenCLCPUDecoder(states[kNumStreams - i - 1], counts));
+    }
+
+    int data_sz_bytes = mb_size - 4 * kNumStreams;
+    assert(data_sz_bytes % 2 == 0);
+
+    std::vector<uint16_t> mb_data(data_sz_bytes / 2);
+    memcpy(mb_data.data(), buf + offset, data_sz_bytes);
+    std::reverse(mb_data.begin(), mb_data.end());
+
+    ans::BitReader r(reinterpret_cast<const uint8_t *>(mb_data.data()));
+    for (uint32_t sym_idx = 0; sym_idx < ans::kNumEncodedSymbols; sym_idx++) {
+      for (uint32_t strm_idx = 0; strm_idx < kNumStreams; ++strm_idx) {
+        uint32_t sidx = symbol_offset + (kNumStreams - strm_idx) * ans::kNumEncodedSymbols - sym_idx - 1;
+        coeffs[sidx] = static_cast<int16_t>(symbols[decoders[strm_idx].Decode(r)]) - 128;
+      }
+
+      for (uint32_t strm_idx = 0; strm_idx < kNumStreams; ++strm_idx) {
+        uint32_t idx = symbol_offset + (kNumStreams - strm_idx) * ans::kNumEncodedSymbols - sym_idx - 1;
+        if (coeffs[idx] == -128) {
+          coeffs[idx] = static_cast<int16_t>(r.ReadBits(16));
+        }
+      }
+    }
+
+    offset = mb_off;
+    symbol_offset += kNumStreams * ans::kNumEncodedSymbols;
+  }
+
+  // Populate the image properly
+  assert(result->type() == CV_16SC1);
+  uint32_t coeff_idx = 0;
+#ifdef VERBOSE
+  std::cout << "First 16 decoded values: ";
+#endif
+  for (int j = 0; j < result->rows; ++j) {
+    for (int i = 0; i < result->cols; ++i) {
+#ifdef VERBOSE
+      if (coeff_offset <= coeff_idx && coeff_idx < coeff_offset + 16) {
+        std::cout << coeffs[coeff_idx] << ", ";
+        if (coeff_idx == coeff_offset + 15) {
+          std::cout << std::endl;
+        }
+      }
+#endif  // VERBOSE
+      result->at<int16_t>(j, i) = coeffs[coeff_idx++];
+    }
+  }
+
+  return offset;
+}
+
 static const cv::Mat quant_table_luma = (cv::Mat_<int16_t>(8, 8) <<
   16, 11, 10, 16, 24, 40, 51, 61,
   12, 12, 14, 19, 26, 58, 60, 55,
@@ -419,6 +506,16 @@ void compressChannel(const cv::Mat &img, std::vector<uint8_t> *result, bool is_c
   encode(dct_img, result);
 }
 
+int decompressChannel(cv::Mat *result, const uint8_t *buf, int width, int height, bool is_chroma) {
+  *result = cv::Mat(height, width, CV_16SC1);
+  int offset = decode(result, buf);
+
+  dequantize(result, is_chroma);
+  dct::RunIDCT(result);
+
+  return offset;
+}
+
 std::vector<uint8_t> compress(const cv::Mat &img) {
   cv::Mat img_YCrCb;
   cv::cvtColor(img, img_YCrCb, CV_RGB2YCrCb);
@@ -449,103 +546,6 @@ std::vector<uint8_t> compress(const cv::Mat &img) {
   return std::move(result);
 }
 
-int decode(cv::Mat *result, const uint8_t *buf) {
-  int offset = 0;
-
-  uint16_t num_symbols = *reinterpret_cast<const uint16_t *>(buf + offset);
-  offset += 2;
-
-  std::vector<uint8_t> symbols(num_symbols, 0);
-  std::vector<int> counts(num_symbols, 0);
-
-  for (uint32_t i = 0; i < num_symbols; ++i) {
-    symbols[i] = *reinterpret_cast<const uint8_t *>(buf + offset);
-    counts[i] = static_cast<int>(*reinterpret_cast<const uint16_t *>(buf + offset + 1));
-    offset += 3;
-  }
-
-  int num_macroblocks = (result->cols * result->rows) / (kNumStreams * ans::kNumEncodedSymbols);
-  assert(num_macroblocks * kNumStreams * ans::kNumEncodedSymbols == 
-         static_cast<uint32_t>(result->cols * result->rows));
-  std::vector<uint16_t> macroblock_sizes(num_macroblocks);
-
-  for (int i = 0; i < num_macroblocks; ++i) {
-    macroblock_sizes[i] = *reinterpret_cast<const uint16_t *>(buf + offset);
-    offset += 2;
-  }
-
-  std::vector<int16_t> coeffs(result->cols * result->rows);
-
-  int symbol_offset = 0;
-  for (uint16_t mb_size : macroblock_sizes) {
-    int mb_off = offset + mb_size;
-
-    const uint32_t *states = reinterpret_cast<const uint32_t *>(buf + mb_off) - kNumStreams;
-    std::vector<ans::OpenCLCPUDecoder> decoders;
-    decoders.reserve(kNumStreams);
-    for (uint32_t i = 0; i < kNumStreams; ++i) {
-      decoders.push_back(ans::OpenCLCPUDecoder(states[kNumStreams - i - 1], counts));
-    }
-
-    int data_sz_bytes = mb_size - 4 * kNumStreams;
-    assert(data_sz_bytes % 2 == 0);
-
-    std::vector<uint16_t> mb_data(data_sz_bytes / 2);
-    memcpy(mb_data.data(), buf + offset, data_sz_bytes);
-    std::reverse(mb_data.begin(), mb_data.end());
-
-    ans::BitReader r(reinterpret_cast<const uint8_t *>(mb_data.data()));
-    for (uint32_t sym_idx = 0; sym_idx < ans::kNumEncodedSymbols; sym_idx++) {
-      for (uint32_t strm_idx = 0; strm_idx < kNumStreams; ++strm_idx) {
-        uint32_t sidx = symbol_offset + (kNumStreams - strm_idx) * ans::kNumEncodedSymbols - sym_idx - 1;
-        coeffs[sidx] = static_cast<int16_t>(symbols[decoders[strm_idx].Decode(r)]) - 128;
-      }
-
-      for (uint32_t strm_idx = 0; strm_idx < kNumStreams; ++strm_idx) {
-        uint32_t idx = symbol_offset + (kNumStreams - strm_idx) * ans::kNumEncodedSymbols - sym_idx - 1;
-        if (coeffs[idx] == -128) {
-          coeffs[idx] = static_cast<int16_t>(r.ReadBits(16));
-        }
-      }
-    }
-
-    offset = mb_off;
-    symbol_offset += kNumStreams * ans::kNumEncodedSymbols;
-  }
-
-  // Populate the image properly
-  assert(result->type() == CV_16SC1);
-  uint32_t coeff_idx = 0;
-#ifdef VERBOSE
-  std::cout << "First 16 decoded values: ";
-#endif
-  for (int j = 0; j < result->rows; ++j) {
-    for (int i = 0; i < result->cols; ++i) {
-#ifdef VERBOSE
-      if (coeff_offset <= coeff_idx && coeff_idx < coeff_offset + 16) {
-        std::cout << coeffs[coeff_idx] << ", ";
-        if (coeff_idx == coeff_offset + 15) {
-          std::cout << std::endl;
-        }
-      }
-#endif  // VERBOSE
-      result->at<int16_t>(j, i) = coeffs[coeff_idx++];
-    }
-  }
-
-  return offset;
-}
-
-int decompressChannel(cv::Mat *result, const uint8_t *buf, int width, int height, bool is_chroma) {
-  *result = cv::Mat(height, width, CV_16SC1);
-  int offset = decode(result, buf);
-
-  dequantize(result, is_chroma);
-  dct::RunIDCT(result);
-
-  return offset;
-}
-
 cv::Mat decompress(const std::vector<uint8_t> &stream) {
   const uint8_t *stream_buf = stream.data();
 
@@ -570,6 +570,253 @@ cv::Mat decompress(const std::vector<uint8_t> &stream) {
   cv::Mat result(height, width, CV_8UC4);
   cv::cvtColor(img_YCrCb, result, CV_YCrCb2RGB);
   return result;
+}
+
+void get_indices_from_block(DXTBlock block, int *indices) {
+  for(int i = 0; i < 16; i++) {
+    indices[i] = (block.interpolation >> (i*2)) & 3;
+  }
+}
+
+uint8_t get_gray(const uint8_t color[]) {
+  int gray;
+
+  // choose one of the following representations of gray value
+
+  // Average
+  gray = static_cast<int> ((color[0]+color[1]+color[2])/3);
+  // Lightness
+  // gray = static_cast<int> ((std::max({color[0],color[1],color[2]})
+  //                          + std::min({color[0],color[1],color[2]}))/2);
+  // Luminosity
+  // gray = static_cast<int> (0.21*color[0]+0.72*color[1]+0.07*color[2]);
+  // Green channel
+  // gray = color[1];
+
+  if (gray < 0 or gray > 255) {
+    std::cout << "ERROR: ------ Gray value overflow: " << gray << std::endl;
+    exit(1);
+  }
+
+  uint8_t  eight_bit_gray = gray;
+  return eight_bit_gray;
+}
+
+void predict_color(const uint8_t diag[], const uint8_t upper[],
+                   const uint8_t left[], uint8_t *predicted) {
+  uint8_t gray_diag, gray_upper, gray_left;
+  gray_diag  = get_gray(diag);
+  gray_upper = get_gray(upper);
+  gray_left  = get_gray(left);
+
+  uint8_t mb = std::abs(gray_diag - gray_upper);
+  uint8_t mc = std::abs(gray_diag - gray_left);
+  uint8_t ma = std::abs(mb - mc);
+
+  int temp[3];
+
+  for(int i=0;i<3;i++) {
+    if ((ma < 4) and (mb < 4))
+      temp[i] = left[i] + upper[i] - diag[i];
+    else if (ma < 10)
+      temp[i] = (left[i] + upper[i])/2;
+    else if (ma < 64) {
+      if (mb < mc)
+        temp[i] = (3*left[i] + upper[i])/4;
+      else
+        temp[i] = (left[i] + 3*upper[i])/4;
+      }
+    else {
+      if (mb < mc)
+        temp[i] = left[i];
+      else
+        temp[i] = upper[i];
+    }
+  } // for
+
+  for(int i=0;i<3;i++) {
+    if (temp[i] < 0)
+      temp[i] = 0;
+    else if (temp[i] > 255)
+      temp[i] = 255;
+
+    predicted[i] = temp[i];
+  }
+}
+
+int distance(uint8_t *colorA, uint8_t *colorB) {
+  // abs of gray values
+  int gray_a = get_gray(colorA);
+  int gray_b = get_gray(colorB);
+  int distance;
+
+  // choose one of the following distances:
+
+  // absolute value
+  // distance = std::abs(gray_a - gray_b);
+  // sum of abs
+  // distance = std::abs(colorA[0]-colorB[0])
+  //     + std::abs(colorA[1]-colorB[1]) + std::abs(colorA[2]-colorB[2]);
+  // sum of sqaures
+  distance = (colorA[0]-colorB[0])*(colorA[0]-colorB[0])
+      + (colorA[1]-colorB[1])*(colorA[1]-colorB[1])
+      + (colorA[2]-colorB[2])*(colorA[2]-colorB[2]);
+
+  return distance;
+}
+
+int predict_index(uint8_t *colors, uint8_t *predicted_color) {
+  int difference[4];
+
+  for(int i=0;i<4;i++)
+    difference[i] = distance(predicted_color, &colors[i*3]);
+
+  int min = difference[0];
+  int min_id = 0;
+  for(int i=1;i<4;i++) {
+    if (min > difference[i]) {
+      min = difference[i];
+      min_id = i;
+    }
+  }
+
+  return min_id;
+}
+
+void get_dxt_color_at(const std::vector<DXTBlock> &blocks, int x, int y, uint8_t out[3]) {
+  
+}
+
+std::vector<uint8_t> symbolize_indices(const std::vector<DXTBlock> &blocks,
+                                       const std::vector<uint8_t> &indices,
+                                       int width, int height) {
+  assert(indices.size() == width * height);
+  assert(blocks.size() == indices.size() / 16);
+
+  // Operate in 16-block chunks arranged as 4x4 blocks
+  assert(width % 16 == 0);
+  assert(height % 16 == 0);
+
+  const int num_blocks_x = (width + 3) / 4;
+
+  std::vector<uint8_t> symbols;
+  symbols.reserve(indices.size());
+
+  for (int chunk_j = 0; chunk_j < height; chunk_j += 16) {
+    for (int chunk_i = 0; chunk_i < width; chunk_i += 16) {
+      // For each chunk, go through and leave the top row
+      // and left-most column unpredicted
+      for (int block_j = 0; block_j < 16; block_j += 4) {
+        for (int block_i = 0; block_i < 16; block_i += 4) {
+          
+          // In each block, push back the symbols one by one..
+          for (int j = 0; j < 4; ++j) {
+            for (int i = 0; i < 4; ++i) {
+              int chunk_coord_y = block_j + j;
+              int chunk_coord_x = block_i + i;
+
+              int px = chunk_j + block_j + j;
+              int py = chunk_i + block_i + i;
+
+              int pixel_index = py * width + px;
+              if (chunk_coord_y == 0 or chunk_coord_x == 0) {
+                symbols.push_back(indices[pixel_index]);
+              } else {
+                uint8_t diag_color[3], top_color[3], left_color[3];
+                get_dxt_color_at(blocks, px - 1, py - 1, diag_color);
+                get_dxt_color_at(blocks, px, py - 1, top_color);
+                get_dxt_color_at(blocks, px - 1, py, left_color);
+
+                symbols.push_back(indices[pixel_index]);
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+
+  return std::move(symbols);
+}
+
+std::vector<uint8_t> entropy_encode_index_symbols(const std::vector<uint8_t> &symbols) {
+  // Make sure that we have a multiples of 256 symbols
+  assert((symbols.size() % (256 * 16)) == 0);
+
+  // First collect histogram
+  std::vector<int> counts(4, 0);
+  for (auto symbol : symbols) {
+    assert(symbol < 4);
+    counts[symbol]++;
+  }
+
+  std::vector<uint8_t> output(4 * sizeof(uint16_t));
+  uint32_t bytes_written = 0;
+
+  // Write counts to output
+  for (size_t i = 0; i < counts.size(); ++i) {
+    assert(counts[i] < (1 << 16));
+    *(reinterpret_cast<uint16_t *>(output.data()) + i) = static_cast<uint16_t>(counts[i]);
+  }
+
+  std::vector<ans::OpenCLEncoder> encoders;
+  encoders.reserve(kNumStreams);
+  for (uint32_t i = 0; i < kNumStreams; ++i) {
+    encoders.push_back(std::move(ans::OpenCLEncoder(counts)));
+  }
+
+  std::vector<uint8_t> encoded;
+  uint32_t encoded_bytes_written = 0;
+  uint32_t last_encoded_bytes_written = 0;
+
+  uint32_t symbol_offset = 0;
+  while(symbol_offset < symbols.size()) {
+    for (uint32_t sym_idx = 0; sym_idx < ans::kNumEncodedSymbols; sym_idx++) {
+      encoded.resize(encoded_bytes_written + 2*kNumStreams);
+
+      for (uint32_t strm_idx = 0; strm_idx < kNumStreams; ++strm_idx) {
+        ans::BitWriter w(encoded.data() + encoded_bytes_written);
+        uint32_t sidx = symbol_offset + (strm_idx + 1) * ans::kNumEncodedSymbols - sym_idx - 1;
+        uint8_t symbol = symbols[sidx];
+
+        assert(symbol < counts.size());
+        assert(counts[symbol] > 0);
+
+        encoders[strm_idx].Encode(symbol, w);
+        encoded_bytes_written += w.BytesWritten();
+      }
+    }
+
+    // Write the encoder states to the encoded stream...
+    encoded.resize(encoded_bytes_written + 4*kNumStreams);
+    uint32_t *states = reinterpret_cast<uint32_t *>(encoded.data() + encoded_bytes_written);
+    for (uint32_t strm_idx = 0; strm_idx < kNumStreams; ++strm_idx) {
+      states[strm_idx] = encoders[strm_idx].GetState();
+    }
+
+    // Add the offset to the stream...
+    uint32_t offset = encoded_bytes_written - last_encoded_bytes_written;
+    output.resize(bytes_written + 2);
+    *reinterpret_cast<uint16_t *>(output.data() + bytes_written) = static_cast<uint16_t>(offset);
+    bytes_written += 2;
+    assert(offset <= ((1 << 16) - 1));
+    last_encoded_bytes_written = encoded_bytes_written;
+
+    // Get ready for the next symbols...
+    symbol_offset += kNumStreams * ans::kNumEncodedSymbols;
+  }
+
+  output.resize(bytes_written + encoded_bytes_written);
+  output.insert(output.begin() + bytes_written, encoded.begin(), encoded.end());
+
+  return std::move(output);
+}
+
+std::vector<uint8_t> compress_indices(const std::vector<DXTBlock> &blocks,
+                                      const std::vector<uint8_t> &indices,
+                                      int width, int height) {
+  std::vector<uint8_t> symbolized_indices = symbolize_indices(blocks, indices, width, height);
+  return entropy_encode_index_symbols(symbolized_indices);
 }
 
 int main(int argc, char **argv) {
@@ -614,49 +861,38 @@ int main(int argc, char **argv) {
   cv::Mat img_dxt = DecompressDXT(dxt_blocks, img.cols, img.rows);
   cv::imwrite("img_dxt.png", img_dxt);
 
-  // !FIXME! Find structure in interpolation values
-  // Aidos this is where you work your magic.
-
-  // Collect stats...
-  size_t num_zero = 0;
-  size_t num_one = 0;
-  size_t num_two = 0;
-  size_t num_three = 0;
-  for (int i = 0; i < num_blocks; ++i) {
-    uint32_t interp = dxt_blocks[i].interpolation;
-    for (int j = 0; j < 16; ++j) {
-      switch (interp & 0x3) {
-        case 0: num_zero++; break;
-        case 1: num_one++; break;  
-        case 2: num_two++; break;
-        case 3: num_three++; break;  
-      }
-      interp >>= 2;
-    }
-  }
-
-  std::cout << "Number of 0 interpolation values: " << num_zero << std::endl;
-  std::cout << "Number of 1 interpolation values: " << num_one << std::endl;
-  std::cout << "Number of 2 interpolation values: " << num_two << std::endl;
-  std::cout << "Number of 3 interpolation values: " << num_three << std::endl;
-
-  // Visualize data...
-  uint8_t interp_map[4] = { 0, 85, 170, 255 };
-  cv::Mat interp_vis(img.rows, img.cols, CV_8UC1);
+  std::vector<uint8_t> indices(img.cols * img.rows, 0);
   for (int j = 0; j < img.rows; j+=4) {
     for (int i = 0; i < img.cols; i+=4) {
       int block_idx = (j / 4) * num_blocks_x + (i / 4);
+
+      int idxs[4];
+      get_indices_from_block(dxt_blocks[block_idx], idxs);
+
       for (int y = 0; y < 4; ++y) {
         for (int x = 0; x < 4; ++x) {
-          int local_pixel_idx = y * 4 + x;
-          int interp = (dxt_blocks[block_idx].interpolation >> local_pixel_idx) & 0x3;
-          interp_vis.at<uint8_t>(j + y, i + x) = interp_map[interp];
+          int pixel_idx = (j + y) * img.cols + (i + x);
+          indices[pixel_idx] = idxs[y * 4 + x];
         }
       }
     }
   }
 
-  cv::imwrite("img_dxt_interp.png", interp_vis);
+  // Visualize data...
+  {
+    uint8_t interp_map[4] = { 0, 85, 170, 255 };
+    cv::Mat interp_vis(img.rows, img.cols, CV_8UC1);
+    for (int j = 0; j < img.rows; j+=4) {
+      for (int i = 0; i < img.cols; i+=4) {
+        interp_vis.at<uint8_t>(j, i) = interp_map[indices[j*img.rows + i]];
+      }
+    }
+    cv::imwrite("img_dxt_interp.png", interp_vis);
+  }
+
+  // Compress indices...
+  std::vector<uint8_t> compressed_indices =
+    compress_indices(dxt_blocks, indices, img.cols, img.rows);
 
   cv::Mat img_A(num_blocks_y, num_blocks_x, CV_8UC4);
   cv::Mat img_B(num_blocks_y, num_blocks_x, CV_8UC4);
