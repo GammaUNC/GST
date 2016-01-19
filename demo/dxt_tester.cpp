@@ -105,47 +105,82 @@ uint32_t LerpChannels(uint32_t a, uint32_t b, int num, int div) {
   return result;
 }
 
+void get_dxt_palette(const DXTBlock &block, uint8_t out[12]) {
+  // unpack the endpoints
+  uint32_t palette[4];
+  palette[0] = From565(block.ep1);
+  palette[1] = From565(block.ep2);
+
+  if (block.ep1 <= block.ep2) {
+    palette[2] = LerpChannels(palette[0], palette[1], 1, 2);
+    palette[3] = 0;
+  }
+  else {
+    palette[2] = LerpChannels(palette[0], palette[1], 1, 3);
+    palette[3] = LerpChannels(palette[0], palette[1], 2, 3);
+  }
+
+  for (int i = 0; i < 4; ++i) {
+    out[3 * i + 0] = palette[i] & 0xFF;
+    out[3 * i + 1] = (palette[i] >> 8) & 0xFF;
+    out[3 * i + 2] = (palette[i] >> 16) & 0xFF;
+  }
+}
+
+cv::Mat DecompressDXTBlock(const DXTBlock &block) {
+  cv::Mat result(4, 4, CV_8UC4);
+
+  uint8_t palette[12];
+  get_dxt_palette(block, palette);
+
+  // unpack the indices
+  uint8_t const* bytes = reinterpret_cast<const uint8_t *>(&block);
+  uint8_t indices[16];
+  for (int k = 0; k < 4; ++k) {
+    uint8_t packed = bytes[4 + k];
+
+    indices[0 + 4 * k] = packed & 0x3;
+    indices[1 + 4 * k] = (packed >> 2) & 0x3;
+    indices[2 + 4 * k] = (packed >> 4) & 0x3;
+    indices[3 + 4 * k] = (packed >> 6) & 0x3;
+  }
+
+  // store out the colours
+  for (int y = 0; y < 4; ++y) {
+    for (int x = 0; x < 4; ++x) {
+      uint8_t offset = indices[y * 4 + x];
+      uint32_t pixel = 0xFF000000;
+      pixel |= palette[3 * offset + 0];
+      pixel |= (static_cast<uint32_t>(palette[3 * offset + 1]) << 8);
+      pixel |= (static_cast<uint32_t>(palette[3 * offset + 2]) << 16);
+      result.at<uint32_t>(y, x) = pixel;
+    }
+  }
+
+  return result;
+}
+
+void get_dxt_color_at(const std::vector<DXTBlock> &blocks, int x, int y, int width, uint8_t out[3]) {
+  int block_idx = (y / 4) * (width / 4) + (x / 4);
+  cv::Mat block = DecompressDXTBlock(blocks[block_idx]);
+
+  int i = x % 4;
+  int j = y % 4;
+
+  uint32_t c = block.at<uint32_t>(j, i);
+  out[0] = c & 0xFF;
+  out[1] = (c >> 8) & 0xFF;
+  out[2] = (c >> 16) & 0xFF;
+}
+
 cv::Mat DecompressDXT(const std::vector<DXTBlock> &blocks, int width, int height) {
   cv::Mat result(height, width, CV_8UC4);
 
   int block_idx = 0;
   for (int j = 0; j < height; j += 4) {
     for (int i = 0; i < width; i += 4) {
-      // get the block bytes
-      uint8_t const* bytes = reinterpret_cast<const uint8_t *>(blocks.data() + block_idx);
-        
-      // unpack the endpoints
-      uint32_t palette[4];
-      palette[0] = From565(blocks[block_idx].ep1);
-      palette[1] = From565(blocks[block_idx].ep2);
-
-      if (blocks[block_idx].ep1 <= blocks[block_idx].ep2) {
-        palette[2] = LerpChannels(palette[0], palette[1], 1, 2);
-        palette[3] = 0;
-      } else {
-        palette[2] = LerpChannels(palette[0], palette[1], 1, 3);
-        palette[3] = LerpChannels(palette[0], palette[1], 2, 3);
-      }
-        
-      // unpack the indices
-      uint8_t indices[16];
-      for( int k = 0; k < 4; ++k ) {
-        uint8_t packed = bytes[4 + k];
-        
-        indices[0 + 4*k] = packed & 0x3;
-        indices[1 + 4*k] = ( packed >> 2 ) & 0x3;
-        indices[2 + 4*k] = ( packed >> 4 ) & 0x3;
-        indices[3 + 4*k] = ( packed >> 6 ) & 0x3;
-      }
-
-      // store out the colours
-      for (int y = 0; y < 4; ++y) {
-        for (int x = 0; x < 4; ++x) {
-          uint8_t offset = indices[y*4 + x];
-          result.at<uint32_t>(j+y, i+x) = palette[offset];
-        }
-      }
-
+      cv::Mat block = DecompressDXTBlock(blocks[block_idx]);
+      block.copyTo(result(cv::Rect_<int>(i, j, 4, 4)));
       block_idx++;
     }
   }
@@ -593,7 +628,7 @@ uint8_t get_gray(const uint8_t color[]) {
   // Green channel
   // gray = color[1];
 
-  if (gray < 0 or gray > 255) {
+  if (gray < 0 || gray > 255) {
     std::cout << "ERROR: ------ Gray value overflow: " << gray << std::endl;
     exit(1);
   }
@@ -616,7 +651,7 @@ void predict_color(const uint8_t diag[], const uint8_t upper[],
   int temp[3];
 
   for(int i=0;i<3;i++) {
-    if ((ma < 4) and (mb < 4))
+    if ((ma < 4) && (mb < 4))
       temp[i] = left[i] + upper[i] - diag[i];
     else if (ma < 10)
       temp[i] = (left[i] + upper[i])/2;
@@ -683,10 +718,6 @@ int predict_index(uint8_t *colors, uint8_t *predicted_color) {
   return min_id;
 }
 
-void get_dxt_color_at(const std::vector<DXTBlock> &blocks, int x, int y, uint8_t out[3]) {
-  
-}
-
 std::vector<uint8_t> symbolize_indices(const std::vector<DXTBlock> &blocks,
                                        const std::vector<uint8_t> &indices,
                                        int width, int height) {
@@ -719,15 +750,23 @@ std::vector<uint8_t> symbolize_indices(const std::vector<DXTBlock> &blocks,
               int py = chunk_i + block_i + i;
 
               int pixel_index = py * width + px;
-              if (chunk_coord_y == 0 or chunk_coord_x == 0) {
+              if (chunk_coord_y == 0 || chunk_coord_x == 0) {
                 symbols.push_back(indices[pixel_index]);
               } else {
                 uint8_t diag_color[3], top_color[3], left_color[3];
-                get_dxt_color_at(blocks, px - 1, py - 1, diag_color);
-                get_dxt_color_at(blocks, px, py - 1, top_color);
-                get_dxt_color_at(blocks, px - 1, py, left_color);
+                get_dxt_color_at(blocks, px - 1, py - 1, width, diag_color);
+                get_dxt_color_at(blocks, px, py - 1, width, top_color);
+                get_dxt_color_at(blocks, px - 1, py, width, left_color);
 
-                symbols.push_back(indices[pixel_index]);
+                uint8_t predicted[3];
+                predict_color(diag_color, top_color, left_color, predicted);
+
+                uint8_t palette[12];
+                get_dxt_palette(blocks[(py / 4) * (width / 4) + (px / 4)], palette);
+                int predicted_index = predict_index(palette, predicted);
+
+                int delta = ((indices[pixel_index] + 4) - predicted_index) % 4;
+                symbols.push_back(delta);
               }
             }
           }
@@ -816,7 +855,7 @@ std::vector<uint8_t> compress_indices(const std::vector<DXTBlock> &blocks,
                                       const std::vector<uint8_t> &indices,
                                       int width, int height) {
   std::vector<uint8_t> symbolized_indices = symbolize_indices(blocks, indices, width, height);
-  return entropy_encode_index_symbols(symbolized_indices);
+  return std::move(entropy_encode_index_symbols(symbolized_indices));
 }
 
 int main(int argc, char **argv) {
@@ -913,7 +952,7 @@ int main(int argc, char **argv) {
   std::vector<uint8_t> strm_B = compress(img_B);
   cv::Mat decomp_B = decompress(strm_B);
 
-  uint32_t total_compressed_sz = strm_A.size() + strm_B.size() + dxt_blocks.size() * 4;
+  uint32_t total_compressed_sz = strm_A.size() + strm_B.size() + compressed_indices.size();
   uint32_t dxt_sz = dxt_blocks.size() * 8;
   uint32_t uncompressed_sz = img.cols * img.rows * 3;
 
