@@ -2,53 +2,64 @@
 #include <cstdlib>
 #include <numeric>
 
-#include "ans_encode.h"
-#include "ans_decode.h"
+#include "ans.h"
 #include "gtest/gtest.h"
 
 TEST(Codec, CanEncodeValues) {
   std::vector<uint32_t> F = { 2, 1, 1 };
-  ans::Encoder<(1 << 16), 2> enc(F);
+
+  ans::Options opts;
+  opts.b = (1 << 16);
+  opts.k = 2;
+  opts.type = ans::eType_rANS;
+
+  std::unique_ptr<ans::Encoder> enc = ans::Encoder::Create(F, opts);
 
   uint32_t x = 0;
   ans::BitWriter w(reinterpret_cast<unsigned char *>(&x));
 
-  uint32_t state = enc.GetState();
-  enc.Encode(0, w);
-  EXPECT_LE(state, enc.GetState());
-  uint32_t state1 = enc.GetState();
+  uint32_t state = enc->GetState();
+  enc->Encode(0, &w);
+  EXPECT_LE(state, enc->GetState());
+  uint32_t state1 = enc->GetState();
 
-  enc.Encode(1, w);
-  EXPECT_LE(state1, enc.GetState());
-  uint32_t state2 = enc.GetState();
+  enc->Encode(1, &w);
+  EXPECT_LE(state1, enc->GetState());
+  uint32_t state2 = enc->GetState();
 
-  enc.Encode(0, w);
-  EXPECT_LE(state2, enc.GetState());
-  uint32_t state3 = enc.GetState();
+  enc->Encode(0, &w);
+  EXPECT_LE(state2, enc->GetState());
+  uint32_t state3 = enc->GetState();
 
-  enc.Encode(2, w);
-  EXPECT_LE(state3, enc.GetState());
-  uint32_t state4 = enc.GetState();
+  enc->Encode(2, &w);
+  EXPECT_LE(state3, enc->GetState());
+  uint32_t state4 = enc->GetState();
 
   // We really shouldn't have written anything to x...
   EXPECT_EQ(0, x);
 
   ans::BitReader r(reinterpret_cast<unsigned char *>(&x));
-  ans::Decoder<(1 << 16), 2> dec(state4, F);
-  EXPECT_EQ(dec.Decode(r), 2);
-  EXPECT_EQ(dec.GetState(), state3);
-  EXPECT_EQ(dec.Decode(r), 0);
-  EXPECT_EQ(dec.GetState(), state2);
-  EXPECT_EQ(dec.Decode(r), 1);
-  EXPECT_EQ(dec.GetState(), state1);
-  EXPECT_EQ(dec.Decode(r), 0);
-  EXPECT_EQ(dec.GetState(), state);
+  std::unique_ptr<ans::Decoder> dec = ans::Decoder::Create(state4, F, opts);
+  EXPECT_EQ(dec->Decode(&r), 2);
+  EXPECT_EQ(dec->GetState(), state3);
+  EXPECT_EQ(dec->Decode(&r), 0);
+  EXPECT_EQ(dec->GetState(), state2);
+  EXPECT_EQ(dec->Decode(&r), 1);
+  EXPECT_EQ(dec->GetState(), state1);
+  EXPECT_EQ(dec->Decode(&r), 0);
+  EXPECT_EQ(dec->GetState(), state);
 }
 
 TEST(Codec, CanEncodeValuesWithRenormalization) {
   const int num_copies = 6;
   std::vector<uint32_t> F = { 2, 1, 1 };
-  ans::Encoder<(1 << 8), 2> enc(F);
+
+  ans::Options opts;
+  opts.b = (1 << 8);
+  opts.k = 2;
+  opts.type = ans::eType_rANS;
+
+  std::unique_ptr<ans::Encoder> enc = ans::Encoder::Create(F, opts);
 
   std::vector<uint32_t> states;
   states.reserve(num_copies * 4);
@@ -58,21 +69,21 @@ TEST(Codec, CanEncodeValuesWithRenormalization) {
   ans::BitWriter w(xptr);
 
   for (int i = 0; i < num_copies; ++i) {
-    states.push_back(enc.GetState());
-    enc.Encode(0, w);
+    states.push_back(enc->GetState());
+    enc->Encode(0, &w);
 
-    states.push_back(enc.GetState());
-    enc.Encode(1, w);
+    states.push_back(enc->GetState());
+    enc->Encode(1, &w);
 
-    states.push_back(enc.GetState());
-    enc.Encode(0, w);
+    states.push_back(enc->GetState());
+    enc->Encode(0, &w);
 
-    states.push_back(enc.GetState());
-    enc.Encode(2, w);
+    states.push_back(enc->GetState());
+    enc->Encode(2, &w);
   }
 
   ASSERT_EQ(w.BytesWritten(), 4);
-  uint32_t final = enc.GetState();
+  uint32_t final = enc->GetState();
 
   // We really should have written something to x...
   EXPECT_NE(0, x);
@@ -82,18 +93,18 @@ TEST(Codec, CanEncodeValuesWithRenormalization) {
   std::swap(xptr[1], xptr[2]);
 
   ans::BitReader r(xptr);
-  ans::Decoder<(1 << 8), 2> dec(final, F);
+  std::unique_ptr<ans::Decoder> dec = ans::Decoder::Create(final, F, opts);
 
   auto rev_iter = states.rbegin();
   for (int i = 0; i < num_copies; ++i) {
-    EXPECT_EQ(dec.Decode(r), 2);
-    EXPECT_EQ(dec.GetState(), *(rev_iter++));
-    EXPECT_EQ(dec.Decode(r), 0);
-    EXPECT_EQ(dec.GetState(), *(rev_iter++));
-    EXPECT_EQ(dec.Decode(r), 1);
-    EXPECT_EQ(dec.GetState(), *(rev_iter++));
-    EXPECT_EQ(dec.Decode(r), 0);
-    EXPECT_EQ(dec.GetState(), *(rev_iter++));
+    EXPECT_EQ(dec->Decode(&r), 2);
+    EXPECT_EQ(dec->GetState(), *(rev_iter++));
+    EXPECT_EQ(dec->Decode(&r), 0);
+    EXPECT_EQ(dec->GetState(), *(rev_iter++));
+    EXPECT_EQ(dec->Decode(&r), 1);
+    EXPECT_EQ(dec->GetState(), *(rev_iter++));
+    EXPECT_EQ(dec->Decode(&r), 0);
+    EXPECT_EQ(dec->GetState(), *(rev_iter++));
   }
 }
 
@@ -113,6 +124,11 @@ TEST(Codec, CanEncodeValuesWithRenormalization_Robust) {
     1, { 80, 15 }
   };
 
+  ans::Options opts;
+  opts.b = 256;
+  opts.k = 2;
+  opts.type = ans::eType_rANS;
+
   size_t num_cases = sizeof(test_cases) / sizeof(test_cases[0]);
   for (size_t i = 0; i < num_cases; ++i) {
     const TestCase &test = test_cases[i];
@@ -127,7 +143,7 @@ TEST(Codec, CanEncodeValuesWithRenormalization_Robust) {
     std::vector<uint32_t> states;
     states.reserve(test.num_symbols);
 
-    ans::Encoder<256, 2> enc(test.F);
+    std::unique_ptr<ans::Encoder> enc = ans::Encoder::Create(test.F, opts);
     for (int i = 0; i < test.num_symbols; ++i) {
       int r = rand() % M;
       int symbol = 0;
@@ -143,8 +159,8 @@ TEST(Codec, CanEncodeValuesWithRenormalization_Robust) {
       symbols.push_back(symbol);
 
       ans::BitWriter w(stream.data() + bytes_written);
-      states.push_back(enc.GetState());
-      enc.Encode(symbol, w);
+      states.push_back(enc->GetState());
+      enc->Encode(symbol, &w);
 
       bytes_written += w.BytesWritten();
       if (bytes_written > (stream.size() / 2)) {
@@ -152,8 +168,8 @@ TEST(Codec, CanEncodeValuesWithRenormalization_Robust) {
       }
     }
 
-    uint32_t final_state = enc.GetState();
-    ans::Decoder<256, 2> dec(final_state, test.F);
+    uint32_t final_state = enc->GetState();
+    std::unique_ptr<ans::Decoder> dec = ans::Decoder::Create(final_state, test.F, opts);
 
     stream.resize(bytes_written);
     std::reverse(stream.begin(), stream.end());
@@ -162,8 +178,8 @@ TEST(Codec, CanEncodeValuesWithRenormalization_Robust) {
 
     ans::BitReader r(stream.data());
     for (int i = 0; i < test.num_symbols; ++i) {
-      EXPECT_EQ(dec.Decode(r), symbols[i]);
-      EXPECT_EQ(dec.GetState(), states[i]);
+      EXPECT_EQ(dec->Decode(&r), symbols[i]);
+      EXPECT_EQ(dec->GetState(), states[i]);
     }
   }
 }
@@ -188,14 +204,19 @@ TEST(Codec, CanInterleaveIdenticalStreams) {
 
   const size_t num_cases = sizeof(test_cases) / sizeof(test_cases[0]);
 
-  std::vector<ans::Encoder<256, 2> > encoders;
+  ans::Options opts;
+  opts.b = 256;
+  opts.k = 2;
+  opts.type = ans::eType_rANS;
+
+  std::vector<std::unique_ptr<ans::Encoder> > encoders;
   encoders.reserve(num_cases);
 
   for (size_t i = 0; i < num_cases; ++i) {
     TestCase &test = test_cases[i];
     test.symbols.reserve(num_symbols);
     test.states.reserve(num_symbols);
-    encoders.push_back(ans::Encoder<256, 2>(test.F));
+    encoders.push_back(ans::Encoder::Create(test.F, opts));
   }
 
   size_t bytes_written = 0;
@@ -218,8 +239,8 @@ TEST(Codec, CanInterleaveIdenticalStreams) {
     test.symbols.push_back(symbol);
 
     ans::BitWriter w(stream.data() + bytes_written);
-    test.states.push_back(encoders[i % num_cases].GetState());
-    encoders[i % num_cases].Encode(symbol, w);
+    test.states.push_back(encoders[i % num_cases]->GetState());
+    encoders[i % num_cases]->Encode(symbol, &w);
 
     bytes_written += w.BytesWritten();
     if (bytes_written > (stream.size() / 2)) {
@@ -227,7 +248,7 @@ TEST(Codec, CanInterleaveIdenticalStreams) {
     }
   }
 
-  std::vector<ans::Decoder<256, 2> > decoders;
+  std::vector<std::unique_ptr<ans::Decoder> > decoders;
   decoders.reserve(num_cases);
 
   for (size_t i = 0; i < num_cases; ++i) {
@@ -235,8 +256,8 @@ TEST(Codec, CanInterleaveIdenticalStreams) {
     std::reverse(test.symbols.begin(), test.symbols.end());
     std::reverse(test.states.begin(), test.states.end());
 
-    decoders.push_back(ans::Decoder<256, 2>(encoders[i].GetState(),
-                                            test_cases[i].F));
+    decoders.push_back(ans::Decoder::Create(encoders[i]->GetState(),
+                                          test_cases[i].F, opts));
   }
 
   stream.resize(bytes_written);
@@ -246,8 +267,8 @@ TEST(Codec, CanInterleaveIdenticalStreams) {
   for (size_t i = 0; i < num_symbols * num_cases; ++i) {
     const int test_idx = num_cases - 1 - (i % num_cases);
     const TestCase &test = test_cases[test_idx];
-    EXPECT_EQ(decoders[test_idx].Decode(r), test.symbols[i / num_cases]);
-    EXPECT_EQ(decoders[test_idx].GetState(), test.states[i / num_cases]);
+    EXPECT_EQ(decoders[test_idx]->Decode(&r), test.symbols[i / num_cases]);
+    EXPECT_EQ(decoders[test_idx]->GetState(), test.states[i / num_cases]);
   }
 }
 
@@ -269,14 +290,19 @@ TEST(Codec, CanInterleaveStreamsWithDifferentDistributions) {
 
   const size_t num_cases = sizeof(test_cases) / sizeof(test_cases[0]);
 
-  std::vector<ans::Encoder<256, 2> > encoders;
+  ans::Options opts;
+  opts.b = 256;
+  opts.k = 2;
+  opts.type = ans::eType_rANS;
+
+  std::vector<std::unique_ptr<ans::Encoder> > encoders;
   encoders.reserve(num_cases);
 
   for (size_t i = 0; i < num_cases; ++i) {
     TestCase &test = test_cases[i];
     test.symbols.reserve(num_symbols);
     test.states.reserve(num_symbols);
-    encoders.push_back(ans::Encoder<256, 2>(test.F));
+    encoders.push_back(ans::Encoder::Create(test.F, opts));
   }
 
   size_t bytes_written = 0;
@@ -299,8 +325,8 @@ TEST(Codec, CanInterleaveStreamsWithDifferentDistributions) {
     test.symbols.push_back(symbol);
 
     ans::BitWriter w(stream.data() + bytes_written);
-    test.states.push_back(encoders[i % num_cases].GetState());
-    encoders[i % num_cases].Encode(symbol, w);
+    test.states.push_back(encoders[i % num_cases]->GetState());
+    encoders[i % num_cases]->Encode(symbol, &w);
 
     bytes_written += w.BytesWritten();
     if (bytes_written > (stream.size() / 2)) {
@@ -308,7 +334,7 @@ TEST(Codec, CanInterleaveStreamsWithDifferentDistributions) {
     }
   }
 
-  std::vector<ans::Decoder<256, 2> > decoders;
+  std::vector<std::unique_ptr<ans::Decoder> > decoders;
   decoders.reserve(num_cases);
 
   for (size_t i = 0; i < num_cases; ++i) {
@@ -316,8 +342,8 @@ TEST(Codec, CanInterleaveStreamsWithDifferentDistributions) {
     std::reverse(test.symbols.begin(), test.symbols.end());
     std::reverse(test.states.begin(), test.states.end());
 
-    decoders.push_back(ans::Decoder<256, 2>(encoders[i].GetState(),
-                                            test_cases[i].F));
+    decoders.push_back(ans::Decoder::Create(encoders[i]->GetState(),
+                                          test_cases[i].F, opts));
   }
 
   stream.resize(bytes_written);
@@ -327,8 +353,8 @@ TEST(Codec, CanInterleaveStreamsWithDifferentDistributions) {
   for (size_t i = 0; i < num_symbols * num_cases; ++i) {
     const int test_idx = num_cases - 1 - (i % num_cases);
     const TestCase &test = test_cases[test_idx];
-    EXPECT_EQ(decoders[test_idx].Decode(r), test.symbols[i / num_cases]);
-    EXPECT_EQ(decoders[test_idx].GetState(), test.states[i / num_cases]);
+    EXPECT_EQ(decoders[test_idx]->Decode(&r), test.symbols[i / num_cases]);
+    EXPECT_EQ(decoders[test_idx]->GetState(), test.states[i / num_cases]);
   }
 }
 
@@ -350,7 +376,12 @@ TEST(Codec, CanInterleaveStreamsWithDifferentSymbolsFromDistributions) {
   const size_t num_cases = sizeof(test_cases) / sizeof(test_cases[0]);
   const size_t num_symbols[num_cases] = { 1024, 3, 14, 256 };
 
-  std::vector<ans::Encoder<256, 2> > encoders;
+  ans::Options opts;
+  opts.b = 256;
+  opts.k = 2;
+  opts.type = ans::eType_rANS;
+
+  std::vector<std::unique_ptr<ans::Encoder> > encoders;
   encoders.reserve(num_cases);
 
   size_t max_num_symbols = 0;
@@ -358,7 +389,7 @@ TEST(Codec, CanInterleaveStreamsWithDifferentSymbolsFromDistributions) {
     TestCase &test = test_cases[i];
     test.symbols.reserve(num_symbols[i]);
     test.states.reserve(num_symbols[i]);
-    encoders.push_back(ans::Encoder<256, 2>(test.F));
+    encoders.push_back(ans::Encoder::Create(test.F, opts));
     max_num_symbols = std::max(max_num_symbols, num_symbols[i]);
   }
 
@@ -389,8 +420,8 @@ TEST(Codec, CanInterleaveStreamsWithDifferentSymbolsFromDistributions) {
       test.symbols.push_back(symbol);
 
       ans::BitWriter w(stream.data() + bytes_written);
-      test.states.push_back(encoders[j].GetState());
-      encoders[j].Encode(symbol, w);
+      test.states.push_back(encoders[j]->GetState());
+      encoders[j]->Encode(symbol, &w);
 
       bytes_written += w.BytesWritten();
       if (bytes_written > (stream.size() / 2)) {
@@ -399,12 +430,12 @@ TEST(Codec, CanInterleaveStreamsWithDifferentSymbolsFromDistributions) {
     }
   }
 
-  std::vector<ans::Decoder<256, 2> > decoders;
+  std::vector<std::unique_ptr<ans::Decoder> > decoders;
   decoders.reserve(num_cases);
 
   for (size_t i = 0; i < num_cases; ++i) {
-    decoders.push_back(ans::Decoder<256, 2>(encoders[i].GetState(),
-                                            test_cases[i].F));
+    decoders.push_back(ans::Decoder::Create(encoders[i]->GetState(),
+                                          test_cases[i].F, opts));
   }
 
   stream.resize(bytes_written);
@@ -420,8 +451,8 @@ TEST(Codec, CanInterleaveStreamsWithDifferentSymbolsFromDistributions) {
       }
 
       const TestCase &test = test_cases[test_idx];
-      EXPECT_EQ(decoders[test_idx].Decode(r), test.symbols[symbol_idx]);
-      EXPECT_EQ(decoders[test_idx].GetState(), test.states[symbol_idx]);
+      EXPECT_EQ(decoders[test_idx]->Decode(&r), test.symbols[symbol_idx]);
+      EXPECT_EQ(decoders[test_idx]->GetState(), test.states[symbol_idx]);
     }
   }
 }

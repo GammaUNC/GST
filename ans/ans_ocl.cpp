@@ -27,26 +27,8 @@ static std::vector<T> ReadBuffer(cl_command_queue queue, cl_mem buffer, size_t n
 
 namespace ans {
 
-static std::vector<cl_uint> NormalizeFrequencies(const std::vector<int> &F) {
-  std::vector<int> freqs = std::move(ans::GenerateHistogram(F, kANSTableSize));
-  assert(freqs.size() == F.size());
-
-  std::vector<cl_uint> result;
-  result.reserve(freqs.size());
-  for (const auto freq : freqs) {
-    result.push_back(static_cast<cl_uint>(freq));
-  }
-  return std::move(result);
-}
-
-OpenCLEncoder::OpenCLEncoder(const std::vector<int> &F)
-  : OpenCLEncoderBase(std::move(NormalizeFrequencies(F))) { }
-
-OpenCLCPUDecoder::OpenCLCPUDecoder(cl_uint state, const std::vector<int> &F)
-  : OpenCLDecoderBase(state, std::move(NormalizeFrequencies(F))) { }
-
 OpenCLDecoder::OpenCLDecoder(
-  const std::unique_ptr<gpu::GPUContext> &ctx, const std::vector<int> &F, const int num_interleaved)
+  const std::unique_ptr<gpu::GPUContext> &ctx, const std::vector<uint32_t> &F, const int num_interleaved)
   : _num_interleaved(num_interleaved)
   , _M(kANSTableSize)
   , _gpu_ctx(ctx)
@@ -104,7 +86,7 @@ std::vector<cl_ushort> OpenCLDecoder::GetCumulativeFrequencies() const {
   return std::move(result);
 }
 
-void OpenCLDecoder::RebuildTable(const std::vector<int> &F) const {
+void OpenCLDecoder::RebuildTable(const std::vector<uint32_t> &F) const {
   std::vector<cl_uint> freqs = std::move(NormalizeFrequencies(F));
   assert(_M == std::accumulate(freqs.begin(), freqs.end(), 0U));
 

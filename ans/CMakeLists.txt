@@ -19,14 +19,15 @@ SET( KERNELS
 
 SET( HEADERS
   "ans_config.h"
-  "ans_decode.h"
-  "ans_encode.h"
+  "ans.h"
   "bits.h"
   "histogram.h"
   "ans_ocl.h"
 )  
 
 SET( SOURCES
+  "encode.cpp"
+  "decode.cpp"
   "histogram.cpp"
   "ans_ocl.cpp"
 )

@@ -243,11 +243,11 @@ void encode(const cv::Mat &img, std::vector<uint8_t> *result) {
     }
   }
 
-  const std::vector<int> counts = std::move(ans::CountSymbols(symbols));
+  const std::vector<uint32_t> counts = std::move(ans::CountSymbols(symbols));
   assert(counts.size() == 256);
 
   std::vector<uint8_t> encoded_symbols(256, 0);
-  std::vector<int> encoded_counts;
+  std::vector<uint32_t> encoded_counts;
   encoded_counts.reserve(256);
 
   uint32_t sym_idx = 0;
@@ -297,10 +297,10 @@ void encode(const cv::Mat &img, std::vector<uint8_t> *result) {
 #endif  //  VERBOSE
 
   // Write counts to output
-  std::vector<ans::OpenCLEncoder> encoders;
+  std::vector<std::unique_ptr<ans::Encoder> > encoders;
   encoders.reserve(kNumStreams);
   for (uint32_t i = 0; i < kNumStreams; ++i) {
-    encoders.push_back(std::move(ans::OpenCLEncoder(encoded_counts)));
+    encoders.push_back(std::move(ans::CreateOpenCLEncoder(encoded_counts)));
   }
 
   std::vector<uint8_t> encoded(10, 0);
@@ -331,7 +331,7 @@ void encode(const cv::Mat &img, std::vector<uint8_t> *result) {
         assert(symbol < encoded_counts.size());
         assert(counts[symbols[sidx]] > 0);
 
-        encoders[strm_idx].Encode(symbol, w);
+        encoders[strm_idx]->Encode(symbol, &w);
         encoded_bytes_written += w.BytesWritten();
       }
     }
@@ -341,7 +341,7 @@ void encode(const cv::Mat &img, std::vector<uint8_t> *result) {
 
     uint32_t *encoder_state = reinterpret_cast<uint32_t *>(encoded.data() + encoded_bytes_written);
     for (uint32_t i = 0; i < kNumStreams; ++i) {
-      encoder_state[i] = encoders[i].GetState();
+      encoder_state[i] = encoders[i]->GetState();
     }
     encoded_bytes_written += 4 * kNumStreams;
 
@@ -369,11 +369,11 @@ int decode(cv::Mat *result, const uint8_t *buf) {
   offset += 2;
 
   std::vector<uint8_t> symbols(num_symbols, 0);
-  std::vector<int> counts(num_symbols, 0);
+  std::vector<uint32_t> counts(num_symbols, 0);
 
   for (uint32_t i = 0; i < num_symbols; ++i) {
     symbols[i] = *reinterpret_cast<const uint8_t *>(buf + offset);
-    counts[i] = static_cast<int>(*reinterpret_cast<const uint16_t *>(buf + offset + 1));
+    counts[i] = *reinterpret_cast<const uint16_t *>(buf + offset + 1);
     offset += 3;
   }
 
@@ -394,10 +394,10 @@ int decode(cv::Mat *result, const uint8_t *buf) {
     int mb_off = offset + mb_size;
 
     const uint32_t *states = reinterpret_cast<const uint32_t *>(buf + mb_off) - kNumStreams;
-    std::vector<ans::OpenCLCPUDecoder> decoders;
+    std::vector<std::unique_ptr<ans::Decoder> > decoders;
     decoders.reserve(kNumStreams);
     for (uint32_t i = 0; i < kNumStreams; ++i) {
-      decoders.push_back(ans::OpenCLCPUDecoder(states[kNumStreams - i - 1], counts));
+      decoders.push_back(ans::CreateOpenCLDecoder(states[kNumStreams - i - 1], counts));
     }
 
     int data_sz_bytes = mb_size - 4 * kNumStreams;
@@ -411,7 +411,7 @@ int decode(cv::Mat *result, const uint8_t *buf) {
     for (uint32_t sym_idx = 0; sym_idx < ans::kNumEncodedSymbols; sym_idx++) {
       for (uint32_t strm_idx = 0; strm_idx < kNumStreams; ++strm_idx) {
         uint32_t sidx = symbol_offset + (kNumStreams - strm_idx) * ans::kNumEncodedSymbols - sym_idx - 1;
-        coeffs[sidx] = static_cast<int16_t>(symbols[decoders[strm_idx].Decode(r)]) - 128;
+        coeffs[sidx] = static_cast<int16_t>(symbols[decoders[strm_idx]->Decode(&r)]) - 128;
       }
 
       for (uint32_t strm_idx = 0; strm_idx < kNumStreams; ++strm_idx) {
@@ -783,7 +783,7 @@ std::vector<uint8_t> entropy_encode_index_symbols(const std::vector<uint8_t> &sy
   assert((symbols.size() % (256 * 16)) == 0);
 
   // First collect histogram
-  std::vector<int> counts(4, 0);
+  std::vector<uint32_t> counts(4, 0);
   for (auto symbol : symbols) {
     assert(symbol < 4);
     counts[symbol]++;
@@ -798,10 +798,10 @@ std::vector<uint8_t> entropy_encode_index_symbols(const std::vector<uint8_t> &sy
     *(reinterpret_cast<uint16_t *>(output.data()) + i) = static_cast<uint16_t>(counts[i]);
   }
 
-  std::vector<ans::OpenCLEncoder> encoders;
+  std::vector<std::unique_ptr<ans::Encoder> > encoders;
   encoders.reserve(kNumStreams);
   for (uint32_t i = 0; i < kNumStreams; ++i) {
-    encoders.push_back(std::move(ans::OpenCLEncoder(counts)));
+    encoders.push_back(std::move(ans::CreateOpenCLEncoder(counts)));
   }
 
   std::vector<uint8_t> encoded;
@@ -821,7 +821,7 @@ std::vector<uint8_t> entropy_encode_index_symbols(const std::vector<uint8_t> &sy
         assert(symbol < counts.size());
         assert(counts[symbol] > 0);
 
-        encoders[strm_idx].Encode(symbol, w);
+        encoders[strm_idx]->Encode(symbol, &w);
         encoded_bytes_written += w.BytesWritten();
       }
     }
@@ -830,7 +830,7 @@ std::vector<uint8_t> entropy_encode_index_symbols(const std::vector<uint8_t> &sy
     encoded.resize(encoded_bytes_written + 4*kNumStreams);
     uint32_t *states = reinterpret_cast<uint32_t *>(encoded.data() + encoded_bytes_written);
     for (uint32_t strm_idx = 0; strm_idx < kNumStreams; ++strm_idx) {
-      states[strm_idx] = encoders[strm_idx].GetState();
+      states[strm_idx] = encoders[strm_idx]->GetState();
     }
 
     // Add the offset to the stream...

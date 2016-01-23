@@ -5,8 +5,8 @@
 #include <cstdint>
 #include <vector>
 
-#include "ans_encode.h"
-#include "ans_decode.h"
+#include "ans.h"
+#include "histogram.h"
 #include "gpu.h"
 
 namespace ans {
@@ -20,26 +20,43 @@ namespace ans {
 
   // If we expect our symbol frequency to have 1 << 11 precision, we only have 1 << 4
   // available for state-precision
-  typedef Encoder< (1 << 16), (1 << 4) > OpenCLEncoderBase;
-  typedef Decoder< (1 << 16), (1 << 4) > OpenCLDecoderBase;
   static const int kANSTableSize = (1 << 11);
   static const int kNumEncodedSymbols = 256;
 
-  class OpenCLEncoder : public OpenCLEncoderBase {
-  public:
-    OpenCLEncoder(const std::vector<int> &F);
-  };
+  static std::vector<uint32_t> NormalizeFrequencies(const std::vector<uint32_t> &F) {
+    std::vector<uint32_t> freqs = std::move(ans::GenerateHistogram(F, kANSTableSize));
+    assert(freqs.size() == F.size());
 
-  class OpenCLCPUDecoder : public OpenCLDecoderBase {
-  public:
-    OpenCLCPUDecoder(uint32_t state, const std::vector<int> &F);
-  };
+    std::vector<uint32_t> result;
+    result.reserve(freqs.size());
+    for (const auto freq : freqs) {
+      result.push_back(freq);
+    }
+    return std::move(result);
+  }
+
+  static std::unique_ptr<Encoder> CreateOpenCLEncoder(const std::vector<uint32_t> &F) {
+    Options opts;
+    opts.b = 1 << 16;
+    opts.k = 1 << 4;
+    opts.type = eType_rANS;
+    return Encoder::Create(NormalizeFrequencies(F), opts);
+  }
+
+  // A CPU decoder that matches the OpenCLDecoder below.
+  static std::unique_ptr<Decoder> CreateOpenCLDecoder(uint32_t state, const std::vector<uint32_t> &F) {
+    Options opts;
+    opts.b = 1 << 16;
+    opts.k = 1 << 4;
+    opts.type = eType_rANS;
+    return Decoder::Create(state, NormalizeFrequencies(F), opts);
+  }
 
   class OpenCLDecoder {
   public:
     OpenCLDecoder(
       const std::unique_ptr<gpu::GPUContext> &ctx,
-      const std::vector<int> &F,
+      const std::vector<uint32_t> &F,
       const int num_interleaved);
     ~OpenCLDecoder();
 
@@ -55,7 +72,7 @@ namespace ans {
       const std::vector<cl_uint> &states,
       const std::vector<std::vector<cl_uchar> > &data) const;
 
-    void RebuildTable(const std::vector<int> &F) const;
+    void RebuildTable(const std::vector<uint32_t> &F) const;
 
     std::vector<cl_uchar> GetSymbols() const;
     std::vector<cl_ushort> GetFrequencies() const;

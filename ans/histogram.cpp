@@ -30,21 +30,25 @@ namespace ans {
       static_cast<double>(count);
   }
 
+  static int fold_sum(const std::vector<uint32_t> &v) {
+    return static_cast<int>(std::accumulate(v.begin(), v.end(), 0, std::plus<uint32_t>()));
+  }
+
   // This normalization technique is taken from the discussion presented
   // on Charles Bloom's blog:
   // http://cbloomrants.blogspot.com/2014/02/02-11-14-understanding-ans-10.html
-  std::vector<int> GenerateHistogram(const std::vector<int> &counts,
-                                     const int M) {
+  std::vector<uint32_t> GenerateHistogram(const std::vector<uint32_t> &counts,
+                                          const int M) {
     if (M <= 0) {
       assert(!"Improper target sum for frequencies!");
-      return std::move(std::vector<int>());
+      return std::move(std::vector<uint32_t>());
     }
 
-    std::vector<int> histogram;
+    std::vector<uint32_t> histogram;
     histogram.clear();
     histogram.reserve(counts.size());
 
-    int sum = std::accumulate(counts.begin(), counts.end(), 0, std::plus<int>());
+    int sum = fold_sum(counts);
     for (size_t i = 0; i < counts.size(); ++i) {
       if (counts[i] == 0) {
         continue;
@@ -56,7 +60,7 @@ namespace ans {
       histogram.push_back(std::max(1, (from_scaled * from_scaled <= down * (down + 1))? down : down + 1));
     }
 
-    int correction = M - std::accumulate(histogram.begin(), histogram.end(), 0, std::plus<int>());
+    int correction = M - fold_sum(histogram);
     if (correction == 0) {
       // No work to do, averaging was exact.
       return std::move(histogram);
@@ -64,7 +68,7 @@ namespace ans {
 
     if (correction == M) {
       assert(!"No symbols have any frequency!");
-      return std::move(std::vector<int>());
+      return std::move(std::vector<uint32_t>());
     }
 
     std::vector<Symbol> symbols;
@@ -79,7 +83,7 @@ namespace ans {
       assert(histogram.at(i) > 0);
       if (histogram.at(i) > 1 || correction > 0) {
         Symbol s;
-        s.symbol = static_cast<int>(i);
+        s.symbol = static_cast<uint32_t>(i);
         s.rank = GetFreqChange(counts[i], histogram.at(i), correction_sign);
         symbols.push_back(s);
       }
@@ -97,7 +101,7 @@ namespace ans {
       int i = s.symbol;
       assert(counts[i] != 0);
 
-      histogram.at(i) += correction_sign;
+      histogram.at(i) = static_cast<uint32_t>(static_cast<int>(histogram.at(i)) + correction_sign);
       correction -= correction_sign;
       assert(histogram.at(i) != 0);
 
@@ -111,7 +115,7 @@ namespace ans {
       }
     }
 
-    assert(std::accumulate(histogram.begin(), histogram.end(), 0, std::plus<int>()) == M);
+    assert(fold_sum(histogram) == M);
     return std::move(histogram);
   }
 
