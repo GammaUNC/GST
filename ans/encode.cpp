@@ -46,7 +46,6 @@ rANS_Encoder::rANS_Encoder(const std::vector<uint32_t> &Fs, uint32_t b, uint32_t
   , _state(_k * _M)
 {
   assert((b & (b - 1)) == 0 || "rANS encoder may only emit powers-of-two for renormalization!");
-  assert((k & (k - 1)) == 0 || "rANS encoder must have power-of-two multiple of precision!");
   assert(_k * _M < (1ULL << 32));
   assert((b * _k * _M) < (1ULL << 32));
 }
@@ -158,7 +157,6 @@ tANS_Encoder::tANS_Encoder(const std::vector<uint32_t> &Fs, uint32_t b, uint32_t
   , _state(_k * _M)
 {
   assert((b & (b - 1)) == 0 || "rANS encoder may only emit powers-of-two for renormalization!");
-  assert((k & (k - 1)) == 0 || "rANS encoder must have power-of-two multiple of precision!");
   assert(_k * _M < (1ULL << 32));
   assert((b * _k * _M) < (1ULL << 32));
 }

@@ -3,6 +3,7 @@
 #include <iostream>
 #include <vector>
 #include <algorithm>
+#include <numeric>
 
 // #define VERBOSE
 #define USE_FAST_DCT
@@ -789,13 +790,70 @@ std::vector<uint8_t> entropy_encode_index_symbols(const std::vector<uint8_t> &sy
     counts[symbol]++;
   }
 
-  std::vector<uint8_t> output(4 * sizeof(uint16_t));
-  uint32_t bytes_written = 0;
+#ifdef VERBOSE
+  {
+    ans::Options opts;
+    opts.b = 2;
+    opts.k = 1;
+    const int denominator = 2048;
+    std::vector<uint32_t> F = ans::GenerateHistogram(counts, denominator);
+    const uint32_t M = std::accumulate(F.begin(), F.end(), 0);
+    assert(M == denominator);
+
+    std::vector<uint8_t> rANS_Stream(2048, 0);
+    ans::BitWriter rANS_Writer = ans::BitWriter(rANS_Stream.data());
+
+    std::vector<uint8_t> tANS_Stream(2048, 0);
+    ans::BitWriter tANS_Writer = ans::BitWriter(tANS_Stream.data());
+
+    opts.type = ans::eType_rANS;
+    std::unique_ptr<ans::Encoder> rANS_coder = ans::Encoder::Create(F, opts);
+
+    opts.type = ans::eType_tANS;
+    std::unique_ptr<ans::Encoder> tANS_coder = ans::Encoder::Create(F, opts);
+
+    double H = 0;
+    for (auto f : F) {
+      double Ps = static_cast<double>(f);
+      H -= Ps * log2(Ps);
+    }
+    H = log2(static_cast<double>(M)) + (H / static_cast<double>(M));
+
+    const int num_symbols = 2048;
+    for (int i = 0; i < num_symbols; ++i) {
+      int r = rand() % M;
+      uint32_t symbol = 0;
+      int freq = 0;
+      for (auto f : F) {
+        freq += f;
+        if (r < freq) {
+          break;
+        }
+        symbol++;
+      }
+
+      rANS_coder->Encode(symbol, &rANS_Writer);
+      tANS_coder->Encode(symbol, &tANS_Writer);
+    }
+
+    std::cout << "Interpolation value stats:" << std::endl;
+    std::cout << "Uncompressed Size of 2-bit symbols: " << (num_symbols * 2) / 8 << std::endl;
+    std::cout << "H: " << H << std::endl;
+    std::cout << "Expected num bytes: " << H*(num_symbols / 8) << std::endl;
+    std::cout << "rANS state: " << rANS_coder->GetState() << std::endl;
+    std::cout << "tANS state: " << tANS_coder->GetState() << std::endl;
+    std::cout << "rANS bytes written: " << rANS_Writer.BytesWritten() << std::endl;
+    std::cout << "tANS bytes written: " << tANS_Writer.BytesWritten() << std::endl << std::endl;
+  }
+#endif  // VERBOSE
+
+  std::vector<uint8_t> output(4 * sizeof(uint32_t));
+  uint32_t bytes_written = 4 * sizeof(uint32_t);
 
   // Write counts to output
   for (size_t i = 0; i < counts.size(); ++i) {
-    assert(counts[i] < (1 << 16));
-    *(reinterpret_cast<uint16_t *>(output.data()) + i) = static_cast<uint16_t>(counts[i]);
+    assert(static_cast<uint64_t>(counts[i]) < (1ULL << 32));
+    reinterpret_cast<uint32_t *>(output.data())[i] = counts[i];
   }
 
   std::vector<std::unique_ptr<ans::Encoder> > encoders;
@@ -832,6 +890,7 @@ std::vector<uint8_t> entropy_encode_index_symbols(const std::vector<uint8_t> &sy
     for (uint32_t strm_idx = 0; strm_idx < kNumStreams; ++strm_idx) {
       states[strm_idx] = encoders[strm_idx]->GetState();
     }
+    encoded_bytes_written += 4 * kNumStreams;
 
     // Add the offset to the stream...
     uint32_t offset = encoded_bytes_written - last_encoded_bytes_written;

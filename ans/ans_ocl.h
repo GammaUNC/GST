@@ -24,15 +24,7 @@ namespace ans {
   static const int kNumEncodedSymbols = 256;
 
   static std::vector<uint32_t> NormalizeFrequencies(const std::vector<uint32_t> &F) {
-    std::vector<uint32_t> freqs = std::move(ans::GenerateHistogram(F, kANSTableSize));
-    assert(freqs.size() == F.size());
-
-    std::vector<uint32_t> result;
-    result.reserve(freqs.size());
-    for (const auto freq : freqs) {
-      result.push_back(freq);
-    }
-    return std::move(result);
+    return std::move(ans::GenerateHistogram(F, kANSTableSize));
   }
 
   static std::unique_ptr<Encoder> CreateOpenCLEncoder(const std::vector<uint32_t> &F) {
