@@ -25,6 +25,8 @@
 #include "stb_dxt.h"
 #pragma GCC diagnostic pop
 
+uint8_t two_bit_map[4] = { 0, 85, 170, 255 };
+
 static uint64_t CompressRGB(const uint8_t *img, int width) {
   unsigned char block[64];
   memset(block, 0, sizeof(block));
@@ -914,6 +916,16 @@ std::vector<uint8_t> compress_indices(const std::vector<DXTBlock> &blocks,
                                       const std::vector<uint8_t> &indices,
                                       int width, int height) {
   std::vector<uint8_t> symbolized_indices = symbolize_indices(blocks, indices, width, height);
+
+  // Visualize
+  cv::Mat interp_vis(height, width, CV_8UC1);
+  for (int j = 0; j < height; j++) {
+    for (int i = 0; i < width; i++) {
+      interp_vis.at<uint8_t>(j, i) = two_bit_map[symbolized_indices[j*width + i]];
+    }
+  }
+  cv::imwrite("img_dxt_interp_predicted.png", interp_vis);
+
   return std::move(entropy_encode_index_symbols(symbolized_indices));
 }
 
@@ -964,7 +976,7 @@ int main(int argc, char **argv) {
     for (int i = 0; i < img.cols; i+=4) {
       int block_idx = (j / 4) * num_blocks_x + (i / 4);
 
-      int idxs[4];
+      int idxs[16];
       get_indices_from_block(dxt_blocks[block_idx], idxs);
 
       for (int y = 0; y < 4; ++y) {
@@ -978,11 +990,10 @@ int main(int argc, char **argv) {
 
   // Visualize data...
   {
-    uint8_t interp_map[4] = { 0, 85, 170, 255 };
     cv::Mat interp_vis(img.rows, img.cols, CV_8UC1);
-    for (int j = 0; j < img.rows; j+=4) {
-      for (int i = 0; i < img.cols; i+=4) {
-        interp_vis.at<uint8_t>(j, i) = interp_map[indices[j*img.rows + i]];
+    for (int j = 0; j < img.rows; j++) {
+      for (int i = 0; i < img.cols; i++) {
+        interp_vis.at<uint8_t>(j, i) = two_bit_map[indices[j*img.cols + i]];
       }
     }
     cv::imwrite("img_dxt_interp.png", interp_vis);
