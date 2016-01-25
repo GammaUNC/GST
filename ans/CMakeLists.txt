@@ -18,18 +18,19 @@ SET( KERNELS
 )
 
 SET( HEADERS
-  "ans_config.h"
   "ans.h"
+  "ans_config.h"
+  "ans_ocl.h"
+  "ans_utils.h"
   "bits.h"
   "histogram.h"
-  "ans_ocl.h"
 )  
 
 SET( SOURCES
-  "encode.cpp"
-  "decode.cpp"
-  "histogram.cpp"
   "ans_ocl.cpp"
+  "decode.cpp"
+  "encode.cpp"
+  "histogram.cpp"
 )
 
 SOURCE_GROUP(OpenCL FILES ${KERNELS})
