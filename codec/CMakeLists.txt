@@ -1,0 +1,46 @@
+include_directories("${GenTC_SOURCE_DIR}/codec")
+include_directories("${GenTC_BINARY_DIR}/codec")
+
+include_directories("${GenTC_SOURCE_DIR}/gpu")
+include_directories("${GenTC_SOURCE_DIR}/ans")
+INCLUDE_DIRECTORIES( ${OPENCL_INCLUDE_DIRS} )
+
+SET( HEADERS
+  "codec.h"
+  "dxt_image.h"
+)  
+
+SET( SOURCES
+  "codec.cpp"
+  "dxt_image.cpp"
+)
+
+ADD_LIBRARY(gentc_codec ${HEADERS} ${SOURCES})
+TARGET_LINK_LIBRARIES(gentc_codec ans)
+TARGET_LINK_LIBRARIES(gentc_codec gentc_gpu)
+
+INCLUDE_DIRECTORIES(${GenTC_SOURCE_DIR}/googletest/include)
+
+# Summary of tuple support for Microsoft Visual Studio:
+# Compiler    version(MS)  version(cmake)  Support
+# ----------  -----------  --------------  -----------------------------
+# <= VS 2010  <= 10        <= 1600         Use Google Tests's own tuple.
+# VS 2012     11           1700            std::tr1::tuple + _VARIADIC_MAX=10
+# VS 2013     12           1800            std::tr1::tuple
+if (MSVC AND MSVC_VERSION EQUAL 1700)
+  add_definitions(/D _VARIADIC_MAX=10)
+endif()
+
+FOREACH(TEST )
+  ADD_EXECUTABLE(${TEST}_test ${TEST}_test.cpp)
+  TARGET_LINK_LIBRARIES(${TEST}_test ans)
+  TARGET_LINK_LIBRARIES(${TEST}_test gtest)
+
+  IF ("${TEST}" STREQUAL "codec_ocl")
+    TARGET_LINK_LIBRARIES(${TEST}_test gentc_gpu)
+  ELSE()
+    TARGET_LINK_LIBRARIES(${TEST}_test gtest_main)
+  ENDIF()
+
+  ADD_TEST(Test_${TEST} ${TEST}_test)
+ENDFOREACH()

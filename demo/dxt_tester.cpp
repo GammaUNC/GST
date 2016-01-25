@@ -16,6 +16,7 @@
 
 #include "histogram.h"
 #include "ans_ocl.h"
+#include "dxt_image.h"
 
 #include <opencv2/opencv.hpp>
 
@@ -24,8 +25,6 @@
 #define STB_DXT_IMPLEMENTATION
 #include "stb_dxt.h"
 #pragma GCC diagnostic pop
-
-uint8_t two_bit_map[4] = { 0, 85, 170, 255 };
 
 static uint64_t CompressRGB(const uint8_t *img, int width) {
   unsigned char block[64];
@@ -66,129 +65,12 @@ static uint64_t CompressRGBA(const uint8_t *img, int width) {
   return result;
 }
 
-uint32_t From565(uint16_t x) {
-  uint32_t r = (x >> 11);
-  r = (r << 3) | (r >> 2);
-
-  uint32_t g = (x >> 5) & 0x3F;
-  g = (g << 2) | (g >> 4);
-
-  uint32_t b = x & 0x1F;
-  b = (b << 3) | (b >> 2);
-
-  return 0xFF000000 | (b << 16) | (g << 8) | r;
-}
-
 uint16_t Into565(uint8_t r, uint8_t g, uint8_t b) {
   uint16_t rr = (r >> 3) & 0x1F;
   uint16_t gg = (g >> 2) & 0x3F;
   uint16_t bb = (b >> 3) & 0x1F;
 
   return (rr << 11) | (gg << 5) | bb;
-}
-
-union DXTBlock {
-  struct {
-    uint16_t ep1;
-    uint16_t ep2;
-    uint32_t interpolation;
-  };
-  uint64_t dxt_block;
-};
-
-uint32_t LerpChannels(uint32_t a, uint32_t b, int num, int div) {
-  uint8_t *a_ptr = reinterpret_cast<uint8_t *>(&a);
-  uint8_t *b_ptr = reinterpret_cast<uint8_t *>(&b);
-
-  uint32_t result;
-  uint8_t *result_ptr = reinterpret_cast<uint8_t *>(&result);
-  for (int i = 0; i < 4; ++i) {
-    result_ptr[i] = (static_cast<int>(a_ptr[i]) * (div - num) + static_cast<int>(b_ptr[i]) * num) / div;
-  }
-  return result;
-}
-
-void get_dxt_palette(const DXTBlock &block, uint8_t out[12]) {
-  // unpack the endpoints
-  uint32_t palette[4];
-  palette[0] = From565(block.ep1);
-  palette[1] = From565(block.ep2);
-
-  if (block.ep1 <= block.ep2) {
-    palette[2] = LerpChannels(palette[0], palette[1], 1, 2);
-    palette[3] = 0;
-  }
-  else {
-    palette[2] = LerpChannels(palette[0], palette[1], 1, 3);
-    palette[3] = LerpChannels(palette[0], palette[1], 2, 3);
-  }
-
-  for (int i = 0; i < 4; ++i) {
-    out[3 * i + 0] = palette[i] & 0xFF;
-    out[3 * i + 1] = (palette[i] >> 8) & 0xFF;
-    out[3 * i + 2] = (palette[i] >> 16) & 0xFF;
-  }
-}
-
-cv::Mat DecompressDXTBlock(const DXTBlock &block) {
-  cv::Mat result(4, 4, CV_8UC4);
-
-  uint8_t palette[12];
-  get_dxt_palette(block, palette);
-
-  // unpack the indices
-  uint8_t const* bytes = reinterpret_cast<const uint8_t *>(&block);
-  uint8_t indices[16];
-  for (int k = 0; k < 4; ++k) {
-    uint8_t packed = bytes[4 + k];
-
-    indices[0 + 4 * k] = packed & 0x3;
-    indices[1 + 4 * k] = (packed >> 2) & 0x3;
-    indices[2 + 4 * k] = (packed >> 4) & 0x3;
-    indices[3 + 4 * k] = (packed >> 6) & 0x3;
-  }
-
-  // store out the colours
-  for (int y = 0; y < 4; ++y) {
-    for (int x = 0; x < 4; ++x) {
-      uint8_t offset = indices[y * 4 + x];
-      uint32_t pixel = 0xFF000000;
-      pixel |= palette[3 * offset + 0];
-      pixel |= (static_cast<uint32_t>(palette[3 * offset + 1]) << 8);
-      pixel |= (static_cast<uint32_t>(palette[3 * offset + 2]) << 16);
-      result.at<uint32_t>(y, x) = pixel;
-    }
-  }
-
-  return result;
-}
-
-void get_dxt_color_at(const std::vector<DXTBlock> &blocks, int x, int y, int width, uint8_t out[3]) {
-  int block_idx = (y / 4) * (width / 4) + (x / 4);
-  cv::Mat block = DecompressDXTBlock(blocks[block_idx]);
-
-  int i = x % 4;
-  int j = y % 4;
-
-  uint32_t c = block.at<uint32_t>(j, i);
-  out[0] = c & 0xFF;
-  out[1] = (c >> 8) & 0xFF;
-  out[2] = (c >> 16) & 0xFF;
-}
-
-cv::Mat DecompressDXT(const std::vector<DXTBlock> &blocks, int width, int height) {
-  cv::Mat result(height, width, CV_8UC4);
-
-  int block_idx = 0;
-  for (int j = 0; j < height; j += 4) {
-    for (int i = 0; i < width; i += 4) {
-      cv::Mat block = DecompressDXTBlock(blocks[block_idx]);
-      block.copyTo(result(cv::Rect_<int>(i, j, 4, 4)));
-      block_idx++;
-    }
-  }
-
-  return result;
 }
 
 static const int coeff_offset = 512;
@@ -610,12 +492,6 @@ cv::Mat decompress(const std::vector<uint8_t> &stream) {
   return result;
 }
 
-void get_indices_from_block(DXTBlock block, int *indices) {
-  for(int i = 0; i < 16; i++) {
-    indices[i] = (block.interpolation >> (i*2)) & 3;
-  }
-}
-
 uint8_t get_gray(const uint8_t color[]) {
   int gray;
 
@@ -680,9 +556,10 @@ void predict_color(const uint8_t diag[], const uint8_t upper[],
 
     predicted[i] = temp[i];
   }
+  predicted[3] = 0xFF;
 }
 
-int distance(uint8_t *colorA, uint8_t *colorB) {
+int distance(uint8_t *colorA, const uint8_t *colorB) {
   // abs of gray values
   int gray_a = get_gray(colorA);
   int gray_b = get_gray(colorB);
@@ -703,11 +580,11 @@ int distance(uint8_t *colorA, uint8_t *colorB) {
   return distance;
 }
 
-int predict_index(uint8_t *colors, uint8_t *predicted_color) {
+int predict_index(const uint8_t colors[4][4], uint8_t *predicted_color) {
   int difference[4];
 
   for(int i=0;i<4;i++)
-    difference[i] = distance(predicted_color, &colors[i*3]);
+    difference[i] = distance(predicted_color, colors[i]);
 
   int min = difference[0];
   int min_id = 0;
@@ -721,11 +598,10 @@ int predict_index(uint8_t *colors, uint8_t *predicted_color) {
   return min_id;
 }
 
-std::vector<uint8_t> symbolize_indices(const std::vector<DXTBlock> &blocks,
+std::vector<uint8_t> symbolize_indices(const GenTC::DXTImage &dxt,
                                        const std::vector<uint8_t> &indices,
                                        int width, int height) {
   assert(indices.size() == width * height);
-  assert(blocks.size() == indices.size() / 16);
 
   // Operate in 16-block chunks arranged as 4x4 blocks
   assert(width % 16 == 0);
@@ -756,17 +632,16 @@ std::vector<uint8_t> symbolize_indices(const std::vector<DXTBlock> &blocks,
               if (chunk_coord_y == 0 || chunk_coord_x == 0) {
                 symbols.push_back(indices[pixel_index]);
               } else {
-                uint8_t diag_color[3], top_color[3], left_color[3];
-                get_dxt_color_at(blocks, px - 1, py - 1, width, diag_color);
-                get_dxt_color_at(blocks, px, py - 1, width, top_color);
-                get_dxt_color_at(blocks, px - 1, py, width, left_color);
+                uint8_t diag_color[4], top_color[4], left_color[4];
+                dxt.GetColorAt(px - 1, py - 1, diag_color);
+                dxt.GetColorAt(px, py - 1, top_color);
+                dxt.GetColorAt(px - 1, py, left_color);
 
-                uint8_t predicted[3];
+                uint8_t predicted[4];
                 predict_color(diag_color, top_color, left_color, predicted);
 
-                uint8_t palette[12];
-                get_dxt_palette(blocks[(py / 4) * (width / 4) + (px / 4)], palette);
-                int predicted_index = predict_index(palette, predicted);
+                int predicted_index =
+                  predict_index(dxt.LogicalBlockAt(px, py).palette, predicted);
 
                 int delta = ((indices[pixel_index] + 4) - predicted_index) % 4;
                 symbols.push_back(delta);
@@ -912,19 +787,14 @@ std::vector<uint8_t> entropy_encode_index_symbols(const std::vector<uint8_t> &sy
   return std::move(output);
 }
 
-std::vector<uint8_t> compress_indices(const std::vector<DXTBlock> &blocks,
+std::vector<uint8_t> compress_indices(const GenTC::DXTImage &dxt,
                                       const std::vector<uint8_t> &indices,
                                       int width, int height) {
-  std::vector<uint8_t> symbolized_indices = symbolize_indices(blocks, indices, width, height);
+  std::vector<uint8_t> symbolized_indices = symbolize_indices(dxt, indices, width, height);
 
   // Visualize
-  cv::Mat interp_vis(height, width, CV_8UC1);
-  for (int j = 0; j < height; j++) {
-    for (int i = 0; i < width; i++) {
-      interp_vis.at<uint8_t>(j, i) = two_bit_map[symbolized_indices[j*width + i]];
-    }
-  }
-  cv::imwrite("img_dxt_interp_predicted.png", interp_vis);
+  cv::imwrite("img_dxt_interp_predicted.png", cv::Mat(height, width, CV_8UC1,
+    GenTC::DXTImage::TwoBitValuesToImage(symbolized_indices).data()));
 
   return std::move(entropy_encode_index_symbols(symbolized_indices));
 }
@@ -951,7 +821,7 @@ int main(int argc, char **argv) {
   const int num_blocks = num_blocks_x * num_blocks_y;
 
   // Now do the dxt compression...
-  std::vector<DXTBlock> dxt_blocks(num_blocks);
+  std::vector<GenTC::PhysicalDXTBlock> dxt_blocks(num_blocks);
 
   for (int j = 0; j < img.rows; j += 4) {
     for (int i = 0; i < img.cols; i += 4) {
@@ -967,51 +837,25 @@ int main(int argc, char **argv) {
     }
   }
 
+  GenTC::DXTImage dxt_img(reinterpret_cast<const uint8_t *>(dxt_blocks.data()),
+                          img.cols, img.rows);
+
   // Decompress into image...
-  cv::Mat img_dxt = DecompressDXT(dxt_blocks, img.cols, img.rows);
-  cv::imwrite("img_dxt.png", img_dxt);
+  cv::imwrite("img_dxt.png", cv::Mat(img.rows, img.cols, CV_8UC4,
+    dxt_img.DecompressedImage().data()));
 
-  std::vector<uint8_t> indices(img.cols * img.rows, 0);
-  for (int j = 0; j < img.rows; j+=4) {
-    for (int i = 0; i < img.cols; i+=4) {
-      int block_idx = (j / 4) * num_blocks_x + (i / 4);
-
-      int idxs[16];
-      get_indices_from_block(dxt_blocks[block_idx], idxs);
-
-      for (int y = 0; y < 4; ++y) {
-        for (int x = 0; x < 4; ++x) {
-          int pixel_idx = (j + y) * img.cols + (i + x);
-          indices[pixel_idx] = idxs[y * 4 + x];
-        }
-      }
-    }
-  }
-
-  // Visualize data...
-  {
-    cv::Mat interp_vis(img.rows, img.cols, CV_8UC1);
-    for (int j = 0; j < img.rows; j++) {
-      for (int i = 0; i < img.cols; i++) {
-        interp_vis.at<uint8_t>(j, i) = two_bit_map[indices[j*img.cols + i]];
-      }
-    }
-    cv::imwrite("img_dxt_interp.png", interp_vis);
-  }
+  // Visualize interpolation data...
+  cv::imwrite("img_dxt_interp.png", cv::Mat(img.rows, img.cols, CV_8UC1,
+    dxt_img.InterpolationImage().data()));
 
   // Compress indices...
   std::vector<uint8_t> compressed_indices =
-    compress_indices(dxt_blocks, indices, img.cols, img.rows);
+    compress_indices(dxt_img, dxt_img.InterpolationValues(), img.cols, img.rows);
 
-  cv::Mat img_A(num_blocks_y, num_blocks_x, CV_8UC4);
-  cv::Mat img_B(num_blocks_y, num_blocks_x, CV_8UC4);
-  for (int j = 0; j < num_blocks_y; j ++) {
-    for (int i = 0; i < num_blocks_x; i ++) {
-      int block_idx = j * num_blocks_x + i;
-      img_A.at<uint32_t>(j, i) = From565(dxt_blocks[block_idx].ep1);
-      img_B.at<uint32_t>(j, i) = From565(dxt_blocks[block_idx].ep2);
-    }
-  }
+  std::vector<uint8_t> img_A_bytes = dxt_img.EndpointOneImage();
+  std::vector<uint8_t> img_B_bytes = dxt_img.EndpointTwoImage();
+  cv::Mat img_A(num_blocks_y, num_blocks_x, CV_8UC4, img_A_bytes.data());
+  cv::Mat img_B(num_blocks_y, num_blocks_x, CV_8UC4, img_B_bytes.data());
 
   cv::imwrite("img_dxtA.png", img_A);
   cv::imwrite("img_dxtB.png", img_B);
@@ -1060,40 +904,9 @@ int main(int argc, char **argv) {
     }
   }  
 
-  cv::Mat img_dxt_codec = DecompressDXT(dxt_blocks, img.cols, img.rows);
-  cv::imwrite("img_gtc.png", img_dxt_codec);  
-
-  cv::Mat img_A_YCrCb, img_B_YCrCb;
-  cv::cvtColor(img_A, img_A_YCrCb, CV_RGB2YCrCb);
-  cv::cvtColor(img_B, img_B_YCrCb, CV_RGB2YCrCb);
-
-  cv::Mat channels[2][3];
-  cv::split(img_A_YCrCb, channels[0]);
-  cv::split(img_B_YCrCb, channels[1]);
-
-#ifdef USE_FAST_DCT
-  bool is_fast = true;
-#else
-  bool is_fast = false;
-#endif
-
-  cv::imwrite("img_dxtA_Y.png", channels[0][0]);
-
-  dct::RunDCT(channels[0]);
-  cv::imwrite(is_fast ? "img_dxtA_Y_fast_dct.png" : "img_dxtA_Y_dct.png", channels[0][0]);
-  dct::RunIDCT(channels[0]);
-  cv::imwrite(is_fast ? "img_dxtA_Y_fast_idct.png" : "img_dxtA_Y_idct.png", channels[0][0]);
-
-  cv::imwrite("img_dxtA_Cr.png", channels[0][1]);
-  cv::imwrite("img_dxtA_Cb.png", channels[0][2]);
-
-  dct::RunDCT(channels[1]);
-  cv::imwrite(is_fast ? "dxt_imgB_Y_fast_dct.png" : "dxt_imgB_Y_dct.png", channels[1][0]);
-  dct::RunIDCT(channels[1]);
-  cv::imwrite(is_fast ? "dxt_imgB_Y_fast_idct.png" : "dxt_imgB_Y_idct.png", channels[1][0]);
-
-  cv::imwrite("dxt_imgB_Cr.png", channels[1][1]);
-  cv::imwrite("dxt_imgB_Cb.png", channels[1][2]);
+  cv::imwrite("img_gtc.png", cv::Mat(img.rows, img.cols, CV_8UC4,
+    GenTC::DXTImage(reinterpret_cast<const uint8_t *>(dxt_blocks.data()),
+                    img.cols, img.rows).DecompressedImage().data()));
 
   return 0;
 }
