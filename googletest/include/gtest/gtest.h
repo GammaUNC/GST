@@ -1388,11 +1388,18 @@ AssertionResult CmpHelperEQ(const char* expected_expression,
                             const char* actual_expression,
                             const T1& expected,
                             const T2& actual) {
+#ifndef _MSC_VER
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wsign-compare"
+#endif
 GTEST_DISABLE_MSC_WARNINGS_PUSH_(4389 /* signed/unsigned mismatch */)
   if (expected == actual) {
     return AssertionSuccess();
   }
 GTEST_DISABLE_MSC_WARNINGS_POP_()
+#ifndef _MSC_VER
+#pragma GCC diagnostic pop
+#endif
 
   return CmpHelperEQFailure(expected_expression, actual_expression, expected,
                             actual);
@@ -1522,6 +1529,11 @@ GTEST_API_ AssertionResult CmpHelper##op_name(\
 
 // INTERNAL IMPLEMENTATION - DO NOT USE IN A USER PROGRAM.
 
+#ifndef _MSC_VER
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wsign-compare"
+#endif
+
 // Implements the helper function for {ASSERT|EXPECT}_NE
 GTEST_IMPL_CMP_HELPER_(NE, !=);
 // Implements the helper function for {ASSERT|EXPECT}_LE
@@ -1532,6 +1544,10 @@ GTEST_IMPL_CMP_HELPER_(LT, <);
 GTEST_IMPL_CMP_HELPER_(GE, >=);
 // Implements the helper function for {ASSERT|EXPECT}_GT
 GTEST_IMPL_CMP_HELPER_(GT, >);
+
+#ifndef _MSC_VER
+#pragma GCC diagnostic pop
+#endif
 
 #undef GTEST_IMPL_CMP_HELPER_
 
