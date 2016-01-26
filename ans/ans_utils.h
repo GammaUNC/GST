@@ -40,4 +40,47 @@ static std::vector<uint32_t> CumulativeSum(const std::vector<uint32_t> &x) {
   return std::move(t);
 }
 
+static bool OptionsValid(const ans::Options &opts) {
+  bool ok = true;
+
+  // We have to have at least some frequencies
+  ok = ok && opts.Fs.size() > 1;
+
+  // Make sure we can represent all states
+  ok = ok && (opts.b * opts.k * opts.M) < (1ULL << 32);
+
+  // We have to spit out at least bits somehow.
+  ok = ok && opts.b > 0;
+  ok = ok && (opts.b & (opts.b - 1)) == 0;
+
+  // This is our state resolution factor, it has to be
+  // at least one, otherwise our states are zero.
+  ok = ok && opts.k > 0;
+
+  return ok;
+}
+
+// Returns false if unfixable...
+static bool FixInvalidOptions(ans::Options *opts) {
+  if (OptionsValid(*opts))
+    return true;
+
+  // If our probability denominator is invalid, set it
+  // to the proper denominator...
+  if (0 == opts->M) {
+    opts->M = std::accumulate(opts->Fs.begin(), opts->Fs.end(), 0);
+  }
+
+  if (0 == opts->k) {
+    opts->k = 1;
+  }
+
+  if (0 == opts->b) {
+    opts->b = 2;
+  }
+
+  return OptionsValid(*opts);
+}
+
+
 #endif  // __ANS_UTILS_H__

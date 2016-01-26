@@ -4,6 +4,7 @@
 
 #include "ans.h"
 #include "ans_utils.h"
+#include "histogram.h"
 
 namespace ans {
 
@@ -199,14 +200,24 @@ uint32_t tANS_Decoder::Decode(BitReader *r) {
 // ANS Factory
 //
 
-std::unique_ptr<Decoder> Decoder::Create(uint32_t state, const std::vector<uint32_t> &Fs, const Options &opts) {
+std::unique_ptr<Decoder> Decoder::Create(uint32_t state, const Options &_opts) {
+  Options opts(_opts);
+
   std::unique_ptr<Decoder> dec;
+  if (!FixInvalidOptions(&opts)) {
+    assert(!"Invalid options!");
+    return std::move(dec);
+  }
+
+  int denom = static_cast<int>(opts.M);
+  std::vector<uint32_t> normalized_fs = ans::GenerateHistogram(opts.Fs, denom);
+
   switch (opts.type) {
   case eType_rANS:
-    dec.reset(new rANS_Decoder(state, Fs, opts.b, opts.k));
+    dec.reset(new rANS_Decoder(state, normalized_fs, opts.b, opts.k));
     break;
   case eType_tANS:
-    dec.reset(new tANS_Decoder(state, Fs, opts.b, opts.k));
+    dec.reset(new tANS_Decoder(state, normalized_fs, opts.b, opts.k));
     break;
 
   default:

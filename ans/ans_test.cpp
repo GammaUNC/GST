@@ -6,14 +6,14 @@
 #include "gtest/gtest.h"
 
 TEST(Codec, CanEncodeValues) {
-  std::vector<uint32_t> F = { 2, 1, 1 };
-
   ans::Options opts;
   opts.b = (1 << 16);
   opts.k = 2;
+  opts.M = 32;
+  opts.Fs = { 2, 1, 1 };
   for (auto ty : { ans::eType_rANS, ans::eType_tANS }) {
     opts.type = ty;
-    std::unique_ptr<ans::Encoder> enc = ans::Encoder::Create(F, opts);
+    std::unique_ptr<ans::Encoder> enc = ans::Encoder::Create(opts);
 
     uint32_t x = 0;
     ans::BitWriter w(reinterpret_cast<unsigned char *>(&x));
@@ -39,7 +39,7 @@ TEST(Codec, CanEncodeValues) {
     EXPECT_EQ(0, x);
 
     ans::BitReader r(reinterpret_cast<unsigned char *>(&x));
-    std::unique_ptr<ans::Decoder> dec = ans::Decoder::Create(state4, F, opts);
+    std::unique_ptr<ans::Decoder> dec = ans::Decoder::Create(state4, opts);
     EXPECT_EQ(dec->Decode(&r), 2);
     EXPECT_EQ(dec->GetState(), state3);
     EXPECT_EQ(dec->Decode(&r), 0);
@@ -53,15 +53,16 @@ TEST(Codec, CanEncodeValues) {
 
 TEST(Codec, CanEncodeValuesWithRenormalization) {
   const int num_copies = 6;
-  std::vector<uint32_t> F = { 2, 1, 1 };
 
   ans::Options opts;
   opts.b = (1 << 8);
   opts.k = 2;
+  opts.M = 32;
+  opts.Fs = { 2, 1, 1 };
   for (auto ty : { ans::eType_rANS, ans::eType_tANS }) {
     opts.type = ty;
 
-    std::unique_ptr<ans::Encoder> enc = ans::Encoder::Create(F, opts);
+    std::unique_ptr<ans::Encoder> enc = ans::Encoder::Create(opts);
 
     std::vector<uint32_t> states;
     states.reserve(num_copies * 4);
@@ -95,7 +96,7 @@ TEST(Codec, CanEncodeValuesWithRenormalization) {
     std::swap(xptr[1], xptr[2]);
 
     ans::BitReader r(xptr);
-    std::unique_ptr<ans::Decoder> dec = ans::Decoder::Create(final, F, opts);
+    std::unique_ptr<ans::Decoder> dec = ans::Decoder::Create(final, opts);
 
     auto rev_iter = states.rbegin();
     for (int i = 0; i < num_copies; ++i) {
@@ -120,19 +121,19 @@ TEST(Codec, CanEncodeValuesWithRenormalization_Robust) {
     const int num_symbols;
     const std::vector<uint32_t> F;
   } test_cases[] = {
-    ans::eType_rANS, 1024, { 80, 15, 10, 7, 5, 3, 3, 3, 3, 2, 2, 2, 2, 1 },
-    ans::eType_rANS, 65535, { 80, 15, 10, 7, 5, 3, 3, 3, 3, 2, 2, 2, 2, 1 },
-    ans::eType_rANS, 1024, { 80, 15 },
-    ans::eType_rANS, 257, { 80, 15, 10, 7, 5, 3, 3, 33, 2, 2, 2, 2, 1 },
-    ans::eType_rANS, 10, { 80, 15, 10, 7, 5, 3, 3, 3, 3, 22, 2, 2, 1 },
-    ans::eType_rANS, 1, { 80, 15 },
-    ans::eType_tANS, 1024, { 80, 15, 10, 7, 5, 3, 3, 3, 3, 2, 2, 2, 2, 1 },
-    ans::eType_tANS, 65535, { 80, 15, 10, 7, 5, 3, 3, 3, 3, 2, 2, 2, 2, 1 },
-    ans::eType_tANS, 1024, { 80, 15 },
-    ans::eType_tANS, 257, { 80, 15, 10, 7, 5, 3, 3, 33, 2, 2, 2, 2, 1 },
-    ans::eType_tANS, 10, { 80, 15, 10, 7, 5, 3, 3, 3, 3, 22, 2, 2, 1 },
-    ans::eType_tANS, 1, { 80, 15 },
-    ans::eType_tANS, 1024, { 2, 10, 7, 5, 53, 3, 33, 2, 2, 1, 1, 1, 1, 1 }
+    { ans::eType_rANS, 1024,  { 80, 15, 10, 7, 5, 3, 3, 3, 3, 2, 2, 2, 2, 1 } },
+    { ans::eType_rANS, 65535, { 80, 15, 10, 7, 5, 3, 3, 3, 3, 2, 2, 2, 2, 1 } },
+    { ans::eType_rANS, 1024,  { 80, 15 } },
+    { ans::eType_rANS, 257,   { 80, 15, 10, 7, 5, 3, 3, 33, 2, 2, 2, 2, 1 } },
+    { ans::eType_rANS, 10,    { 80, 15, 10, 7, 5, 3, 3, 3, 3, 22, 2, 2, 1 } },
+    { ans::eType_rANS, 1,     { 80, 15 } },
+    { ans::eType_tANS, 1024,  { 80, 15, 10, 7, 5, 3, 3, 3, 3, 2, 2, 2, 2, 1 } },
+    { ans::eType_tANS, 65535, { 80, 15, 10, 7, 5, 3, 3, 3, 3, 2, 2, 2, 2, 1 } },
+    { ans::eType_tANS, 1024,  { 80, 15 } },
+    { ans::eType_tANS, 257,   { 80, 15, 10, 7, 5, 3, 3, 33, 2, 2, 2, 2, 1 } },
+    { ans::eType_tANS, 10,    { 80, 15, 10, 7, 5, 3, 3, 3, 3, 22, 2, 2, 1 } },
+    { ans::eType_tANS, 1,     { 80, 15 } },
+    { ans::eType_tANS, 1024,  { 2, 10, 7, 5, 53, 3, 33, 2, 2, 1, 1, 1, 1, 1 } }
   };
 
   ans::Options opts;
@@ -142,7 +143,8 @@ TEST(Codec, CanEncodeValuesWithRenormalization_Robust) {
   size_t num_cases = sizeof(test_cases) / sizeof(test_cases[0]);
   for (size_t i = 0; i < num_cases; ++i) {
     const TestCase &test = test_cases[i];
-    uint32_t M = std::accumulate(test.F.begin(), test.F.end(), 0);
+    opts.Fs = test.F;
+    opts.M = std::accumulate(test.F.begin(), test.F.end(), 0);
 
     size_t bytes_written = 0;
     std::vector<unsigned char> stream(10, 0);
@@ -154,12 +156,12 @@ TEST(Codec, CanEncodeValuesWithRenormalization_Robust) {
     states.reserve(test.num_symbols);
 
     opts.type = test.type;
-    std::unique_ptr<ans::Encoder> enc = ans::Encoder::Create(test.F, opts);
+    std::unique_ptr<ans::Encoder> enc = ans::Encoder::Create(opts);
     for (int i = 0; i < test.num_symbols; ++i) {
-      int r = rand() % M;
+      int r = rand() % opts.M;
       int symbol = 0;
       int freq = 0;
-      for (auto f : test.F) {
+      for (auto f : opts.Fs) {
         freq += f;
         if (r < freq) {
           break;
@@ -180,7 +182,7 @@ TEST(Codec, CanEncodeValuesWithRenormalization_Robust) {
     }
 
     uint32_t final_state = enc->GetState();
-    std::unique_ptr<ans::Decoder> dec = ans::Decoder::Create(final_state, test.F, opts);
+    std::unique_ptr<ans::Decoder> dec = ans::Decoder::Create(final_state, opts);
 
     stream.resize(bytes_written);
     std::reverse(stream.begin(), stream.end());
@@ -215,30 +217,34 @@ TEST(Codec, CanInterleaveIdenticalStreams) {
 
   const size_t num_cases = sizeof(test_cases) / sizeof(test_cases[0]);
 
-  ans::Options opts;
-  opts.b = 256;
-  opts.k = 2;
+  ans::Options opts[num_cases];
+  for (size_t i = 0; i < num_cases; ++i) {
+    opts[i].b = 256;
+    opts[i].k = 2;
+    opts[i].Fs = test_cases[i].F;
+    opts[i].M = std::accumulate(opts[i].Fs.begin(), opts[i].Fs.end(), 0);
+  }
 
   for (auto ty : { ans::eType_rANS, ans::eType_tANS }) {
-    opts.type = ty;
-
     std::vector<std::unique_ptr<ans::Encoder> > encoders;
     encoders.reserve(num_cases);
 
     for (size_t i = 0; i < num_cases; ++i) {
+      opts[i].type = ty;
+
       TestCase &test = test_cases[i];
       test.symbols.reserve(num_symbols);
       test.states.reserve(num_symbols);
-      encoders.push_back(ans::Encoder::Create(test.F, opts));
+      encoders.push_back(ans::Encoder::Create(opts[i]));
     }
 
     size_t bytes_written = 0;
     std::vector<unsigned char> stream(10, 0);
     for (size_t i = 0; i < num_symbols * num_cases; ++i) {
-      TestCase &test = test_cases[i % num_cases];
-      uint32_t M = std::accumulate(test.F.begin(), test.F.end(), 0);
+      size_t test_idx = i % num_cases;
+      TestCase &test = test_cases[test_idx];
 
-      int r = rand() % M;
+      int r = rand() % opts[test_idx].M;
       int symbol = 0;
       int freq = 0;
       for (auto f : test.F) {
@@ -252,8 +258,8 @@ TEST(Codec, CanInterleaveIdenticalStreams) {
       test.symbols.push_back(symbol);
 
       ans::BitWriter w(stream.data() + bytes_written);
-      test.states.push_back(encoders[i % num_cases]->GetState());
-      encoders[i % num_cases]->Encode(symbol, &w);
+      test.states.push_back(encoders[test_idx]->GetState());
+      encoders[test_idx]->Encode(symbol, &w);
 
       bytes_written += w.BytesWritten();
       if (bytes_written > (stream.size() / 2)) {
@@ -269,8 +275,8 @@ TEST(Codec, CanInterleaveIdenticalStreams) {
       std::reverse(test.symbols.begin(), test.symbols.end());
       std::reverse(test.states.begin(), test.states.end());
 
-      decoders.push_back(ans::Decoder::Create(encoders[i]->GetState(),
-        test_cases[i].F, opts));
+      uint32_t enc_state = encoders[i]->GetState();
+      decoders.push_back(ans::Decoder::Create(enc_state, opts[i]));
     }
 
     stream.resize(bytes_written);
@@ -304,30 +310,36 @@ TEST(Codec, CanInterleaveStreamsWithDifferentDistributions) {
 
   const size_t num_cases = sizeof(test_cases) / sizeof(test_cases[0]);
 
-  ans::Options opts;
-  opts.b = 256;
-  opts.k = 2;
+  ans::Options opts[num_cases];
 
-  for (auto ty : { ans::eType_rANS, ans::eType_tANS}) {
-    opts.type = ty;
+  for (size_t i = 0; i < num_cases; ++i) {
+    opts[i].b = 256;
+    opts[i].k = 2;
+    opts[i].Fs = test_cases[i].F;
+    opts[i].M = std::accumulate(opts[i].Fs.begin(), opts[i].Fs.end(), 0);
+  }
+
+  for (auto ty : { ans::eType_rANS, ans::eType_tANS }) {
 
     std::vector<std::unique_ptr<ans::Encoder> > encoders;
     encoders.reserve(num_cases);
 
     for (size_t i = 0; i < num_cases; ++i) {
+      opts[i].type = ty;
+
       TestCase &test = test_cases[i];
       test.symbols.reserve(num_symbols);
       test.states.reserve(num_symbols);
-      encoders.push_back(ans::Encoder::Create(test.F, opts));
+      encoders.push_back(ans::Encoder::Create(opts[i]));
     }
 
     size_t bytes_written = 0;
     std::vector<unsigned char> stream(10, 0);
     for (size_t i = 0; i < num_symbols * num_cases; ++i) {
-      TestCase &test = test_cases[i % num_cases];
-      uint32_t M = std::accumulate(test.F.begin(), test.F.end(), 0);
+      size_t test_idx = i % num_cases;
+      TestCase &test = test_cases[test_idx];
 
-      int r = rand() % M;
+      int r = rand() % opts[test_idx].M;
       int symbol = 0;
       int freq = 0;
       for (auto f : test.F) {
@@ -341,8 +353,8 @@ TEST(Codec, CanInterleaveStreamsWithDifferentDistributions) {
       test.symbols.push_back(symbol);
 
       ans::BitWriter w(stream.data() + bytes_written);
-      test.states.push_back(encoders[i % num_cases]->GetState());
-      encoders[i % num_cases]->Encode(symbol, &w);
+      test.states.push_back(encoders[test_idx]->GetState());
+      encoders[test_idx]->Encode(symbol, &w);
 
       bytes_written += w.BytesWritten();
       if (bytes_written > (stream.size() / 2)) {
@@ -358,8 +370,8 @@ TEST(Codec, CanInterleaveStreamsWithDifferentDistributions) {
       std::reverse(test.symbols.begin(), test.symbols.end());
       std::reverse(test.states.begin(), test.states.end());
 
-      decoders.push_back(ans::Decoder::Create(encoders[i]->GetState(),
-        test_cases[i].F, opts));
+      uint32_t enc_state = encoders[i]->GetState();
+      decoders.push_back(ans::Decoder::Create(enc_state, opts[i]));
     }
 
     stream.resize(bytes_written);
@@ -393,22 +405,26 @@ TEST(Codec, CanInterleaveStreamsWithDifferentSymbolsFromDistributions) {
   const size_t num_cases = sizeof(test_cases) / sizeof(test_cases[0]);
   const size_t num_symbols[num_cases] = { 1024, 3, 14, 256 };
 
-  ans::Options opts;
-  opts.b = 256;
-  opts.k = 2;
+  ans::Options opts[num_cases];
+  for (size_t i = 0; i < num_cases; ++i) {
+    opts[i].b = 256;
+    opts[i].k = 2;
+    opts[i].Fs = test_cases[i].F;
+    opts[i].M = std::accumulate(opts[i].Fs.begin(), opts[i].Fs.end(), 0);
+  }
 
   for (auto ty : { ans::eType_rANS }) { // , ans::eType_tANS }) {
-    opts.type = ty;
-
     std::vector<std::unique_ptr<ans::Encoder> > encoders;
     encoders.reserve(num_cases);
 
     size_t max_num_symbols = 0;
     for (size_t i = 0; i < num_cases; ++i) {
+      opts[i].type = ty;
+
       TestCase &test = test_cases[i];
       test.symbols.reserve(num_symbols[i]);
       test.states.reserve(num_symbols[i]);
-      encoders.push_back(ans::Encoder::Create(test.F, opts));
+      encoders.push_back(ans::Encoder::Create(opts[i]));
       max_num_symbols = std::max(max_num_symbols, num_symbols[i]);
     }
 
@@ -423,9 +439,8 @@ TEST(Codec, CanInterleaveStreamsWithDifferentSymbolsFromDistributions) {
         }
 
         TestCase &test = test_cases[j];
-        uint32_t M = std::accumulate(test.F.begin(), test.F.end(), 0);
 
-        int r = rand() % M;
+        int r = rand() % opts[j].M;
         int symbol = 0;
         int freq = 0;
         for (auto f : test.F) {
@@ -453,8 +468,8 @@ TEST(Codec, CanInterleaveStreamsWithDifferentSymbolsFromDistributions) {
     decoders.reserve(num_cases);
 
     for (size_t i = 0; i < num_cases; ++i) {
-      decoders.push_back(ans::Decoder::Create(encoders[i]->GetState(),
-        test_cases[i].F, opts));
+      uint32_t enc_state = encoders[i]->GetState();
+      decoders.push_back(ans::Decoder::Create(enc_state, opts[i]));
     }
 
     stream.resize(bytes_written);

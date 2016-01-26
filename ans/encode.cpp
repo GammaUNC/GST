@@ -2,9 +2,10 @@
 #include <random>
 #include <vector>
 
-#include "bits.h"
 #include "ans.h"
 #include "ans_utils.h"
+#include "bits.h"
+#include "histogram.h"
 
 namespace ans {
 
@@ -184,14 +185,25 @@ void tANS_Encoder::Encode(uint32_t symbol, BitWriter *w) {
 // ANS Factory
 //
 
-std::unique_ptr<Encoder> Encoder::Create(const std::vector<uint32_t> &Fs, const Options &opts) {
+std::unique_ptr<Encoder> Encoder::Create(const Options &_opts) {
+  Options opts(_opts);
+
   std::unique_ptr<Encoder> enc;
+  if (!FixInvalidOptions(&opts)) {
+    assert(!"Invalid options!");
+    return std::move(enc);
+  }
+
+  int denom = static_cast<int>(opts.M);
+  std::vector<uint32_t> normalized_fs =
+    ans::GenerateHistogram(opts.Fs, denom);
+
   switch (opts.type) {
     case eType_rANS:
-      enc.reset(new rANS_Encoder(Fs, opts.b, opts.k));
+      enc.reset(new rANS_Encoder(normalized_fs, opts.b, opts.k));
       break;
     case eType_tANS:
-      enc.reset(new tANS_Encoder(Fs, opts.b, opts.k));
+      enc.reset(new tANS_Encoder(normalized_fs, opts.b, opts.k));
       break;
     default:
       assert(!"Unknown type!");
