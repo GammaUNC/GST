@@ -342,7 +342,8 @@ int predict_index(const uint8_t colors[4][4], uint8_t *predicted_color) {
   return min_id;
 }
 
-std::vector<uint8_t> DXTImage::PredictIndices() const {
+std::vector<uint8_t>
+DXTImage::PredictIndices(int chunk_width, int chunk_height) const {
   // Operate in 16-block chunks arranged as 4x4 blocks
   assert(Width() % 16 == 0);
   assert(Height() % 16 == 0);
@@ -351,47 +352,57 @@ std::vector<uint8_t> DXTImage::PredictIndices() const {
   std::vector<uint8_t> symbols;
   symbols.reserve(indices.size());
 
+  for (int py = 0; py < Height(); ++py) {
+    for (int px = 0; px < Width(); ++px) {
+      int pixel_index = py * Width() + px;
+      if ((px % chunk_width) == 0 || (py % chunk_height) == 0) {
+        symbols.push_back(indices[pixel_index]);
+        continue;
+      }
+
+      uint8_t diag_color[4], top_color[4], left_color[4];
+      GetColorAt(px - 1, py - 1, diag_color);
+      GetColorAt(px, py - 1, top_color);
+      GetColorAt(px - 1, py, left_color);
+
+      uint8_t predicted[4];
+      predict_color(diag_color, top_color, left_color, predicted);
+
+      int predicted_index =
+        predict_index(LogicalBlockAt(px, py).palette, predicted);
+
+      int delta = ((indices[pixel_index] + 4) - predicted_index) % 4;
+      symbols.push_back(delta);
+    }
+  }
+
+  assert(symbols.size() == indices.size());
+  return std::move(symbols);
+}
+
+std::vector<uint8_t>
+DXTImage::PredictIndicesLinearize(int chunk_width, int chunk_height) const {
+  std::vector<uint8_t> predicted = PredictIndices(chunk_width, chunk_height);
+  std::vector<uint8_t> symbols;
+  symbols.reserve(predicted.size());
+
+  int sym_idx = 0;
+
   // Each encoder can encode up to 256 values over 16 threads, this divides
   // the input into chunks that have 256 values each.
-  ChunkBy(16, 16, Width(), Height(), [&](int chunk_i, int chunk_j) {
-
+  ChunkBy(chunk_width, chunk_height, Width(), Height(), [&](int chunk_i, int chunk_j) {
     // For each chunk, we want to linearize the indices...
     ChunkBy(4, 4, 16, 16, [&](int block_i, int block_j) {
-
       // In each block, push back the symbols one by one. If we're
       // along the top or left row in the chunk, don't predict
       // anything..
       ChunkBy(1, 1, 4, 4, [&](int i, int j) {
-        int chunk_coord_y = block_j + j;
-        int chunk_coord_x = block_i + i;
-
-        int px = chunk_j + block_j + j;
-        int py = chunk_i + block_i + i;
-
-        int pixel_index = py * Width() + px;
-        if (chunk_coord_y == 0 || chunk_coord_x == 0) {
-          symbols.push_back(indices[pixel_index]);
-          return;
-        }
-
-        uint8_t diag_color[4], top_color[4], left_color[4];
-        GetColorAt(px - 1, py - 1, diag_color);
-        GetColorAt(px, py - 1, top_color);
-        GetColorAt(px - 1, py, left_color);
-
-        uint8_t predicted[4];
-        predict_color(diag_color, top_color, left_color, predicted);
-
-        int predicted_index =
-          predict_index(LogicalBlockAt(px, py).palette, predicted);
-
-        int delta = ((indices[pixel_index] + 4) - predicted_index) % 4;
-        symbols.push_back(delta);
+          symbols.push_back(predicted[sym_idx++]);
       });
     });
   });
 
-  assert(symbols.size() == indices.size());
+  assert(symbols.size() == predicted.size());
   return std::move(symbols);
 }
 

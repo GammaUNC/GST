@@ -628,11 +628,11 @@ std::vector<uint8_t> entropy_encode_index_symbols(const std::vector<uint8_t> &sy
 }
 
 std::vector<uint8_t> compress_indices(const GenTC::DXTImage &dxt) {
-  std::vector<uint8_t> symbolized_indices = dxt.PredictIndices();
+  std::vector<uint8_t> symbolized_indices = dxt.PredictIndicesLinearize(16, 16);
 
   // Visualize
   cv::imwrite("img_dxt_interp_predicted.png", cv::Mat(dxt.Height(), dxt.Width(), CV_8UC1,
-    GenTC::DXTImage::TwoBitValuesToImage(symbolized_indices).data()));
+    GenTC::DXTImage::TwoBitValuesToImage(dxt.PredictIndices(16, 16)).data()));
 
   return std::move(entropy_encode_index_symbols(symbolized_indices));
 }

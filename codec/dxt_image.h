@@ -71,7 +71,8 @@ namespace GenTC {
     uint8_t InterpolationValueAt(int x, int y) const;
     void GetColorAt(int x, int y, uint8_t out[4]) const;
 
-    std::vector<uint8_t> PredictIndices() const;
+    std::vector<uint8_t> PredictIndices(int chunk_width, int chunk_height) const;
+    std::vector<uint8_t> PredictIndicesLinearize(int chunk_width, int chunk_height) const;
 
   private:
     uint32_t BlockAt(int x, int y) const {
