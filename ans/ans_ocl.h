@@ -10,6 +10,8 @@
 #include "gpu.h"
 
 namespace ans {
+namespace ocl {
+
   // OpenCL decoder that can decode multiple interleaved rANS streams
   // provided that the following conditions are met:
   // 1. OpenCL context has been established
@@ -20,29 +22,12 @@ namespace ans {
 
   // If we expect our symbol frequency to have 1 << 11 precision, we only have 1 << 4
   // available for state-precision
-  static const int kANSTableSize = (1 << 11);
-  static const int kNumEncodedSymbols = 256;
+  static const size_t kANSTableSize = (1 << 11);
+  static const size_t kNumEncodedSymbols = 256;
 
-  static std::vector<uint32_t> NormalizeFrequencies(const std::vector<uint32_t> &F) {
-    return std::move(ans::GenerateHistogram(F, kANSTableSize));
-  }
-
-  static std::unique_ptr<Encoder> CreateOpenCLEncoder(const std::vector<uint32_t> &F) {
-    Options opts;
-    opts.b = 1 << 16;
-    opts.k = 1 << 4;
-    opts.type = eType_rANS;
-    return Encoder::Create(NormalizeFrequencies(F), opts);
-  }
-
-  // A CPU decoder that matches the OpenCLDecoder below.
-  static std::unique_ptr<Decoder> CreateOpenCLDecoder(uint32_t state, const std::vector<uint32_t> &F) {
-    Options opts;
-    opts.b = 1 << 16;
-    opts.k = 1 << 4;
-    opts.type = eType_rANS;
-    return Decoder::Create(state, NormalizeFrequencies(F), opts);
-  }
+  std::vector<uint32_t> NormalizeFrequencies(const std::vector<uint32_t> &F);
+  std::unique_ptr<Encoder> CreateCPUEncoder(const std::vector<uint32_t> &F);
+  std::unique_ptr<Decoder> CreateCPUDecoder(uint32_t state, const std::vector<uint32_t> &F);
 
   class OpenCLDecoder {
   public:
@@ -90,6 +75,7 @@ namespace ans {
     }
   };
 
+}  // namespace ocl
 }  // namespace ans
 
 #endif  // __ANS_OPENCL_H__

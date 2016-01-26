@@ -163,8 +163,8 @@ tANS_Decoder::tANS_Decoder(uint32_t state, const std::vector<uint32_t> &Fs, uint
   : _F(Fs)
   , _B(CumulativeSum(Fs))
   , _M(_B.back() + _F.back())
-  , _k(k)
   , _b(b)
+  , _k(k)
   , _log_b(IntLog2(b))
   , _dec_table(std::move(BuildDecTable(Fs, _M)))
   , _offset_table(std::move(BuildOffsetTable(Fs, _dec_table, _M)))
@@ -207,6 +207,10 @@ std::unique_ptr<Decoder> Decoder::Create(uint32_t state, const std::vector<uint3
     break;
   case eType_tANS:
     dec.reset(new tANS_Decoder(state, Fs, opts.b, opts.k));
+    break;
+
+  default:
+    assert(!"Unknown type!");
     break;
   }
 

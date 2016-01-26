@@ -69,9 +69,9 @@ namespace GenTC {
     }
 
     uint8_t InterpolationValueAt(int x, int y) const;
-    void DXTImage::GetColorAt(int x, int y, uint8_t out[4]) const;
+    void GetColorAt(int x, int y, uint8_t out[4]) const;
 
-    std::vector<uint8_t> DXTImage::PredictIndices() const;
+    std::vector<uint8_t> PredictIndices() const;
 
   private:
     uint32_t BlockAt(int x, int y) const {

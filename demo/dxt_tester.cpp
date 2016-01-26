@@ -22,8 +22,11 @@
 
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wmaybe-uninitialized"
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wuninitialized"
 #define STB_DXT_IMPLEMENTATION
 #include "stb_dxt.h"
+#pragma GCC diagnostic pop
 #pragma GCC diagnostic pop
 
 static uint64_t CompressRGB(const uint8_t *img, int width) {
@@ -185,7 +188,7 @@ void encode(const cv::Mat &img, std::vector<uint8_t> *result) {
   std::vector<std::unique_ptr<ans::Encoder> > encoders;
   encoders.reserve(kNumStreams);
   for (uint32_t i = 0; i < kNumStreams; ++i) {
-    encoders.push_back(std::move(ans::CreateOpenCLEncoder(encoded_counts)));
+    encoders.push_back(std::move(ans::ocl::CreateCPUEncoder(encoded_counts)));
   }
 
   std::vector<uint8_t> encoded(10, 0);
@@ -194,13 +197,13 @@ void encode(const cv::Mat &img, std::vector<uint8_t> *result) {
 
   uint32_t symbol_offset = 0;
   while(symbol_offset < symbols.size()) {
-    for (uint32_t sym_idx = 0; sym_idx < ans::kNumEncodedSymbols; ++sym_idx) {
+    for (uint32_t sym_idx = 0; sym_idx < ans::ocl::kNumEncodedSymbols; ++sym_idx) {
       // Make sure that we have at least 4*kNumStreams bytes available
       encoded.resize(encoded_bytes_written + (4*kNumStreams));
 
       int16_t *output = reinterpret_cast<int16_t *>(encoded.data() + encoded_bytes_written);
       for (uint32_t strm_idx = 0; strm_idx < kNumStreams; strm_idx++) {
-        uint32_t sidx = symbol_offset + strm_idx * ans::kNumEncodedSymbols + sym_idx;
+        uint32_t sidx = symbol_offset + strm_idx * ans::ocl::kNumEncodedSymbols + sym_idx;
         if (symbols[sidx] == 0) {
           *output = coeffs[sidx];
           output++;
@@ -210,7 +213,7 @@ void encode(const cv::Mat &img, std::vector<uint8_t> *result) {
 
       for (uint32_t strm_idx = 0; strm_idx < kNumStreams; ++strm_idx) {
         ans::BitWriter w(encoded.data() + encoded_bytes_written);
-        uint32_t sidx = symbol_offset + strm_idx * ans::kNumEncodedSymbols + sym_idx;
+        uint32_t sidx = symbol_offset + strm_idx * ans::ocl::kNumEncodedSymbols + sym_idx;
         uint8_t symbol = encoded_symbols[symbols[sidx]];
 
         assert(symbol < encoded_counts.size());
@@ -239,7 +242,7 @@ void encode(const cv::Mat &img, std::vector<uint8_t> *result) {
     last_encoded_bytes_written = encoded_bytes_written;
 
     // Advance the symbol offset...
-    symbol_offset += kNumStreams * ans::kNumEncodedSymbols;
+    symbol_offset += kNumStreams * ans::ocl::kNumEncodedSymbols;
   }
 
   // Add the encoded bytes
@@ -262,8 +265,9 @@ int decode(cv::Mat *result, const uint8_t *buf) {
     offset += 3;
   }
 
-  int num_macroblocks = (result->cols * result->rows) / (kNumStreams * ans::kNumEncodedSymbols);
-  assert(num_macroblocks * kNumStreams * ans::kNumEncodedSymbols == 
+  int num_macroblocks =
+    (result->cols * result->rows) / (kNumStreams * ans::ocl::kNumEncodedSymbols);
+  assert(num_macroblocks * kNumStreams * ans::ocl::kNumEncodedSymbols == 
          static_cast<uint32_t>(result->cols * result->rows));
   std::vector<uint16_t> macroblock_sizes(num_macroblocks);
 
@@ -282,7 +286,7 @@ int decode(cv::Mat *result, const uint8_t *buf) {
     std::vector<std::unique_ptr<ans::Decoder> > decoders;
     decoders.reserve(kNumStreams);
     for (uint32_t i = 0; i < kNumStreams; ++i) {
-      decoders.push_back(ans::CreateOpenCLDecoder(states[kNumStreams - i - 1], counts));
+      decoders.push_back(ans::ocl::CreateCPUDecoder(states[kNumStreams - i - 1], counts));
     }
 
     int data_sz_bytes = mb_size - 4 * kNumStreams;
@@ -293,14 +297,14 @@ int decode(cv::Mat *result, const uint8_t *buf) {
     std::reverse(mb_data.begin(), mb_data.end());
 
     ans::BitReader r(reinterpret_cast<const uint8_t *>(mb_data.data()));
-    for (uint32_t sym_idx = 0; sym_idx < ans::kNumEncodedSymbols; sym_idx++) {
+    for (uint32_t sym_idx = 0; sym_idx < ans::ocl::kNumEncodedSymbols; sym_idx++) {
       for (uint32_t strm_idx = 0; strm_idx < kNumStreams; ++strm_idx) {
-        uint32_t sidx = symbol_offset + (kNumStreams - strm_idx) * ans::kNumEncodedSymbols - sym_idx - 1;
+        uint32_t sidx = symbol_offset + (kNumStreams - strm_idx) * ans::ocl::kNumEncodedSymbols - sym_idx - 1;
         coeffs[sidx] = static_cast<int16_t>(symbols[decoders[strm_idx]->Decode(&r)]) - 128;
       }
 
       for (uint32_t strm_idx = 0; strm_idx < kNumStreams; ++strm_idx) {
-        uint32_t idx = symbol_offset + (kNumStreams - strm_idx) * ans::kNumEncodedSymbols - sym_idx - 1;
+        uint32_t idx = symbol_offset + (kNumStreams - strm_idx) * ans::ocl::kNumEncodedSymbols - sym_idx - 1;
         if (coeffs[idx] == -128) {
           coeffs[idx] = static_cast<int16_t>(r.ReadBits(16));
         }
@@ -308,7 +312,7 @@ int decode(cv::Mat *result, const uint8_t *buf) {
     }
 
     offset = mb_off;
-    symbol_offset += kNumStreams * ans::kNumEncodedSymbols;
+    symbol_offset += kNumStreams * ans::ocl::kNumEncodedSymbols;
   }
 
   // Populate the image properly
@@ -572,7 +576,7 @@ std::vector<uint8_t> entropy_encode_index_symbols(const std::vector<uint8_t> &sy
   std::vector<std::unique_ptr<ans::Encoder> > encoders;
   encoders.reserve(kNumStreams);
   for (uint32_t i = 0; i < kNumStreams; ++i) {
-    encoders.push_back(std::move(ans::CreateOpenCLEncoder(counts)));
+    encoders.push_back(std::move(ans::ocl::CreateCPUEncoder(counts)));
   }
 
   std::vector<uint8_t> encoded;
@@ -581,12 +585,12 @@ std::vector<uint8_t> entropy_encode_index_symbols(const std::vector<uint8_t> &sy
 
   uint32_t symbol_offset = 0;
   while(symbol_offset < symbols.size()) {
-    for (uint32_t sym_idx = 0; sym_idx < ans::kNumEncodedSymbols; sym_idx++) {
+    for (uint32_t sym_idx = 0; sym_idx < ans::ocl::kNumEncodedSymbols; sym_idx++) {
       encoded.resize(encoded_bytes_written + 2*kNumStreams);
 
       for (uint32_t strm_idx = 0; strm_idx < kNumStreams; ++strm_idx) {
         ans::BitWriter w(encoded.data() + encoded_bytes_written);
-        uint32_t sidx = symbol_offset + (strm_idx + 1) * ans::kNumEncodedSymbols - sym_idx - 1;
+        uint32_t sidx = symbol_offset + (strm_idx + 1) * ans::ocl::kNumEncodedSymbols - sym_idx - 1;
         uint8_t symbol = symbols[sidx];
 
         assert(symbol < counts.size());
@@ -614,7 +618,7 @@ std::vector<uint8_t> entropy_encode_index_symbols(const std::vector<uint8_t> &sy
     last_encoded_bytes_written = encoded_bytes_written;
 
     // Get ready for the next symbols...
-    symbol_offset += kNumStreams * ans::kNumEncodedSymbols;
+    symbol_offset += kNumStreams * ans::ocl::kNumEncodedSymbols;
   }
 
   output.resize(bytes_written + encoded_bytes_written);

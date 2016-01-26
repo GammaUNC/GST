@@ -26,6 +26,28 @@ static std::vector<T> ReadBuffer(cl_command_queue queue, cl_mem buffer, size_t n
 }
 
 namespace ans {
+namespace ocl{
+
+std::vector<uint32_t> NormalizeFrequencies(const std::vector<uint32_t> &F) {
+  return std::move(ans::GenerateHistogram(F, kANSTableSize));
+}
+
+std::unique_ptr<Encoder> CreateCPUEncoder(const std::vector<uint32_t> &F) {
+  Options opts;
+  opts.b = 1 << 16;
+  opts.k = 1 << 4;
+  opts.type = eType_rANS;
+  return Encoder::Create(NormalizeFrequencies(F), opts);
+}
+
+// A CPU decoder that matches the OpenCLDecoder below.
+std::unique_ptr<Decoder> CreateCPUDecoder(uint32_t state, const std::vector<uint32_t> &F) {
+  Options opts;
+  opts.b = 1 << 16;
+  opts.k = 1 << 4;
+  opts.type = eType_rANS;
+  return Decoder::Create(state, NormalizeFrequencies(F), opts);
+}
 
 OpenCLDecoder::OpenCLDecoder(
   const std::unique_ptr<gpu::GPUContext> &ctx, const std::vector<uint32_t> &F, const int num_interleaved)
@@ -427,4 +449,5 @@ std::vector<std::vector<cl_uchar> > OpenCLDecoder::Decode(
   return std::move(out);
 }
 
+}  // namespace ocl
 }  // namespace ans

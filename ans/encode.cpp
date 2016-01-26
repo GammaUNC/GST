@@ -193,6 +193,9 @@ std::unique_ptr<Encoder> Encoder::Create(const std::vector<uint32_t> &Fs, const 
     case eType_tANS:
       enc.reset(new tANS_Encoder(Fs, opts.b, opts.k));
       break;
+    default:
+      assert(!"Unknown type!");
+      break;
   }
 
   return std::move(enc);
