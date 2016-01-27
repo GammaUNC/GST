@@ -413,7 +413,7 @@ TEST(Codec, CanInterleaveStreamsWithDifferentSymbolsFromDistributions) {
     opts[i].M = std::accumulate(opts[i].Fs.begin(), opts[i].Fs.end(), 0);
   }
 
-  for (auto ty : { ans::eType_rANS }) { // , ans::eType_tANS }) {
+  for (auto ty : { ans::eType_rANS, ans::eType_tANS }) {
     std::vector<std::unique_ptr<ans::Encoder> > encoders;
     encoders.reserve(num_cases);
 
@@ -488,6 +488,11 @@ TEST(Codec, CanInterleaveStreamsWithDifferentSymbolsFromDistributions) {
         EXPECT_EQ(decoders[test_idx]->Decode(&r), test.symbols[symbol_idx]);
         EXPECT_EQ(decoders[test_idx]->GetState(), test.states[symbol_idx]);
       }
+    }
+
+    for (size_t j = 0; j < num_cases; ++j) {
+      test_cases[j].symbols.clear();
+      test_cases[j].states.clear();
     }
   }
 }
