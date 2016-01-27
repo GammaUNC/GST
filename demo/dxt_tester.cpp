@@ -20,14 +20,18 @@
 
 #include <opencv2/opencv.hpp>
 
+#ifndef _MSC_VER
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wmaybe-uninitialized"
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wuninitialized"
+#endif
 #define STB_DXT_IMPLEMENTATION
 #include "stb_dxt.h"
+#ifndef _MSC_VER
 #pragma GCC diagnostic pop
 #pragma GCC diagnostic pop
+#endif
 
 static uint64_t CompressRGB(const uint8_t *img, int width) {
   unsigned char block[64];
@@ -81,7 +85,7 @@ static const uint32_t kNumStreams = 16;
 void encode(const cv::Mat &img, std::vector<uint8_t> *result) {
   // Collect stats for frequency analysis
   std::vector<int16_t> coeffs(img.rows * img.cols, 0);
-  assert(coeffs.size() % (ans::kNumEncodedSymbols * kNumStreams) == 0);
+  assert(coeffs.size() % (ans::ocl::kNumEncodedSymbols * kNumStreams) == 0);
 
   int16_t min_coeff = std::numeric_limits<int16_t>::max();
   int16_t max_coeff = std::numeric_limits<int16_t>::min();
@@ -703,8 +707,9 @@ int main(int argc, char **argv) {
   std::vector<uint8_t> strm_B = compress(img_B);
   cv::Mat decomp_B = decompress(strm_B);
 
-  uint32_t total_compressed_sz = strm_A.size() + strm_B.size() + compressed_indices.size();
-  uint32_t dxt_sz = dxt_blocks.size() * 8;
+  uint32_t total_compressed_sz =
+    static_cast<uint32_t>(strm_A.size() + strm_B.size() + compressed_indices.size());
+  uint32_t dxt_sz = static_cast<uint32_t>(dxt_blocks.size() * 8);
   uint32_t uncompressed_sz = img.cols * img.rows * 3;
 
   std::cout << "Uncompressed size: " << uncompressed_sz << std::endl;
