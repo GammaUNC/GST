@@ -12,12 +12,14 @@ TEST(Bits, CanWriteBytes) {
   w.WriteBits(0, 8);
   EXPECT_EQ(x, 1);
   EXPECT_EQ(w.BytesWritten(), 4);
+  EXPECT_EQ(w.BitsWritten(), 32);
 
   w = ans::BitWriter(reinterpret_cast<unsigned char*>(&x));
   w.WriteBits(0xbeef, 16);
   w.WriteBits(0xdead, 16);
   EXPECT_EQ(x, 0xdeadbeef);
   EXPECT_EQ(w.BytesWritten(), 4);
+  EXPECT_EQ(w.BitsWritten(), 32);
 }
 
 TEST(Bits, CanWriteBits) {
@@ -29,6 +31,7 @@ TEST(Bits, CanWriteBits) {
 
   EXPECT_EQ(x, -1);
   EXPECT_EQ(w.BytesWritten(), 4);
+  EXPECT_EQ(w.BitsWritten(), 32);
 
   w = ans::BitWriter(reinterpret_cast<unsigned char*>(&x));
   for (int i = 0; i < 32; ++i) {
@@ -41,6 +44,7 @@ TEST(Bits, CanWriteBits) {
 
   EXPECT_EQ(0xAAAAAAAA, x);
   EXPECT_EQ(w.BytesWritten(), 4);
+  EXPECT_EQ(w.BitsWritten(), 32);
 }
 
 TEST(Bits, CanWriteBytesAndBits) {
@@ -64,6 +68,7 @@ TEST(Bits, CanWriteBytesAndBits) {
 
   EXPECT_EQ(0x3FFFFFFF, x);
   EXPECT_EQ(w.BytesWritten(), 4);
+  EXPECT_EQ(w.BitsWritten(), 30);
 }
 
 TEST(Bits, CanReadBytes) {
@@ -134,8 +139,32 @@ TEST(Bits, CanWriteThenReadSameValues) {
   EXPECT_EQ(stream[1], 0x90);
   EXPECT_EQ(stream[2], 0xC2);
   EXPECT_EQ(7, w.BytesWritten());
+  EXPECT_EQ(55, w.BitsWritten());
 
   ans::BitReader r(stream);
+  for (int i = 1; i < 11; ++i) {
+    EXPECT_EQ(i - 1, r.ReadBits(i));
+  }
+}
+
+TEST(Bits, CanWriteThenReadSameValues_ContainedBitWriter) {
+  uint8_t stream[8];
+  ans::BitWriter w(stream);
+  for (int i = 1; i < 11; ++i) {
+    w.WriteBits(i - 1, i);
+  }
+
+  ans::ContainedBitWriter cw;
+  for (int i = 1; i < 11; ++i) {
+    cw.WriteBits(i - 1, i);
+  }
+
+  std::vector<uint8_t> cw_result = std::move(cw.GetData());
+  EXPECT_EQ(memcmp(cw_result.data(), stream, 8), 0);
+  EXPECT_EQ(cw.BytesWritten(), w.BytesWritten());
+  EXPECT_EQ(cw.BitsWritten(), w.BitsWritten());
+
+  ans::BitReader r(cw_result.data());
   for (int i = 1; i < 11; ++i) {
     EXPECT_EQ(i - 1, r.ReadBits(i));
   }
