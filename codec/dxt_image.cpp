@@ -217,7 +217,7 @@ std::vector<uint8_t> DXTImage::InterpolationValues() const {
     }
   }
 
-  assert(values.size() == _width * _height);
+  assert(values.size() == static_cast<size_t>(_width * _height));
   return std::move(values);
 }
 

@@ -12,6 +12,7 @@
 #  include <CL/cl_gl.h>
 #endif
 
+#include <cstdio>
 #include <cassert>
 #include <memory>
 #include <vector>
