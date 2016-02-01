@@ -228,4 +228,63 @@ std::unique_ptr<Decoder> Decoder::Create(uint32_t state, const Options &_opts) {
   return std::move(dec);
 }
 
+////////////////////////////////////////////////////////////////////////////////
+//
+// Interleaved decoding
+//
+
+std::vector<uint8_t> DecodeInterleaved(const std::vector<uint8_t> &data, size_t num_symbols,
+                                       const Options &opts, size_t num_streams) {
+  if ((num_symbols % num_streams) != 0) {
+    assert(!"Number of symbols does not divide requested number of streams.");
+    return std::vector<uint8_t>();
+  }
+
+  // Initialize decoders
+  std::vector<std::unique_ptr<Decoder>> decoders;
+  decoders.reserve(num_streams);
+  assert(data.size() >= num_streams * 4
+         || "Data size not large enough to hold state values for decoders!");
+  const uint32_t *states =
+    reinterpret_cast<const uint32_t *>(data.data() + data.size()) - num_streams;
+  for (size_t i = 0; i < num_streams; ++i) {
+    decoders.push_back(Decoder::Create(states[i], opts));
+  }
+
+  const int bits_per_normalization = IntLog2(opts.b);
+  const size_t encoded_data_size = data.size() - num_streams * 4;
+
+  std::vector<uint32_t> normalization_stream;
+  BitReader data_reader(data.data());
+  for (size_t i = 0; i < encoded_data_size * 8; i += bits_per_normalization) {
+    uint32_t norm = data_reader.ReadBits(bits_per_normalization);
+    normalization_stream.push_back(norm);
+  }
+
+  std::reverse(normalization_stream.begin(), normalization_stream.end());
+
+  // Pack it in again...
+  ContainedBitWriter encoded_writer;
+  for (const auto &renorm : normalization_stream) {
+    encoded_writer.WriteBits(renorm, bits_per_normalization);
+  }
+
+  std::vector<uint8_t> encoded_data = std::move(encoded_writer.GetData());
+  BitReader encoded_reader(encoded_data.data());
+
+  const size_t symbols_per_stream = num_symbols / num_streams;
+  assert(symbols_per_stream * num_streams == num_symbols);
+
+  std::vector<uint8_t> symbols(num_symbols, 0);
+  for (size_t sym_idx = 0; sym_idx < symbols_per_stream; ++sym_idx) {
+    for (size_t strm_idx = 0; strm_idx < num_streams; ++strm_idx) {
+      int decoder_idx = num_streams - strm_idx - 1;
+      int idx = (decoder_idx + 1) * symbols_per_stream - sym_idx - 1;
+      symbols[idx] = decoders[decoder_idx]->Decode(&encoded_reader);
+    }
+  }
+
+  return std::move(symbols);
+}
+
 }  // namespace ans

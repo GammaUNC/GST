@@ -213,4 +213,46 @@ std::unique_ptr<Encoder> Encoder::Create(const Options &_opts) {
   return std::move(enc);
 }
 
+////////////////////////////////////////////////////////////////////////////////
+//
+// Interleaved encoding
+//
+
+std::vector<uint8_t> EncodeInterleaved(const std::vector<uint8_t> &symbols,
+                                       const Options &opts, size_t num_streams) {
+  if ((symbols.size() % num_streams) != 0) {
+    assert(!"Number of symbols does not divide requested number of streams.");
+    return std::vector<uint8_t>();
+  }
+
+  std::vector<std::unique_ptr<Encoder>> encoders;
+  encoders.reserve(num_streams);
+  for (size_t i = 0; i < num_streams; ++i) {
+    encoders.push_back(Encoder::Create(opts));
+  }
+
+  const size_t symbols_per_stream = symbols.size() / num_streams;
+  ContainedBitWriter w;
+
+  assert(symbols_per_stream * num_streams == symbols.size());
+  for (size_t sym_idx = 0; sym_idx < symbols_per_stream; ++sym_idx) {
+    for (size_t strm_idx = 0; strm_idx < num_streams; ++strm_idx) {
+      int idx = strm_idx * symbols_per_stream + sym_idx;
+      encoders[strm_idx]->Encode(symbols[idx], &w);
+    }
+  }
+
+  std::vector<uint8_t> result = std::move(w.GetData());
+
+  // Write the states at the end of the stream...
+  const size_t end_of_stream = result.size();
+  result.resize(end_of_stream + num_streams * 4);
+  uint32_t *states = reinterpret_cast<uint32_t *>(result.data() + end_of_stream);
+  for (size_t strm_idx = 0; strm_idx < num_streams; ++strm_idx) {
+    states[strm_idx] = encoders[strm_idx]->GetState();
+  }
+
+  return std::move(result);
+}
+
 }  // namespace ans

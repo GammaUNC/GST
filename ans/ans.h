@@ -59,6 +59,13 @@ namespace ans {
   protected:
     Decoder() { }
   };
+
+  std::vector<uint8_t> EncodeInterleaved(const std::vector<uint8_t> &symbols,
+                                         const Options &opts, size_t num_streams);
+
+  std::vector<uint8_t> DecodeInterleaved(const std::vector<uint8_t> &data,
+                                         size_t num_symbols,
+                                         const Options &opts, size_t num_streams);
 }  // namespace ans
 
 #endif  // __ANS_ENCODE_H__
