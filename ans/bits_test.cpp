@@ -148,19 +148,22 @@ TEST(Bits, CanWriteThenReadSameValues) {
 }
 
 TEST(Bits, CanWriteThenReadSameValues_ContainedBitWriter) {
-  uint8_t stream[8];
+  uint8_t stream[7];
+  memset(stream, 0, sizeof(stream));
   ans::BitWriter w(stream);
-  for (int i = 1; i < 11; ++i) {
-    w.WriteBits(i - 1, i);
-  }
-
   ans::ContainedBitWriter cw;
   for (int i = 1; i < 11; ++i) {
+    ASSERT_LT(w.BitsWritten(), sizeof(stream) * 8);
+    ASSERT_LE(w.BytesWritten(), sizeof(stream));
+    ASSERT_LT(cw.BitsWritten(), sizeof(stream) * 8);
+    ASSERT_LE(cw.BytesWritten(), sizeof(stream));
+    w.WriteBits(i - 1, i);
     cw.WriteBits(i - 1, i);
   }
 
   std::vector<uint8_t> cw_result = std::move(cw.GetData());
-  EXPECT_EQ(memcmp(cw_result.data(), stream, 8), 0);
+  ASSERT_EQ(cw_result.size(), sizeof(stream));
+  EXPECT_EQ(memcmp(cw_result.data(), stream, sizeof(stream)), 0);
   EXPECT_EQ(cw.BytesWritten(), w.BytesWritten());
   EXPECT_EQ(cw.BitsWritten(), w.BitsWritten());
 

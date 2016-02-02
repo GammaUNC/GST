@@ -278,8 +278,8 @@ std::vector<uint8_t> DecodeInterleaved(const std::vector<uint8_t> &data, size_t 
   std::vector<uint8_t> symbols(num_symbols, 0);
   for (size_t sym_idx = 0; sym_idx < symbols_per_stream; ++sym_idx) {
     for (size_t strm_idx = 0; strm_idx < num_streams; ++strm_idx) {
-      int decoder_idx = num_streams - strm_idx - 1;
-      int idx = (decoder_idx + 1) * symbols_per_stream - sym_idx - 1;
+      size_t decoder_idx = num_streams - strm_idx - 1;
+      size_t idx = (decoder_idx + 1) * symbols_per_stream - sym_idx - 1;
       symbols[idx] = decoders[decoder_idx]->Decode(&encoded_reader);
     }
   }

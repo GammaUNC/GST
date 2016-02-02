@@ -237,7 +237,7 @@ std::vector<uint8_t> EncodeInterleaved(const std::vector<uint8_t> &symbols,
   assert(symbols_per_stream * num_streams == symbols.size());
   for (size_t sym_idx = 0; sym_idx < symbols_per_stream; ++sym_idx) {
     for (size_t strm_idx = 0; strm_idx < num_streams; ++strm_idx) {
-      int idx = strm_idx * symbols_per_stream + sym_idx;
+      size_t idx = strm_idx * symbols_per_stream + sym_idx;
       encoders[strm_idx]->Encode(symbols[idx], &w);
     }
   }

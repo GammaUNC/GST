@@ -20,8 +20,8 @@ namespace ans {
 
     virtual ~BitWriter() { }
 
-    virtual int BytesWritten() const { return _bytes_written; }
-    virtual int BitsWritten() const { return _bits_written; }
+    int BytesWritten() const { return _bytes_written; }
+    int BitsWritten() const { return _bits_written; }
 
     virtual void WriteBit(int bit) {
       _bits_written++;
@@ -58,18 +58,19 @@ namespace ans {
 
   private:
     unsigned char* _out;
+    int _bits_left;
+  protected:
     int _bits_written;
     int _bytes_written;
-    int _bits_left;
   };
 
   class ContainedBitWriter : public BitWriter {
    public:
-    ContainedBitWriter() : BitWriter(NULL), _bytes_written(0), _bits_written(0) { }
+    ContainedBitWriter() : BitWriter(NULL) { }
 
     virtual void WriteBit(int bit) override {
       if ((_bits_written % 8) == 0) {
-        _out.resize(_bytes_written + 1);
+        _out.push_back(0);
         BitWriter w(_out.data() + _bytes_written);
         w.WriteBit(bit);
       } else {
@@ -84,8 +85,9 @@ namespace ans {
     }
 
     virtual void WriteBits(int val, int num_bits) override {
+      assert(num_bits > 0);
       size_t target_bytes = (_bits_written + num_bits + 7) / 8;
-      _out.resize(target_bytes);
+      _out.resize(target_bytes, 0);
 
       if ((_bits_written % 8) == 0) {
         BitWriter w(_out.data() + _bytes_written);
@@ -96,18 +98,13 @@ namespace ans {
       }
 
       _bits_written += num_bits;
-      _bytes_written = target_bytes;
+      _bytes_written = static_cast<int>(target_bytes);
     }
-
-    virtual int BytesWritten() const override { return _bytes_written; }
-    virtual int BitsWritten() const override { return _bits_written; }
 
     std::vector<uint8_t> GetData() const { return _out; }
 
    private:
     std::vector<uint8_t> _out;
-    int _bytes_written;
-    int _bits_written;
   };
 
   class BitReader {
