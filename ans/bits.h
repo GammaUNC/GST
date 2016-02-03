@@ -10,10 +10,10 @@ namespace ans {
   class BitWriter {
    public:
     BitWriter(unsigned char* out)
-      : _out(out), _bits_written(0), _bytes_written(0), _bits_left(8) { }
+      : _bits_written(0), _bytes_written(0), _out(out), _bits_left(8) { }
 
     BitWriter(unsigned char* out, int bit_offset)
-      : _out(out), _bits_written(0), _bytes_written(0), _bits_left(8 - bit_offset) {
+      : _bits_written(0), _bytes_written(0), _out(out), _bits_left(8 - bit_offset) {
       assert(bit_offset < 8);
       assert(bit_offset >= 0);
     }
@@ -56,12 +56,12 @@ namespace ans {
       }
     }
 
-  private:
-    unsigned char* _out;
-    int _bits_left;
   protected:
     int _bits_written;
     int _bytes_written;
+  private:
+    unsigned char* _out;
+    int _bits_left;
   };
 
   class ContainedBitWriter : public BitWriter {

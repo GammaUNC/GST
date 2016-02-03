@@ -2,6 +2,7 @@
 #define __CODEC_DATA_STREAM_H__
 
 #include <cstdint>
+#include <cstdlib>
 #include <vector>
 
 namespace GenTC {
@@ -29,4 +30,4 @@ class DataStream {
 
 }  // namespace codec
 
-#endif __CODEC_DATA_STREAM_H__
+#endif  // __CODEC_DATA_STREAM_H__

@@ -1,5 +1,7 @@
 #include "data_stream.h"
 
+#include <cstring>
+
 namespace GenTC {
 
 static void WriteBytes(std::vector<uint8_t> *buf, const uint8_t *bytes, size_t num_bytes) {

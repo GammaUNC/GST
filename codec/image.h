@@ -126,10 +126,10 @@ class Image {
    }
    
  private:
-   const Prec _precision;
-   std::vector<uint8_t> _data;
    size_t _width;
    size_t _height;
+   const Prec _precision;
+   std::vector<uint8_t> _data;
 };
 
 }  // namespace GenTC
