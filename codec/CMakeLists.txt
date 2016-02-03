@@ -7,11 +7,13 @@ INCLUDE_DIRECTORIES( ${OPENCL_INCLUDE_DIRS} )
 
 SET( HEADERS
   "codec.h"
+  "data_stream.h"
   "dxt_image.h"
 )  
 
 SET( SOURCES
   "codec.cpp"
+  "data_stream.cpp"
   "dxt_image.cpp"
 )
 
