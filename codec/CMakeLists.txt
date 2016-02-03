@@ -8,6 +8,7 @@ INCLUDE_DIRECTORIES( ${OPENCL_INCLUDE_DIRS} )
 SET( HEADERS
   "codec.h"
   "data_stream.h"
+  "image.h"
   "dxt_image.h"
 )  
 
@@ -33,16 +34,15 @@ if (MSVC AND MSVC_VERSION EQUAL 1700)
   add_definitions(/D _VARIADIC_MAX=10)
 endif()
 
-FOREACH(TEST )
+FOREACH(TEST image)
   ADD_EXECUTABLE(${TEST}_test ${TEST}_test.cpp)
   TARGET_LINK_LIBRARIES(${TEST}_test ans)
   TARGET_LINK_LIBRARIES(${TEST}_test gtest)
 
   IF ("${TEST}" STREQUAL "codec_ocl")
     TARGET_LINK_LIBRARIES(${TEST}_test gentc_gpu)
-  ELSE()
-    TARGET_LINK_LIBRARIES(${TEST}_test gtest_main)
   ENDIF()
+  TARGET_LINK_LIBRARIES(${TEST}_test gtest_main)
 
   ADD_TEST(Test_${TEST} ${TEST}_test)
 ENDFOREACH()
