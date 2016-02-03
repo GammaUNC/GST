@@ -71,10 +71,13 @@ struct RGB565 : public Precision<3> {
 template <unsigned NumChannels, typename Prec = Precision<NumChannels> >
 class Image {
  public:
-   Image<NumChannels, Prec>(size_t w, size_t h, const std::vector<uint8_t> &img)
+   Image<NumChannels, Prec>(size_t w, size_t h, std::vector<uint8_t> &&img)
      : _width(w), _height(h), _precision(Prec()), _data(img) {
      assert(img.size() == (_precision.PixelSizeInBits() * _width * _height) / 8);
    }
+
+   size_t Width() const { return _width; }
+   size_t Height() const { return _height; }
 
    const std::vector<uint8_t> &GetData() const { return _data; }
 
@@ -131,6 +134,10 @@ class Image {
    const Prec _precision;
    std::vector<uint8_t> _data;
 };
+
+typedef Image<3, RGB> RGBImage;
+typedef Image<3, RGB565> RGB565Image;
+typedef Image<4, RGBA> RGBAImage;
 
 }  // namespace GenTC
 
