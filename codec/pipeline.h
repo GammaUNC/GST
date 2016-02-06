@@ -1,5 +1,5 @@
-#ifndef __CODEC_PIPELINE_H__
-#define __CODEC_PIPELINE_H__
+#ifndef __TCAR_PIPELINE_H__
+#define __TCAR_PIPELINE_H__
 
 #include <memory>
 
@@ -90,4 +90,4 @@ class Sink : PipelineUnit<Type, int> {
 
 }  // namespace GenTC
 
-#endif  // __CODEC_PIPELINE_H__
+#endif  // __TCAR_PIPELINE_H__

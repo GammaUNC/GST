@@ -1,5 +1,5 @@
-#ifndef __CODEC_IMAGE_UTILS_H__
-#define __CODEC_IMAGE_UTILS_H__
+#ifndef __TCAR_IMAGE_UTILS_H__
+#define __TCAR_IMAGE_UTILS_H__
 
 #include "image.h"
 #include "pipeline.h"
@@ -66,4 +66,4 @@ typedef ImageSplit<3, RGB> YCrCbSplitter;
 
 }  // namespace GenTC
 
-#endif  //  __CODEC_IMAGE_UTILS_H__
+#endif  //  __TCAR_IMAGE_UTILS_H__

@@ -1,5 +1,5 @@
-#ifndef __CODEC_IMAGE_PROCESSING_H__
-#define __CODEC_IMAGE_PROCESSING_H__
+#ifndef __TCAR_IMAGE_PROCESSING_H__
+#define __TCAR_IMAGE_PROCESSING_H__
 
 #include "pipeline.h"
 #include "image.h"
@@ -30,4 +30,4 @@ class Expand565
 
 }  // namespace GenTC
 
-#endif  // __CODEC_IMAGE_PROCESSING_H__
+#endif  // __TCAR_IMAGE_PROCESSING_H__

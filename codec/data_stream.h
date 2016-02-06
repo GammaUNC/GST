@@ -1,5 +1,5 @@
-#ifndef __CODEC_DATA_STREAM_H__
-#define __CODEC_DATA_STREAM_H__
+#ifndef __TCAR_DATA_STREAM_H__
+#define __TCAR_DATA_STREAM_H__
 
 #include <cstdint>
 #include <cstdlib>
@@ -30,4 +30,4 @@ class DataStream {
 
 }  // namespace codec
 
-#endif  // __CODEC_DATA_STREAM_H__
+#endif  // __TCAR_DATA_STREAM_H__

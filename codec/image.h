@@ -1,5 +1,5 @@
-#ifndef __CODEC_IMAGE_H__
-#define __CODEC_IMAGE_H__
+#ifndef __TCAR_IMAGE_H__
+#define __TCAR_IMAGE_H__
 
 #include <array>
 #include <algorithm>
@@ -222,4 +222,4 @@ typedef Image<3, RGB> YCbCrImage;
 
 }  // namespace GenTC
 
-#endif  // __CODEC_IMAGE_H__
+#endif  // __TCAR_IMAGE_H__
