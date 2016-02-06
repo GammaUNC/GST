@@ -3,7 +3,10 @@
 
 #include <array>
 #include <cstdint>
+#include <memory>
 #include <vector>
+
+#include "image.h"
 
 namespace GenTC {
 
@@ -34,13 +37,13 @@ namespace GenTC {
     int BlocksHigh() const { return _blocks_height; }
 
     // RGBA image
-    std::vector<uint8_t> EndpointOneImage() const;
-    std::vector<uint8_t> EndpointTwoImage() const;
-    std::vector<uint8_t> DecompressedImage() const;
+    std::unique_ptr<RGBAImage> EndpointOneImage() const;
+    std::unique_ptr<RGBAImage> EndpointTwoImage() const;
+    std::unique_ptr<RGBAImage> DecompressedImage() const;
 
     // RGB 565 separated into bytes
-    std::vector<uint8_t> EndpointOneValues() const;
-    std::vector<uint8_t> EndpointTwoValues() const;
+    std::unique_ptr<RGB565Image> EndpointOneValues() const;
+    std::unique_ptr<RGB565Image> EndpointTwoValues() const;
 
     static std::vector<uint8_t> TwoBitValuesToImage(const std::vector<uint8_t> &v);
 

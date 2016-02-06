@@ -97,7 +97,7 @@ DXTImage::DXTImage(const uint8_t *dxt_image, int width, int height)
   , _logical_blocks(PhysicalToLogicalBlocks(_physical_blocks))
 { }
 
-std::vector<uint8_t> DXTImage::EndpointOneImage() const {
+std::unique_ptr<RGBAImage> DXTImage::EndpointOneImage() const {
   std::vector<uint8_t> result;
   result.reserve(4 * BlocksWide() * BlocksHigh());
 
@@ -108,10 +108,12 @@ std::vector<uint8_t> DXTImage::EndpointOneImage() const {
     result.push_back(lb.ep1[3]);
   }
 
-  return std::move(result);
+  std::unique_ptr<RGBAImage> img
+    (new RGBAImage(BlocksWide(), BlocksHigh(), std::move(result)));
+  return std::move(img);
 }
 
-std::vector<uint8_t> DXTImage::EndpointTwoImage() const {
+std::unique_ptr<RGBAImage> DXTImage::EndpointTwoImage() const {
   std::vector<uint8_t> result;
   size_t img_sz = 4 * BlocksWide() * BlocksHigh();
   result.reserve(img_sz);
@@ -123,11 +125,12 @@ std::vector<uint8_t> DXTImage::EndpointTwoImage() const {
     result.push_back(lb.ep2[3]);
   }
 
-  assert(result.size() == img_sz);
-  return std::move(result);
+  std::unique_ptr<RGBAImage> img
+    (new RGBAImage(BlocksWide(), BlocksHigh(), std::move(result)));
+  return std::move(img);
 }
 
-std::vector<uint8_t> DXTImage::DecompressedImage() const {
+std::unique_ptr<RGBAImage> DXTImage::DecompressedImage() const {
   std::vector<uint8_t> result;
   const size_t img_sz = 4 * Width() * Height();
   result.reserve(img_sz);
@@ -145,55 +148,46 @@ std::vector<uint8_t> DXTImage::DecompressedImage() const {
   }
 
   assert(result.size() == img_sz);
-  return std::move(result);
+
+  std::unique_ptr<RGBAImage> img
+    (new RGBAImage(Width(), Height(), std::move(result)));
+  return std::move(img);
 }
 
-std::vector<uint8_t> DXTImage::EndpointOneValues() const {
+std::unique_ptr<RGB565Image> DXTImage::EndpointOneValues() const {
   std::vector<uint8_t> result;
-  const size_t img_sz = 3 * BlocksWide() * BlocksHigh();
+  const size_t img_sz = 2 * BlocksWide() * BlocksHigh();
   result.reserve(img_sz);
 
   for (const auto &pb : _physical_blocks) {
     uint32_t x = pb.ep1;
-    uint32_t r = (x >> 11);
-    uint32_t g = (x >> 5) & 0x3F;
-    uint32_t b = x & 0x1F;
-
-    assert(r < (1 << 5));
-    assert(g < (1 << 6));
-    assert(b < (1 << 5));
-
-    result.push_back(static_cast<uint8_t>(r));
-    result.push_back(static_cast<uint8_t>(g));
-    result.push_back(static_cast<uint8_t>(b));
+    result.push_back(static_cast<uint8_t>((x >> 8) & 0xFF));
+    result.push_back(static_cast<uint8_t>(x & 0xFF));
   }
 
   assert(result.size() == img_sz);
-  return std::move(result);
+
+  std::unique_ptr<RGB565Image> img
+    (new RGB565Image(BlocksWide(), BlocksHigh(), std::move(result)));
+  return std::move(img);
 }
 
-std::vector<uint8_t> DXTImage::EndpointTwoValues() const {
+std::unique_ptr<RGB565Image> DXTImage::EndpointTwoValues() const {
   std::vector<uint8_t> result;
-  const size_t img_sz = 3 * BlocksWide() * BlocksHigh();
+  const size_t img_sz = 2 * BlocksWide() * BlocksHigh();
   result.reserve(img_sz);
 
   for (const auto &pb : _physical_blocks) {
     uint32_t x = pb.ep2;
-    uint32_t r = (x >> 11);
-    uint32_t g = (x >> 5) & 0x3F;
-    uint32_t b = x & 0x1F;
-
-    assert(r < (1 << 5));
-    assert(g < (1 << 6));
-    assert(b < (1 << 5));
-
-    result.push_back(static_cast<uint8_t>(r));
-    result.push_back(static_cast<uint8_t>(g));
-    result.push_back(static_cast<uint8_t>(b));
+    result.push_back(static_cast<uint8_t>((x >> 8) & 0xFF));
+    result.push_back(static_cast<uint8_t>(x & 0xFF));
   }
 
   assert(result.size() == img_sz);
-  return std::move(result);
+
+  std::unique_ptr<RGB565Image> img
+    (new RGB565Image(BlocksWide(), BlocksHigh(), std::move(result)));
+  return std::move(img);
 }
 
 std::vector<uint8_t> DXTImage::TwoBitValuesToImage(const std::vector<uint8_t> &v) {
