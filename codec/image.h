@@ -210,6 +210,11 @@ class PackedImage : public Image<NumChannels, Prec> {
 typedef PackedImage<3, RGB> RGBImage;
 typedef PackedImage<3, RGB565> RGB565Image;
 typedef PackedImage<4, RGBA> RGBAImage;
+typedef PackedImage<1, Alpha> AlphaImage;
+typedef PackedImage<1, SingleChannel<1> > BinaryImage;
+typedef PackedImage<1, SingleChannel<2> > TwoBitImage;
+typedef PackedImage<1, SingleChannel<3> > ThreeBitImage;
+typedef PackedImage<1, SingleChannel<4> > FourBitImage;
 
 }  // namespace GenTC
 
