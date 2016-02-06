@@ -9,7 +9,8 @@ ConvertRGBtoRGB565::Run(const std::unique_ptr<RGB565Image> &img) const {
 
   for (size_t j = 0; j < img->Height(); ++j) {
     for (size_t i = 0; i < img->Width(); ++i) {
-      std::array<uint32_t, 3> pixel = img->At(i, j);
+      std::array<uint32_t, 3> pixel = img->GetAt(i, j);
+
       uint32_t r = (pixel[0] << 3) | (pixel[0] >> 2);
       result.push_back(static_cast<uint8_t>(r));
 

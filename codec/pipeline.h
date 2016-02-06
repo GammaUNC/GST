@@ -8,22 +8,25 @@ namespace GenTC {
 template<typename InType, typename OutType>
 class PipelineUnit {
  public:
+  typedef std::unique_ptr<OutType> ReturnType;
+  typedef OutType ReturnValueType;
   PipelineUnit<InType, OutType>() { }
   virtual ~PipelineUnit<InType, OutType>() { }
   
-  virtual std::unique_ptr<OutType> Run(const std::unique_ptr<InType> &in) const = 0;
+  virtual ReturnType Run(const std::unique_ptr<InType> &in) const = 0;
 };
 
 template<typename InType, typename IntermediateType, typename OutType>
 class PipelineChain : PipelineUnit<InType, OutType> {
  public:
+  typedef PipelineUnit<InType, OutType> Base;
   PipelineChain(std::unique_ptr<PipelineUnit<InType, IntermediateType> > a,
                 std::unique_ptr<PipelineUnit<IntermediateType, OutType> > b)
-    : PipelineUnit<InType, OutType>()
+    : Base()
     , _first(std::move(a))
     , _second(std::move(b)) { }
 
-  std::unique_ptr<OutType> Run(const std::unique_ptr<InType> &in) const override {
+  typename Base::ReturnType Run(const std::unique_ptr<InType> &in) const override {
     return std::move(_second->Run(_first->Run(in)));
   }
 
@@ -35,7 +38,7 @@ class PipelineChain : PipelineUnit<InType, OutType> {
 template<typename InType, typename OutType>
 class Pipeline {
  public:
-  explicit Pipeline<InType, OutType>(std::unique_ptr<PipelineUnit<InType, OutType> > &&unit)
+  Pipeline<InType, OutType>(std::unique_ptr<PipelineUnit<InType, OutType> > &&unit)
     : _alg(std::move(unit)) { }
 
   template<typename NextType> std::unique_ptr<Pipeline<InType, NextType> >
