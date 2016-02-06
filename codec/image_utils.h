@@ -62,6 +62,8 @@ typedef PackedImageSplit<3, RGB> RGBSplitter;
 typedef PackedImageSplit<4, RGBA> RGBASplitter;
 typedef PackedImageSplit<3, RGB565> RGB565Splitter;
 
+typedef ImageSplit<3, RGB> YCrCbSplitter;
+
 }  // namespace GenTC
 
 #endif  //  __CODEC_IMAGE_UTILS_H__

@@ -10,10 +10,13 @@ class PipelineUnit {
  public:
   typedef std::unique_ptr<OutType> ReturnType;
   typedef OutType ReturnValueType;
+  typedef std::unique_ptr<InType> ArgType;
+  typedef InType ArgValueType;
+
   PipelineUnit<InType, OutType>() { }
   virtual ~PipelineUnit<InType, OutType>() { }
   
-  virtual ReturnType Run(const std::unique_ptr<InType> &in) const = 0;
+  virtual ReturnType Run(const ArgType &in) const = 0;
 };
 
 template<typename InType, typename IntermediateType, typename OutType>

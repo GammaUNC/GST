@@ -216,6 +216,10 @@ typedef PackedImage<1, SingleChannel<2> > TwoBitImage;
 typedef PackedImage<1, SingleChannel<3> > ThreeBitImage;
 typedef PackedImage<1, SingleChannel<4> > FourBitImage;
 
+// YCbCrImages aren't packed since we only really get them
+// from RGB images...
+typedef Image<3, RGB> YCbCrImage;
+
 }  // namespace GenTC
 
 #endif  // __CODEC_IMAGE_H__
