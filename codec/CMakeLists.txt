@@ -11,6 +11,8 @@ SET( HEADERS
   "data_stream.h"
   "dxt_image.h"
   "image.h"
+  "image_utils.h"
+  "image_processing.h"
   "pipeline.h"
 )  
 
@@ -19,6 +21,7 @@ SET( SOURCES
   "convert_image.cpp"
   "data_stream.cpp"
   "dxt_image.cpp"
+  "image_processing.cpp"
 )
 
 ADD_LIBRARY(gentc_codec ${HEADERS} ${SOURCES})
