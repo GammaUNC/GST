@@ -6,7 +6,7 @@
 #include <numeric>
 
 // #define VERBOSE
-#define USE_FAST_DCT
+// #define USE_FAST_DCT
 
 #ifdef USE_FAST_DCT
 #include "fast_dct.hpp"
