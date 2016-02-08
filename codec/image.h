@@ -215,6 +215,7 @@ typedef PackedImage<1, SingleChannel<1> > BinaryImage;
 typedef PackedImage<1, SingleChannel<2> > TwoBitImage;
 typedef PackedImage<1, SingleChannel<3> > ThreeBitImage;
 typedef PackedImage<1, SingleChannel<4> > FourBitImage;
+typedef PackedImage<1, SingleChannel<16> > SixteenBitImage;
 
 // YCbCrImages aren't packed since we only really get them
 // from RGB images...

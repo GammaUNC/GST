@@ -1,11 +1,14 @@
-#ifndef __FAST__DCT_H__
-#define __FAST__DCT_H__
+#ifndef __TCAR_FAST_DCT_H__
+#define __TCAR_FAST_DCT_H__
 
 #define _USE_MATH_DEFINES
-#include <opencv2/opencv.hpp>
 #include <cmath>
 
-namespace dct {
+#include "pipeline.h"
+#include "image.h"
+
+namespace GenTC {
+
   // Constants:
   static const float s1 = sinf(1.f * static_cast<float>(M_PI) / 16.f);
   static const float c1 = cosf(1.f * static_cast<float>(M_PI) / 16.f);
@@ -112,62 +115,150 @@ namespace dct {
     in[7] = s1_0 - s1_7;
   }
 
-  static void RunDCT(cv::Mat *m) {
-    cv::Mat flt_m;
-    m->convertTo(flt_m, CV_32FC1);
-
-    for (int j = 0; j < flt_m.rows / 8; ++j) {
-      for (int i = 0; i < flt_m.cols / 8; ++i) {
-        cv::Mat block = flt_m(cv::Rect_<int>(i*8, j*8, 8, 8)).clone();
-
-        for (int r = 0; r < 8; ++r) {
-          float *row = reinterpret_cast<float *>(block.ptr(r));
-          fdct(row, row);
+  template<typename T>
+  static void Transpose8x8(T *block) {
+    // Transpose block
+    for (uint32_t y = 0; y < 8; ++y) {
+      for (uint32_t x = 0; x < 8; ++x) {
+        if (x < y) {
+          uint32_t idx1 = y * 8 + x;
+          uint32_t idx2 = x * 8 + y;
+          std::swap(block[idx1], block[idx2]);
         }
-        cv::transpose(block, block);
-
-        for (int r = 0; r < 8; ++r) {
-          float *row = reinterpret_cast<float *>(block.ptr(r));
-          fdct(row, row);
-        }
-        cv::transpose(block, block);
-
-        block.copyTo(flt_m(cv::Rect_<int>(i*8, j*8, 8, 8)));
       }
     }
-
-    flt_m.convertTo(*m, CV_16SC1);
   }
 
-  static void RunIDCT(cv::Mat *m) {
-    cv::Mat flt_m;
-    m->convertTo(flt_m, CV_32FC1);
+  template<typename Prec>
+  class ForwardDCT : PipelineUnit<Image<1, Prec>, SixteenBitImage > {
+  public:
+    typedef Image<1, Prec> InputImage;
+    typedef Image<1, SixteenBitImage> OutputImage;
+    typedef PipelineUnit<InputImage, OutputImage> Base;
+    static std::unique_ptr<Base> New() { return std::unique_ptr<Base>(new ForwardDCT); }
 
-    for (int j = 0; j < flt_m.rows / 8; ++j) {
-      for (int i = 0; i < flt_m.cols / 8; ++i) {
-        cv::Mat block = flt_m(cv::Rect_<int>(i*8, j*8, 8, 8)).clone();
+    virtual typename Base::ReturnType Run(const typename Base::ArgType &in) const {
+      assert(in->Width() % 8 == 0);
+      assert(in->Height() % 8 == 0);
 
-        for (int r = 0; r < 8; ++r) {
-          float *row = reinterpret_cast<float *>(block.ptr(r));
-          idct(row, row);
+      // Sixteen bit images are packed...
+      std::vector<uint8_t> result(in->Width() * in->Height() * 2);
+
+      for (uint32_t j = 0; j < in->Height(); j+=8) {
+        for (uint32_t i = 0; i < in->Width(); i+=8) {
+          float block[64];
+
+          // Read block
+          for (uint32_t y = 0; y < 8; ++y) {
+            for (uint32_t x = 0; x < 8; ++x) {
+              uint32_t idx = y * 8 + x;
+              block[idx] = static_cast<float>(in->GetAt(i + x, j + y)[0]);
+            }
+          }
+
+          // Run forward DCT...
+          for (int r = 0; r < 8; ++r) {
+            float *row = block + r * 8 * sizeof(float);
+            fdct(row, row);
+          }
+
+          // Transpose
+          Transpose8x8(block);
+
+          // Run forward DCT...
+          for (int r = 0; r < 8; ++r) {
+            float *row = block + r * 8 * sizeof(float);
+            fdct(row, row);
+          }
+
+          // Transpose
+          Transpose8x8(block);
+
+          // Write block
+          for (uint32_t y = 0; y < 8; ++y) {
+            for (uint32_t x = 0; x < 8; ++x) {
+              uint32_t idx = y * 8 + x;
+
+              uint32_t dst_idx = ((j + y) * in->Width() + i + x) * 2;
+              uint8_t *ptr = result.data();
+
+              uint16_t v = static_cast<uint16_t>(block[idx]);
+              ptr[dst_idx + 0] = (v >> 8) & 0xFF;
+              ptr[dst_idx + 1] = v & 0xFF;
+            }
+          }
         }
-        cv::transpose(block, block);
-        block /= 8.0f;
-
-        for (int r = 0; r < 8; ++r) {
-          float *row = reinterpret_cast<float *>(block.ptr(r));
-          idct(row, row);
-        }
-        cv::transpose(block, block);
-        block /= 8.0f;
-
-        block.copyTo(flt_m(cv::Rect_<int>(i*8, j*8, 8, 8)));
       }
+
+      SixteenBitImage *ret_img = new SixteenBitImage(in->Width(), in->Height(), result);
+      return std::move(std::unique_ptr<typename Base::ReturnValueType>(ret_img));
     }
+  };
 
-    flt_m.convertTo(*m, CV_8UC1);
-  }
+  class InverseDCT : PipelineUnit<SixteenBitImage, AlphaImage > {
+  public:
+    typedef PipelineUnit<SixteenBitImage, AlphaImage> Base;
+    static std::unique_ptr<Base> New() { return std::unique_ptr<Base>(new InverseDCT); }
 
-}  // namespace dct
+    virtual typename Base::ReturnType Run(const typename Base::ArgType &in) const {
+      assert(in->Width() % 8 == 0);
+      assert(in->Height() % 8 == 0);
 
-#endif  // #define __FAST__DCT_H__
+      std::vector<uint8_t> result(in->Width() * in->Height());
+
+      for (uint32_t j = 0; j < in->Height(); j+=8) {
+        for (uint32_t i = 0; i < in->Width(); i+=8) {
+          float block[64];
+
+          // Read block
+          for (uint32_t y = 0; y < 8; ++y) {
+            for (uint32_t x = 0; x < 8; ++x) {
+              uint32_t idx = y * 8 + x;
+              block[idx] = static_cast<float>(in->GetAt(i + x, j + y)[0]);
+            }
+          }
+
+          // Run forward DCT...
+          for (int r = 0; r < 8; ++r) {
+            float *row = block + r * 8 * sizeof(float);
+            idct(row, row);
+            for (int k = 0; k < 8; ++k) {
+              row[k] /= 8.f;
+            }
+          }
+
+          // Transpose
+          Transpose8x8(block);
+
+          // Run forward DCT...
+          for (int r = 0; r < 8; ++r) {
+            float *row = block + r * 8 * sizeof(float);
+            fdct(row, row);
+            for (int k = 0; k < 8; ++k) {
+              row[k] /= 8.f;
+            }
+          }
+
+          // Transpose
+          Transpose8x8(block);
+
+          // Write block
+          for (uint32_t y = 0; y < 8; ++y) {
+            for (uint32_t x = 0; x < 8; ++x) {
+              uint32_t idx = y * 8 + x;
+
+              float fv = std::max(0.f, std::min(255.f, block[idx] + 0.5f));
+              result[(j + y) * in->Width() + i + x] = static_cast<uint8_t>(fv);
+            }
+          }          
+        }
+      }
+
+      AlphaImage *ret_img = new AlphaImage(in->Width(), in->Height(), std::move(result));
+      return std::move(std::unique_ptr<typename Base::ReturnValueType>(ret_img));
+    }
+  };
+
+}  // namespace GenTC
+
+#endif  // #define __TCAR_FAST_DCT_H__
