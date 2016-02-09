@@ -4,20 +4,22 @@
 #include "pipeline.h"
 #include "image.h"
 
+#include <array>
+
 namespace GenTC {
 
 class RGBtoYCrCb: public PipelineUnit<RGBImage, YCbCrImage> {
  public:
   typedef PipelineUnit<RGBImage, YCbCrImage> Base;
   static std::unique_ptr<Base> New() { return std::unique_ptr<Base>(new RGBtoYCrCb); }
-  typename Base::ReturnType Run(const typename Base::ArgType &) const override;
+  Base::ReturnType Run(const Base::ArgType &) const override;
 };
 
 class YCrCbtoRGB: public PipelineUnit<YCbCrImage, RGBImage> {
  public:
   typedef PipelineUnit<YCbCrImage, RGBImage> Base;
   static std::unique_ptr<Base> New() { return std::unique_ptr<Base>(new YCrCbtoRGB); }
-  typename Base::ReturnType Run(const typename Base::ArgType &) const override;
+  Base::ReturnType Run(const Base::ArgType &) const override;
 };
 
 class Expand565

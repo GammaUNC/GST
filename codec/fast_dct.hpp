@@ -200,7 +200,7 @@ namespace GenTC {
     typedef PipelineUnit<SixteenBitImage, AlphaImage> Base;
     static std::unique_ptr<Base> New() { return std::unique_ptr<Base>(new InverseDCT); }
 
-    virtual typename Base::ReturnType Run(const typename Base::ArgType &in) const {
+    virtual Base::ReturnType Run(const Base::ArgType &in) const {
       assert(in->Width() % 8 == 0);
       assert(in->Height() % 8 == 0);
 

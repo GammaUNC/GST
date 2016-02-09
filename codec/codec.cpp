@@ -1,5 +1,6 @@
-#include "codec.h"
+
 #include "fast_dct.hpp"
+#include "codec.h"
 
 namespace GenTC {
 

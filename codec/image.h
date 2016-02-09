@@ -71,13 +71,13 @@ struct RGB565 : public Precision<3> {
 template<unsigned NumChannels, typename Prec = Precision<NumChannels> >
 std::vector<std::array<uint32_t, NumChannels> >
 UnpackImage( const std::vector<uint8_t> &img_data,
-             const Prec &precision, int width, int height) {
+             const Prec &precision, size_t width, size_t height) {
   std::vector<std::array<uint32_t, NumChannels> > result;
   result.reserve(width * height);
 
   size_t bit_offset = 0;
-  for (int y = 0; y < height; ++y) {
-    for (int x = 0; x < width; ++x) {
+  for (size_t y = 0; y < height; ++y) {
+    for (size_t x = 0; x < width; ++x) {
 
       std::array<uint32_t, NumChannels> pixel;
       for (size_t ch = 0; ch < NumChannels; ++ch) {
