@@ -37,20 +37,20 @@ class Quantize8x8
    typedef Image<1, Prec> ImageType;
    typedef PipelineUnit<ImageType, ImageType> Base;
 
-   static std::unique_ptr<typename Base> QuantizeJPEGLuma() {
-     return std::unique_ptr<typename Base>(new Quantizer<Prec>(eQuantizeType_JPEGLuma));
+   static std::unique_ptr<Base> QuantizeJPEGLuma() {
+     return std::unique_ptr<Base>(new Quantizer(eQuantizeType_JPEGLuma));
    }
 
-   static std::unique_ptr<typename Base> QuantizeJPEGChroma() {
-     return std::unique_ptr<typename Base>(new Quantizer<Prec>(eQuantizeType_JPEGChroma));
+   static std::unique_ptr<Base> QuantizeJPEGChroma() {
+     return std::unique_ptr<Base>(new Quantizer(eQuantizeType_JPEGChroma));
    }
 
-   static std::unique_ptr<typename Base> DequantizeJPEGLuma() {
-     return std::unique_ptr<typename Base>(new Dequantizer<Prec>(eQuantizeType_JPEGLuma));
+   static std::unique_ptr<Base> DequantizeJPEGLuma() {
+     return std::unique_ptr<Base>(new Dequantizer(eQuantizeType_JPEGLuma));
    }
 
-   static std::unique_ptr<typename Base> DequantizeJPEGChroma() {
-     return std::unique_ptr<typename Base>(new Dequantizer<Prec>(eQuantizeType_JPEGChroma));
+   static std::unique_ptr<Base> DequantizeJPEGChroma() {
+     return std::unique_ptr<Base>(new Dequantizer(eQuantizeType_JPEGChroma));
    }
 
  protected:
@@ -111,23 +111,25 @@ class Quantize8x8
 
    Quantize8x8<Prec>(QuantizeType ty)
      : Base()
-     : _coeffs(ty == eQuantizeType_JPEGLuma ?
-   { 16, 11, 10, 16, 24, 40, 51, 61,
-     12, 12, 14, 19, 26, 58, 60, 55,
-     14, 13, 16, 24, 40, 57, 69, 56,
-     14, 17, 22, 29, 51, 87, 80, 62,
-     18, 22, 37, 56, 68, 109, 103, 77,
-     24, 35, 55, 64, 81, 104, 113, 92,
-     49, 64, 78, 87, 103, 121, 120, 101,
-     72, 92, 95, 98, 112, 100, 103, 99 } :
-   { 17, 18, 24, 47, 99, 99, 99, 99,
-     18, 21, 26, 66, 99, 99, 99, 99,
-     24, 26, 56, 99, 99, 99, 99, 99,
-     47, 66, 99, 99, 99, 99, 99, 99,
-     99, 99, 99, 99, 99, 99, 99, 99,
-     99, 99, 99, 99, 99, 99, 99, 99,
-     99, 99, 99, 99, 99, 99, 99, 99,
-     99, 99, 99, 99, 99, 99, 99, 99 };
+     , _coeffs(ty == eQuantizeType_JPEGLuma ?
+               std::array<uint32_t, 64>(
+                   { 16, 11, 10, 16, 24, 40, 51, 61,
+                     12, 12, 14, 19, 26, 58, 60, 55,
+                     14, 13, 16, 24, 40, 57, 69, 56,
+                     14, 17, 22, 29, 51, 87, 80, 62,
+                     18, 22, 37, 56, 68, 109, 103, 77,
+                     24, 35, 55, 64, 81, 104, 113, 92,
+                     49, 64, 78, 87, 103, 121, 120, 101,
+                     72, 92, 95, 98, 112, 100, 103, 99 }) :
+               std::array<uint32_t, 64>(
+                   { 17, 18, 24, 47, 99, 99, 99, 99,
+                     18, 21, 26, 66, 99, 99, 99, 99,
+                     24, 26, 56, 99, 99, 99, 99, 99,
+                     47, 66, 99, 99, 99, 99, 99, 99,
+                     99, 99, 99, 99, 99, 99, 99, 99,
+                     99, 99, 99, 99, 99, 99, 99, 99,
+                     99, 99, 99, 99, 99, 99, 99, 99,
+                     99, 99, 99, 99, 99, 99, 99, 99 })
    ) { }
 
    const std::array<uint32_t, 64> _coeffs;

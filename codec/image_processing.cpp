@@ -2,12 +2,11 @@
 
 namespace GenTC {
 
-RGBtoYCrCb::Base::ReturnType
-RGBtoYCrCb::Run(const RGBtoYCrCb::Base::ArgType &in) const {
+RGBtoYCrCb::Base::ReturnType RGBtoYCrCb::Run(const RGBtoYCrCb::Base::ArgType &in) const {
   YCbCrImage  *ret = new YCbCrImage(in->Width(), in->Height());
 
-  for (int j = 0; j < in->Height(); ++j) {
-    for (int i = 0; i < in->Width(); ++i) {
+  for (size_t j = 0; j < in->Height(); ++j) {
+    for (size_t i = 0; i < in->Width(); ++i) {
       auto pixel = std::move(in->GetAt(i, j));
       double r = static_cast<double>(pixel[0]);
       double g = static_cast<double>(pixel[1]);
@@ -27,14 +26,13 @@ RGBtoYCrCb::Run(const RGBtoYCrCb::Base::ArgType &in) const {
   return std::move(std::unique_ptr<YCbCrImage>(ret));
 }
 
-YCrCbtoRGB::Base::ReturnType
-YCrCbtoRGB::Run(const YCrCbtoRGB::Base::ArgType &in) const {
+YCrCbtoRGB::Base::ReturnType YCrCbtoRGB::Run(const YCrCbtoRGB::Base::ArgType &in) const {
   // We need to pack the data ourselves here...
   std::vector<uint8_t> img_data;
   img_data.reserve(3 * in->Width() * in->Height());
 
-  for (int j = 0; j < in->Height(); ++j) {
-    for (int i = 0; i < in->Width(); ++i) {
+  for (size_t j = 0; j < in->Height(); ++j) {
+    for (size_t i = 0; i < in->Width(); ++i) {
       auto pixel = std::move(in->GetAt(i, j));
       double y = static_cast<double>(pixel[0]);
       double cr = static_cast<double>(pixel[1]);
@@ -61,8 +59,8 @@ std::unique_ptr<RGBImage> Expand565::Run(const std::unique_ptr<RGB565Image> &in)
   std::vector<uint8_t> result;
   result.reserve(w * h * 3);
 
-  for (int j = 0; j < h; ++j) {
-    for (int i = 0; i < w; ++i) {
+  for (size_t j = 0; j < h; ++j) {
+    for (size_t i = 0; i < w; ++i) {
       auto pixel = in->GetAt(i, j);
 
       uint32_t r = (pixel[0] << 3) | (pixel[0] >> 2);
