@@ -1,6 +1,6 @@
-
 #include "fast_dct.hpp"
 #include "codec.h"
+#include "entropy.h"
 
 namespace GenTC {
 
