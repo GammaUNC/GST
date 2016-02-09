@@ -31,6 +31,28 @@ class Expand565
 };
 
 template<typename Prec>
+class Linearize : public PipelineUnit<Image<1, Prec>, std::vector<uint32_t> > {
+ public:
+  typedef PipelineUnit<Image<1, Prec>, std::vector<uint32_t> > Base;
+  static std::unique_ptr<Base> New() { return std::unique_ptr<Base>(new Linearize); }
+  std::unique_ptr<Base> Run(const std::unique_ptr<Image<1, Prec> > &in) const override {
+    std::vector<uint32_t> *result = new std::vector<uint32_t>;
+    result->reserve(in->Width() * in->Height() * Image<1, Prec>::kNumChannels);
+
+    for (int j = 0; j < in->Height(); ++j) {
+      for (int i = 0; i < in->Width(); ++i) {
+        auto pixel = in->GetAt(i, j);
+        for (auto ch : pixel) {
+          result->push_back(ch);
+        }
+      }
+    }
+
+    return std::move(std::unique_ptr<std::vector<uint32_t> >(result));
+  }
+};
+
+template<typename Prec>
 class Quantize8x8
   : public PipelineUnit < Image<1, Prec>, Image<1, Prec> > {
  public:
