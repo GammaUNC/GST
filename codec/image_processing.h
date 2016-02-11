@@ -157,6 +157,29 @@ class Quantize8x8
    const std::array<uint32_t, 64> _coeffs;
 };
 
+class DropAlpha : public PipelineUnit<RGBAImage, RGBImage> {
+ public:
+  typedef PipelineUnit<RGBAImage, RGBImage> Base;
+  static std::unique_ptr<Base> New() { return std::unique_ptr<Base>(new DropAlpha); }
+  typename Base::ReturnType Run(const typename Base::ArgType &in) const override {
+    std::vector<uint8_t> img_data;
+    img_data.reserve(in->Width() * in->Height() * 3);
+
+    for (size_t j = 0; j < in->Height(); ++j) {
+      for (size_t i = 0; i < in->Width(); ++i) {
+        auto pixel = in->GetAt(i, j);
+        for (size_t ch = 0; ch < 3; ++ch) {
+          assert(pixel[ch] < 256);
+          img_data.push_back(pixel[ch]);
+        }
+      }
+    }
+
+    RGBImage *img = new RGBImage(in->Width(), in->Height(), std::move(img_data));
+    return std::move(std::unique_ptr<RGBImage>(img));
+  }
+};
+
 }  // namespace GenTC
 
 #endif  // __TCAR_IMAGE_PROCESSING_H__

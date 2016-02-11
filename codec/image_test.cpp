@@ -94,8 +94,9 @@ TEST(Image, CanSplitImage) {
 
   typedef std::array<GenTC::Image<1>, 3> SplitResultType;
   std::unique_ptr<GenTC::RGBSplitter> splitter(new GenTC::RGBSplitter);
-  GenTC::Pipeline<GenTC::RGBImage, SplitResultType> p(std::move(splitter));
-  auto result = p.Run(img);
+  std::unique_ptr<GenTC::Pipeline<GenTC::RGBImage, SplitResultType> > p =
+    GenTC::Pipeline<GenTC::RGBImage, SplitResultType>::Create(GenTC::RGBSplitter::New());
+  auto result = p->Run(img);
 
   for (int j = 0; j < 4; ++j) {
     for (int i = 0; i < 4; ++i) {

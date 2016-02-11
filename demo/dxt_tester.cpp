@@ -9,7 +9,6 @@
 // #define USE_FAST_DCT
 
 #ifdef USE_FAST_DCT
-#include "fast_dct.hpp"
 #else
 #include "opencv_dct.hpp"
 #endif
@@ -17,6 +16,11 @@
 #include "histogram.h"
 #include "ans_ocl.h"
 #include "dxt_image.h"
+#include "image.h"
+#include "image_processing.h"
+#include "image_utils.h"
+#include "pipeline.h"
+#include "fast_dct.hpp"
 
 #include <opencv2/opencv.hpp>
 
@@ -689,6 +693,28 @@ int main(int argc, char **argv) {
   // Visualize interpolation data...
   cv::imwrite("img_dxt_interp.png", cv::Mat(img.rows, img.cols, CV_8UC1,
     dxt_img.InterpolationImage().data()));
+
+  auto img_pipeline =
+    GenTC::Pipeline<GenTC::RGBAImage, GenTC::RGBImage>::Create(GenTC::DropAlpha::New())
+    ->Chain(std::move(GenTC::RGBtoYCrCb::New()))
+    ->Chain(std::move(GenTC::YCrCbSplitter::New()));
+
+  /*
+  auto y_pipeline =
+    GenTC::Pipeline<GenTC::AlphaImage, GenTC::AlphaImage>
+    ::Create(GenTC::Quantize8x8::QuantizeJPEGLuma())
+    ->Chain(GenTC::ForwardDCT<GenTC::Alpha>::New())
+    ->Chain(GenTC::Linearize<GenTC::SingleChannel<16> >::New())
+    ->Chain(GenTC::RearrangeStream<uint32_t>::New());
+  */
+
+  auto endpoint_one = dxt_img.EndpointOneImage();
+  auto endpoint_two = dxt_img.EndpointTwoImage();
+  std::unique_ptr<std::array<GenTC::Image<1>, 3> > ep1_planes =
+    img_pipeline->Run(endpoint_one);
+
+  std::unique_ptr<std::array<GenTC::Image<1>, 3> > ep2_planes =
+    img_pipeline->Run(endpoint_two);
 
   // Compress indices...
   std::vector<uint8_t> compressed_indices = compress_indices(dxt_img);

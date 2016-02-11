@@ -39,6 +39,10 @@ class ImageSplit
  public:
   typedef PipelineUnit<Image<NumChannels, Prec>,
                        std::array<Image<1>, NumChannels> > Base;
+  static std::unique_ptr<Base> New() {
+    return std::unique_ptr<Base>(new ImageSplit<NumChannels, Prec>());
+  }
+
   typename Base::ReturnType
   Run(const std::unique_ptr<Image<NumChannels, Prec> > &in) const override {
     return std::move(SplitImage(in.get()));
@@ -52,6 +56,11 @@ class PackedImageSplit
  public:
   typedef PipelineUnit<PackedImage<NumChannels, Prec>,
                        std::array<Image<1>, NumChannels> > Base;
+
+  static std::unique_ptr<Base> New() {
+    return std::unique_ptr<Base>(new PackedImageSplit<NumChannels, Prec>());
+  }
+
   typename Base::ReturnType
   Run(const std::unique_ptr<PackedImage<NumChannels, Prec> > &in) const override {
     return std::move(SplitImage(in.get()));
