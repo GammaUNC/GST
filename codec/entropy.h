@@ -4,6 +4,8 @@
 #include "pipeline.h"
 
 #include <cassert>
+#include <cstdint>
+#include <type_traits>
 #include <vector>
 
 namespace GenTC {
@@ -53,6 +55,101 @@ class RearrangeStream : public PipelineUnit<std::vector<T>, std::vector<T> > {
   {
     assert((_img_length % block_length) == 0);
   }
+};
+
+template<typename T>
+class ReducePrecision : public PipelineUnit<std::vector<uint32_t>, std::vector<T> > {
+  static_assert(std::is_integral<T>::value, "Only operates on integral values");
+ public:
+  typedef PipelineUnit<std::vector<uint32_t>, std::vector<T> > Base;
+  static std::unique_ptr<Base> New() { return std::unique_ptr<Base>(new ReducePrecision<T>); }
+  typename Base::ReturnType Run(const typename Base::ArgType &in) const override {
+    std::vector<T> *result = new std::vector<T>;
+    result->reserve(in->size());
+    for (size_t i = 0; i < in->size(); ++i) {
+      assert(in->at(i) < (1ULL << (sizeof(T) * 8)));
+      result->push_back(static_cast<T>(in->at(i)));
+    }
+    return std::move(std::unique_ptr<std::vector<T> >(result));
+  }  
+};
+
+typedef ReducePrecision<uint16_t> ReduceToSixteen;
+typedef ReducePrecision<uint8_t> ReduceToAlpha;
+
+class ShortEncoder {
+ public:
+  typedef PipelineUnit<std::vector<uint16_t>, std::vector<uint8_t> > EncodeUnit;
+  typedef PipelineUnit<std::vector<uint8_t>, std::vector<uint16_t> > DecodeUnit;
+
+  static std::unique_ptr<EncodeUnit> UnsignedEncoder(uint32_t symbols_per_thread) {
+    return std::unique_ptr<EncodeUnit>(new EncodeShorts(symbols_per_thread, false));
+  }
+
+  static std::unique_ptr<DecodeUnit> UnsignedDecoder(uint32_t symbols_per_thread) {
+    return std::unique_ptr<DecodeUnit>(new DecodeShorts(symbols_per_thread, false));
+  }
+
+  static std::unique_ptr<EncodeUnit> SignedEncoder(uint32_t symbols_per_thread) {
+    return std::unique_ptr<EncodeUnit>(new EncodeShorts(symbols_per_thread, true));
+  }
+
+  static std::unique_ptr<DecodeUnit> SignedDecoder(uint32_t symbols_per_thread) {
+    return std::unique_ptr<DecodeUnit>(new DecodeShorts(symbols_per_thread, true));
+  }
+
+ private:
+  class EncodeShorts : public EncodeUnit {
+   public:
+    EncodeShorts(size_t spt, bool sgn) :EncodeUnit(), _symbols_per_thread(spt), _is_signed(sgn) { }
+    typename EncodeUnit::ReturnType Run(const typename EncodeUnit::ArgType &in) const override;
+    
+   private:
+    const size_t _symbols_per_thread;
+    const bool _is_signed;
+  };
+
+  class DecodeShorts : public DecodeUnit {
+   public:
+    DecodeShorts(size_t spt, bool sgn) :DecodeUnit(), _symbols_per_thread(spt), _is_signed(sgn) { }
+    typename DecodeUnit::ReturnType Run(const typename DecodeUnit::ArgType &in) const override;
+
+   private:
+    const size_t _symbols_per_thread;
+    const bool _is_signed;
+  };
+};
+
+class ByteEncoder {
+ public:
+  typedef PipelineUnit<std::vector<uint8_t>, std::vector<uint8_t> > Base;
+
+  static std::unique_ptr<Base> Encoder(size_t symbols_per_thread) {
+    return std::unique_ptr<Base>(new EncodeBytes(symbols_per_thread));
+  }
+
+  static std::unique_ptr<Base> Decoder(size_t symbols_per_thread) {
+    return std::unique_ptr<Base>(new DecodeBytes(symbols_per_thread));
+  }
+
+ private:
+  class EncodeBytes : public Base {
+   public:
+    EncodeBytes(size_t spt) :Base(), _symbols_per_thread(spt) { }
+    typename Base::ReturnType Run(const typename Base::ArgType &in) const override;
+    
+   private:
+    const size_t _symbols_per_thread;
+  };
+
+  class DecodeBytes : public Base {
+   public:
+    DecodeBytes(size_t spt) :Base(), _symbols_per_thread(spt) { }
+    typename Base::ReturnType Run(const typename Base::ArgType &in) const override;
+
+   private:
+    const size_t _symbols_per_thread;
+  };
 };
 
 }  // namespace GenTC

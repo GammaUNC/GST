@@ -32,25 +32,23 @@ std::vector<uint32_t> NormalizeFrequencies(const std::vector<uint32_t> &F) {
   return std::move(ans::GenerateHistogram(F, kANSTableSize));
 }
 
-std::unique_ptr<Encoder> CreateCPUEncoder(const std::vector<uint32_t> &F) {
+ans::Options GetOpenCLOptions(const std::vector<uint32_t> &F) {
   Options opts;
   opts.b = 1 << 16;
   opts.k = 1 << 4;
   opts.M = kANSTableSize;
   opts.Fs = F;
   opts.type = eType_rANS;
-  return Encoder::Create(opts);
+  return opts;
+}
+
+std::unique_ptr<Encoder> CreateCPUEncoder(const std::vector<uint32_t> &F) {
+  return Encoder::Create(GetOpenCLOptions(F));
 }
 
 // A CPU decoder that matches the OpenCLDecoder below.
 std::unique_ptr<Decoder> CreateCPUDecoder(uint32_t state, const std::vector<uint32_t> &F) {
-  Options opts;
-  opts.b = 1 << 16;
-  opts.k = 1 << 4;
-  opts.M = kANSTableSize;
-  opts.Fs = F;
-  opts.type = eType_rANS;
-  return Decoder::Create(state, opts);
+  return Decoder::Create(state, GetOpenCLOptions(F));
 }
 
 OpenCLDecoder::OpenCLDecoder(

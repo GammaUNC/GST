@@ -24,8 +24,10 @@ namespace ocl {
   // available for state-precision
   static const size_t kANSTableSize = (1 << 11);
   static const size_t kNumEncodedSymbols = 256;
+  static const size_t kThreadsPerEncodingGroup = 16;
 
   std::vector<uint32_t> NormalizeFrequencies(const std::vector<uint32_t> &F);
+  ans::Options GetOpenCLOptions(const std::vector<uint32_t> &F);
   std::unique_ptr<Encoder> CreateCPUEncoder(const std::vector<uint32_t> &F);
   std::unique_ptr<Decoder> CreateCPUDecoder(uint32_t state, const std::vector<uint32_t> &F);
 

@@ -182,7 +182,7 @@ namespace GenTC {
               uint32_t dst_idx = ((j + y) * in->Width() + i + x) * 2;
               uint8_t *ptr = result.data();
 
-              uint16_t v = static_cast<uint16_t>(block[idx]);
+              int16_t v = static_cast<int16_t>(block[idx]);
               ptr[dst_idx + 0] = (v >> 8) & 0xFF;
               ptr[dst_idx + 1] = v & 0xFF;
             }
@@ -214,7 +214,7 @@ namespace GenTC {
           for (uint32_t y = 0; y < 8; ++y) {
             for (uint32_t x = 0; x < 8; ++x) {
               uint32_t idx = y * 8 + x;
-              block[idx] = static_cast<float>(in->GetAt(i + x, j + y)[0]);
+              block[idx] = static_cast<float>(static_cast<int16_t>(in->GetAt(i + x, j + y)[0]));
             }
           }
 

@@ -12,6 +12,7 @@ class DataStream {
    DataStream() : _read_idx(0) { }
    explicit DataStream(const std::vector<uint8_t> &d) : _read_idx(0), _data(d) { }
    const std::vector<uint8_t> &GetData() const { return _data; }
+   size_t BytesRead() const { return _read_idx; }
 
    void WriteByte(uint8_t x);
    void WriteShort(uint16_t x);

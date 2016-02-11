@@ -9,6 +9,7 @@ SET( HEADERS
   "codec.h"
   "data_stream.h"
   "dxt_image.h"
+  "entropy.h"
   "image.h"
   "image_utils.h"
   "image_processing.h"
@@ -19,6 +20,7 @@ SET( SOURCES
   "codec.cpp"
   "data_stream.cpp"
   "dxt_image.cpp"
+  "entropy.cpp"
   "image_processing.cpp"
 )
 
