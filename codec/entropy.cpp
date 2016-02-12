@@ -29,6 +29,8 @@ ShortEncoder::Encode::Run(const ShortEncoder::EncodeUnit::ArgType &in) const {
     }
   }
 
+  // std::cout << "Percentage of vals that are \"big\": " << 100.0 * (double)(big_vals.size()) / (double)(vals.size()) << std::endl;
+
   // Num threads
   const size_t num_symbols = vals.size();
   const size_t num_threads = num_symbols / _symbols_per_thread;

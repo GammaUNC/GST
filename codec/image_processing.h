@@ -102,7 +102,7 @@ class Quantize8x8
            for (size_t y = 0; y < 8; ++y) {
              for (size_t x = 0; x < 8; ++x) {
                auto pixel = in->GetAt(i + x, j + y);
-               pixel[0] /= _coeffs[y * 8 + x];
+               pixel[0] /= static_cast<T>(_coeffs[y * 8 + x]);
                result->SetAt(i + x, j + y, std::move(pixel));
              }
            }
@@ -127,7 +127,7 @@ class Quantize8x8
            for (size_t y = 0; y < 8; ++y) {
              for (size_t x = 0; x < 8; ++x) {
                auto pixel = in->GetAt(i + x, j + y);
-               pixel[0] /= _coeffs[y * 8 + x];
+               pixel[0] *= static_cast<T>(_coeffs[y * 8 + x]);
                result->SetAt(i + x, j + y, std::move(pixel));
              }
            }
