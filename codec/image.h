@@ -70,8 +70,8 @@ struct RGB565 : public Precision<3> {
 
 template<unsigned NumChannels, typename Prec = Precision<NumChannels> >
 std::vector<std::array<uint32_t, NumChannels> >
-UnpackImage( const std::vector<uint8_t> &img_data,
-             const Prec &precision, size_t width, size_t height) {
+UnpackImageData( const std::vector<uint8_t> &img_data,
+                 const Prec &precision, size_t width, size_t height) {
   std::vector<std::array<uint32_t, NumChannels> > result;
   result.reserve(width * height);
 
@@ -148,7 +148,7 @@ class Image {
     : _width(w)
     , _height(h)
     , _precision(Prec())
-    , _pixels(UnpackImage<NumChannels, Prec>(img_data, _precision, _width, _height)) { }
+    , _pixels(UnpackImageData<NumChannels, Prec>(img_data, _precision, _width, _height)) { }
 
   virtual ~Image<NumChannels, Prec>() { }
 
@@ -167,15 +167,15 @@ class Image {
     return *this;
   }
 
-  virtual std::array<uint32_t, NumChannels> GetAt(int x, int y) const {
-    assert(0 <= x && static_cast<size_t>(x) < Width());
-    assert(0 <= y && static_cast<size_t>(y) < Height());
+  virtual std::array<uint32_t, NumChannels> GetAt(size_t x, size_t y) const {
+    assert(x < Width());
+    assert(y < Height());
     return _pixels[y * Width() + x];
   }
 
-  virtual void SetAt(int x, int y, std::array<uint32_t, NumChannels> &&pixel) {
-    assert(0 <= x && static_cast<size_t>(x) < Width());
-    assert(0 <= y && static_cast<size_t>(y) < Height());
+  virtual void SetAt(size_t x, size_t y, std::array<uint32_t, NumChannels> &&pixel) {
+    assert(x < Width());
+    assert(y < Height());
     _pixels[y * Width() + x] = pixel;
   }
 
@@ -199,7 +199,7 @@ class PackedImage : public Image<NumChannels, Prec> {
 
    const std::vector<uint8_t> &GetData() const { return _data; }
 
-   void SetAt(int x, int y, std::array<uint32_t, NumChannels> &&pixel) override {
+   void SetAt(size_t x, size_t y, std::array<uint32_t, NumChannels> &&pixel) override {
      assert(!"Unimplemented -- unpack, set, and repack image!");
    }
 
@@ -216,6 +216,16 @@ typedef PackedImage<1, SingleChannel<2> > TwoBitImage;
 typedef PackedImage<1, SingleChannel<3> > ThreeBitImage;
 typedef PackedImage<1, SingleChannel<4> > FourBitImage;
 typedef PackedImage<1, SingleChannel<16> > SixteenBitImage;
+
+typedef Image<3, RGB> UnpackedRGBImage;
+typedef Image<3, RGB565> UnpackedRGB565Image;
+typedef Image<4, RGBA> UnpackedRGBAImage;
+typedef Image<1, Alpha> UnpackedAlphaImage;
+typedef Image<1, SingleChannel<1> > UnpackedBinaryImage;
+typedef Image<1, SingleChannel<2> > UnpackedTwoBitImage;
+typedef Image<1, SingleChannel<3> > UnpackedThreeBitImage;
+typedef Image<1, SingleChannel<4> > UnpackedFourBitImage;
+typedef Image<1, SingleChannel<16> > UnpackedSixteenBitImage;
 
 // YCbCrImages aren't packed since we only really get them
 // from RGB images...

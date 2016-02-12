@@ -8,8 +8,8 @@
 
 namespace GenTC {
 
-typename ShortEncoder::EncodeUnit::ReturnType
-ShortEncoder::EncodeShorts::Run(const typename ShortEncoder::EncodeUnit::ArgType &in) const {
+ShortEncoder::EncodeUnit::ReturnType
+ShortEncoder::EncodeShorts::Run(const ShortEncoder::EncodeUnit::ArgType &in) const {
   // Extract values larger than or equal to 255...
   std::vector<uint16_t> big_vals;
   std::vector<uint8_t> vals;
@@ -18,7 +18,7 @@ ShortEncoder::EncodeShorts::Run(const typename ShortEncoder::EncodeUnit::ArgType
   if (_is_signed) {
     for (size_t i = 0; i < in->size(); ++i) {
       int16_t x = static_cast<int16_t>(in->at(i));
-      if (std::abs<int>(x) > 127) {
+      if (std::abs(x) > 127) {
         big_vals.push_back(static_cast<uint16_t>(x));
         vals.push_back(128);
       } else {
@@ -64,7 +64,7 @@ ShortEncoder::EncodeShorts::Run(const typename ShortEncoder::EncodeUnit::ArgType
 
   ans::Options opts = ans::ocl::GetOpenCLOptions(counts);
 
-  uint32_t symbols_encoded = 0;
+  size_t symbols_encoded = 0;
   while (symbols_encoded < num_symbols) {
     auto start = vals.begin() + symbols_encoded;
     auto end = vals.begin() + symbols_encoded +
@@ -76,7 +76,7 @@ ShortEncoder::EncodeShorts::Run(const typename ShortEncoder::EncodeUnit::ArgType
                              ans::ocl::kThreadsPerEncodingGroup);
 
     encoded_symbols.insert(encoded_symbols.end(), group.begin(), group.end());
-    encoded_symbol_offsets.push_back(encoded_symbols.size());
+    encoded_symbol_offsets.push_back(static_cast<uint32_t>(encoded_symbols.size()));
     symbols_encoded += _symbols_per_thread * ans::ocl::kThreadsPerEncodingGroup;
   }
 
@@ -105,8 +105,8 @@ ShortEncoder::EncodeShorts::Run(const typename ShortEncoder::EncodeUnit::ArgType
   return std::move(std::unique_ptr<std::vector<uint8_t> >(result));
 }
 
-typename ShortEncoder::DecodeUnit::ReturnType
-ShortEncoder::DecodeShorts::Run(const typename ShortEncoder::DecodeUnit::ArgType &in) const {
+ShortEncoder::DecodeUnit::ReturnType
+ShortEncoder::DecodeShorts::Run(const ShortEncoder::DecodeUnit::ArgType &in) const {
   // Read header...
   DataStream hdr(*(in.get()));
 
@@ -123,14 +123,14 @@ ShortEncoder::DecodeShorts::Run(const typename ShortEncoder::DecodeUnit::ArgType
     big_vals.push_back(hdr.ReadShort());
   }
 
-  uint32_t num_offsets = hdr.ReadShort();
+  size_t num_offsets = hdr.ReadShort();
   std::vector<uint16_t> offsets;
   offsets.reserve(num_offsets);
   for (size_t i = 0; i < num_offsets; ++i) {
     offsets.push_back(hdr.ReadShort());
   }
 
-  const uint32_t num_symbols =
+  const size_t num_symbols =
     num_offsets * ans::ocl::kThreadsPerEncodingGroup * _symbols_per_thread;
 
   ans::Options opts = ans::ocl::GetOpenCLOptions(counts);
@@ -185,8 +185,8 @@ ShortEncoder::DecodeShorts::Run(const typename ShortEncoder::DecodeUnit::ArgType
   return std::move(std::unique_ptr<std::vector<uint16_t> >(result));
 }
 
-typename ByteEncoder::Base::ReturnType
-ByteEncoder::EncodeBytes::Run(const typename ByteEncoder::Base::ArgType &in) const {
+ByteEncoder::Base::ReturnType
+ByteEncoder::EncodeBytes::Run(const ByteEncoder::Base::ArgType &in) const {
   std::vector<uint32_t> counts(256, 0);
 
   for (size_t i = 0; i < in->size(); ++i) {
@@ -208,13 +208,13 @@ ByteEncoder::EncodeBytes::Run(const typename ByteEncoder::Base::ArgType &in) con
 
   counts.resize(non_zero_counts);
 
-  std::vector<uint32_t> offsets;
+  std::vector<size_t> offsets;
 
   const size_t num_symbols = in->size();
   ans::Options opts = ans::ocl::GetOpenCLOptions(counts);
 
   std::vector<uint8_t> encoded_symbols;
-  uint32_t num_encoded_symbols = 0;
+  size_t num_encoded_symbols = 0;
   while (num_encoded_symbols < num_symbols) {
     size_t num_symbols_to_encode = 
       ans::ocl::kThreadsPerEncodingGroup * _symbols_per_thread;
@@ -238,10 +238,10 @@ ByteEncoder::EncodeBytes::Run(const typename ByteEncoder::Base::ArgType &in) con
     hdr.WriteShort(c);
   }
 
-  hdr.WriteByte(offsets.size());
+  hdr.WriteByte(static_cast<uint8_t>(offsets.size()));
   for (auto off : offsets) {
     assert(off < (1 << 16));
-    hdr.WriteShort(off);
+    hdr.WriteShort(static_cast<uint16_t>(off));
   }
 
   std::vector<uint8_t> *result = new std::vector<uint8_t>;
@@ -251,8 +251,8 @@ ByteEncoder::EncodeBytes::Run(const typename ByteEncoder::Base::ArgType &in) con
   return std::move(std::unique_ptr<std::vector<uint8_t> >(result));
 }
 
-typename ByteEncoder::Base::ReturnType
-ByteEncoder::DecodeBytes::Run(const typename ByteEncoder::Base::ArgType &in) const {
+ByteEncoder::Base::ReturnType
+ByteEncoder::DecodeBytes::Run(const ByteEncoder::Base::ArgType &in) const {
   DataStream hdr(*(in.get()));
   uint8_t num_unique_symbols = hdr.ReadByte();
 

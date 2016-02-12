@@ -8,6 +8,21 @@
 
 namespace GenTC {
 
+template<unsigned NumChannels, typename Prec>
+class ToUnpackedImage
+  : public PipelineUnit < PackedImage<NumChannels, Prec>, Image<NumChannels, Prec> > {
+public:
+  typedef PipelineUnit < PackedImage<NumChannels, Prec>, Image<NumChannels, Prec> > Base;
+  static std::unique_ptr<Base> New() {
+    return std::unique_ptr<Base>(new ToUnpackedImage<NumChannels, Prec>);
+  }
+
+  typename Base::ReturnType
+  Run(const typename Base::ArgType &in) const override {
+    return std::move(typename Base::ReturnType(new Image<NumChannels, Prec>(*(in.get()))));
+  }
+};
+
 template <unsigned NumChannels, typename Prec>
 std::unique_ptr<std::array<Image<1>, NumChannels> >
 SplitImage(const Image<NumChannels, Prec> *img) {

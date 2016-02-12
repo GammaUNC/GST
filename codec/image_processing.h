@@ -34,8 +34,8 @@ template<typename Prec>
 class Linearize : public PipelineUnit<Image<1, Prec>, std::vector<uint32_t> > {
  public:
   typedef PipelineUnit<Image<1, Prec>, std::vector<uint32_t> > Base;
-  static std::unique_ptr<Base> New() { return std::unique_ptr<Base>(new Linearize); }
-  std::unique_ptr<Base> Run(const std::unique_ptr<Image<1, Prec> > &in) const override {
+  static std::unique_ptr<Base> New() { return std::unique_ptr<Base>(new Linearize<Prec>); }
+  typename Base::ReturnType Run(const typename Base::ArgType &in) const override {
     std::vector<uint32_t> *result = new std::vector<uint32_t>;
     result->reserve(in->Width() * in->Height() * Image<1, Prec>::kNumChannels);
 
@@ -84,19 +84,19 @@ class Quantize8x8
    class Quantizer : public Quantize8x8 < Prec > {
    public:
      Quantizer(QuantizeType ty) : Quantize8x8<Prec>(ty) { }
-     std::unique_ptr<ImageType> Run(const std::unique_ptr<ImageType> &in) override {
-       ImageType result = new ImageType(in->Width(), in->Height());
+     std::unique_ptr<ImageType> Run(const std::unique_ptr<ImageType> &in) const override {
+       ImageType *result = new ImageType(in->Width(), in->Height());
 
        assert((in->Width() % 8) == 0);
        assert((in->Height() % 8) == 0);
 
-       for (int j = 0; j < in->Height(); j += 8) {
-         for (int i = 0; i < in->Width(); i += 8) {
-           for (int y = 0; y < 8; ++y) {
-             for (int x = 0; x < 8; ++x) {
+       for (size_t j = 0; j < in->Height(); j += 8) {
+         for (size_t i = 0; i < in->Width(); i += 8) {
+           for (size_t y = 0; y < 8; ++y) {
+             for (size_t x = 0; x < 8; ++x) {
                auto pixel = in->GetAt(i + x, j + y);
                pixel[0] /= _coeffs[y * 8 + x];
-               result->SetAt(i + x, j + y, pixel);
+               result->SetAt(i + x, j + y, std::move(pixel));
              }
            }
          }
@@ -109,19 +109,19 @@ class Quantize8x8
    class Dequantizer : public Quantize8x8 < Prec > {
    public:
      Dequantizer(QuantizeType ty) : Quantize8x8<Prec>(ty) { }
-     std::unique_ptr<ImageType> Run(const std::unique_ptr<ImageType> &in) override {
-       ImageType result = new ImageType(in->Width(), in->Height());
+     std::unique_ptr<ImageType> Run(const std::unique_ptr<ImageType> &in) const override {
+       ImageType *result = new ImageType(in->Width(), in->Height());
 
        assert((in->Width() % 8) == 0);
        assert((in->Height() % 8) == 0);
 
-       for (int j = 0; j < in->Height(); j += 8) {
-         for (int i = 0; i < in->Width(); i += 8) {
-           for (int y = 0; y < 8; ++y) {
-             for (int x = 0; x < 8; ++x) {
+       for (size_t j = 0; j < in->Height(); j += 8) {
+         for (size_t i = 0; i < in->Width(); i += 8) {
+           for (size_t y = 0; y < 8; ++y) {
+             for (size_t x = 0; x < 8; ++x) {
                auto pixel = in->GetAt(i + x, j + y);
                pixel[0] /= _coeffs[y * 8 + x];
-               result->SetAt(i + x, j + y, pixel);
+               result->SetAt(i + x, j + y, std::move(pixel));
              }
            }
          }
@@ -161,7 +161,7 @@ class DropAlpha : public PipelineUnit<RGBAImage, RGBImage> {
  public:
   typedef PipelineUnit<RGBAImage, RGBImage> Base;
   static std::unique_ptr<Base> New() { return std::unique_ptr<Base>(new DropAlpha); }
-  typename Base::ReturnType Run(const typename Base::ArgType &in) const override {
+  Base::ReturnType Run(const Base::ArgType &in) const override {
     std::vector<uint8_t> img_data;
     img_data.reserve(in->Width() * in->Height() * 3);
 
@@ -170,7 +170,7 @@ class DropAlpha : public PipelineUnit<RGBAImage, RGBImage> {
         auto pixel = in->GetAt(i, j);
         for (size_t ch = 0; ch < 3; ++ch) {
           assert(pixel[ch] < 256);
-          img_data.push_back(pixel[ch]);
+          img_data.push_back(static_cast<uint8_t>(pixel[ch]));
         }
       }
     }

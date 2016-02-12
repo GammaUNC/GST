@@ -130,14 +130,17 @@ namespace GenTC {
   }
 
   template<typename Prec>
-  class ForwardDCT : PipelineUnit<Image<1, Prec>, SixteenBitImage > {
+  class ForwardDCT : PipelineUnit<Image<1, Prec>, UnpackedSixteenBitImage > {
   public:
     typedef Image<1, Prec> InputImage;
-    typedef Image<1, SixteenBitImage> OutputImage;
+    typedef UnpackedSixteenBitImage OutputImage;
     typedef PipelineUnit<InputImage, OutputImage> Base;
-    static std::unique_ptr<Base> New() { return std::unique_ptr<Base>(new ForwardDCT); }
 
-    virtual typename Base::ReturnType Run(const typename Base::ArgType &in) const {
+    static std::unique_ptr<Base> New() {
+      return std::unique_ptr<Base>(new ForwardDCT<Prec>);
+    }
+
+    typename Base::ReturnType Run(const typename Base::ArgType &in) const override {
       assert(in->Width() % 8 == 0);
       assert(in->Height() % 8 == 0);
 
@@ -175,11 +178,11 @@ namespace GenTC {
           Transpose8x8(block);
 
           // Write block
-          for (uint32_t y = 0; y < 8; ++y) {
-            for (uint32_t x = 0; x < 8; ++x) {
-              uint32_t idx = y * 8 + x;
+          for (size_t y = 0; y < 8; ++y) {
+            for (size_t x = 0; x < 8; ++x) {
+              size_t idx = y * 8 + x;
 
-              uint32_t dst_idx = ((j + y) * in->Width() + i + x) * 2;
+              size_t dst_idx = ((j + y) * in->Width() + i + x) * 2;
               uint8_t *ptr = result.data();
 
               int16_t v = static_cast<int16_t>(block[idx]);
@@ -190,14 +193,15 @@ namespace GenTC {
         }
       }
 
-      SixteenBitImage *ret_img = new SixteenBitImage(in->Width(), in->Height(), result);
-      return std::move(std::unique_ptr<typename Base::ReturnValueType>(ret_img));
+      UnpackedSixteenBitImage *ret_img =
+        new UnpackedSixteenBitImage(in->Width(), in->Height(), result);
+      return std::move(typename Base::ReturnType(ret_img));
     }
   };
 
-  class InverseDCT : PipelineUnit<SixteenBitImage, AlphaImage > {
+  class InverseDCT : PipelineUnit<UnpackedSixteenBitImage, AlphaImage > {
   public:
-    typedef PipelineUnit<SixteenBitImage, AlphaImage> Base;
+    typedef PipelineUnit<UnpackedSixteenBitImage, AlphaImage> Base;
     static std::unique_ptr<Base> New() { return std::unique_ptr<Base>(new InverseDCT); }
 
     virtual Base::ReturnType Run(const Base::ArgType &in) const {

@@ -1,3 +1,5 @@
+#include "fast_dct.hpp"
+
 #include <cassert>
 #include <cstdint>
 #include <iostream>
@@ -20,7 +22,7 @@
 #include "image_processing.h"
 #include "image_utils.h"
 #include "pipeline.h"
-#include "fast_dct.hpp"
+#include "entropy.h"
 
 #include <opencv2/opencv.hpp>
 
@@ -694,27 +696,46 @@ int main(int argc, char **argv) {
   cv::imwrite("img_dxt_interp.png", cv::Mat(img.rows, img.cols, CV_8UC1,
     dxt_img.InterpolationImage().data()));
 
-  auto img_pipeline =
-    GenTC::Pipeline<GenTC::RGBAImage, GenTC::RGBImage>::Create(GenTC::DropAlpha::New())
+  auto endpoint_one = dxt_img.EndpointOneImage();
+  auto endpoint_two = dxt_img.EndpointTwoImage();
+
+  size_t endpoint_width = endpoint_one->Width();
+  size_t endpoint_height = endpoint_one->Height();
+
+  assert(endpoint_width == endpoint_two->Width());
+  assert(endpoint_height == endpoint_two->Height());
+
+  auto initial_endpoint_pipeline =
+    GenTC::Pipeline<GenTC::RGBAImage, GenTC::RGBImage>
+    ::Create(GenTC::DropAlpha::New())
     ->Chain(std::move(GenTC::RGBtoYCrCb::New()))
     ->Chain(std::move(GenTC::YCrCbSplitter::New()));
 
-  /*
   auto y_pipeline =
-    GenTC::Pipeline<GenTC::AlphaImage, GenTC::AlphaImage>
-    ::Create(GenTC::Quantize8x8::QuantizeJPEGLuma())
+    GenTC::Pipeline<GenTC::UnpackedAlphaImage, GenTC::UnpackedAlphaImage>
+    ::Create(GenTC::Quantize8x8<GenTC::Alpha>::QuantizeJPEGLuma())
     ->Chain(GenTC::ForwardDCT<GenTC::Alpha>::New())
     ->Chain(GenTC::Linearize<GenTC::SingleChannel<16> >::New())
-    ->Chain(GenTC::RearrangeStream<uint32_t>::New());
-  */
+    ->Chain(GenTC::ReducePrecision<uint32_t, uint16_t>::New())
+    ->Chain(GenTC::RearrangeStream<uint16_t>::New(32, endpoint_width))
+    ->Chain(GenTC::RearrangeStream<uint16_t>::New(4, 32))
+    ->Chain(GenTC::ShortEncoder::SignedEncoder(ans::ocl::kNumEncodedSymbols));
 
-  auto endpoint_one = dxt_img.EndpointOneImage();
-  auto endpoint_two = dxt_img.EndpointTwoImage();
+  auto chroma_pipeline =
+    GenTC::Pipeline<GenTC::UnpackedAlphaImage, GenTC::UnpackedAlphaImage>
+    ::Create(GenTC::Quantize8x8<GenTC::Alpha>::QuantizeJPEGChroma())
+    ->Chain(GenTC::ForwardDCT<GenTC::Alpha>::New())
+    ->Chain(GenTC::Linearize<GenTC::SingleChannel<16> >::New())
+    ->Chain(GenTC::ReducePrecision<uint32_t, uint16_t>::New())
+    ->Chain(GenTC::RearrangeStream<uint16_t>::New(32, endpoint_width))
+    ->Chain(GenTC::RearrangeStream<uint16_t>::New(4, 32))
+    ->Chain(GenTC::ShortEncoder::SignedEncoder(ans::ocl::kNumEncodedSymbols));
+
   std::unique_ptr<std::array<GenTC::Image<1>, 3> > ep1_planes =
-    img_pipeline->Run(endpoint_one);
+    initial_endpoint_pipeline->Run(endpoint_one);
 
   std::unique_ptr<std::array<GenTC::Image<1>, 3> > ep2_planes =
-    img_pipeline->Run(endpoint_two);
+    initial_endpoint_pipeline->Run(endpoint_two);
 
   // Compress indices...
   std::vector<uint8_t> compressed_indices = compress_indices(dxt_img);

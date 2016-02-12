@@ -57,25 +57,26 @@ class RearrangeStream : public PipelineUnit<std::vector<T>, std::vector<T> > {
   }
 };
 
-template<typename T>
-class ReducePrecision : public PipelineUnit<std::vector<uint32_t>, std::vector<T> > {
-  static_assert(std::is_integral<T>::value, "Only operates on integral values");
- public:
-  typedef PipelineUnit<std::vector<uint32_t>, std::vector<T> > Base;
-  static std::unique_ptr<Base> New() { return std::unique_ptr<Base>(new ReducePrecision<T>); }
+template<typename From, typename To>
+class ReducePrecision : public PipelineUnit<std::vector<From>, std::vector<To> > {
+  static_assert(std::is_integral<To>::value, "Only operates on integral values");
+  static_assert(std::is_integral<From>::value, "Only operates on integral values");
+public:
+  typedef PipelineUnit<std::vector<From>, std::vector<To> > Base;
+  static std::unique_ptr<Base> New() {
+    return std::unique_ptr<Base>(new ReducePrecision<From, To>);
+  }
+
   typename Base::ReturnType Run(const typename Base::ArgType &in) const override {
-    std::vector<T> *result = new std::vector<T>;
+    std::vector<To> *result = new std::vector<To>;
     result->reserve(in->size());
     for (size_t i = 0; i < in->size(); ++i) {
-      assert(in->at(i) < (1ULL << (sizeof(T) * 8)));
-      result->push_back(static_cast<T>(in->at(i)));
+      assert(in->at(i) < (1ULL << (sizeof(To) * 8)));
+      result->push_back(static_cast<To>(in->at(i)));
     }
-    return std::move(std::unique_ptr<std::vector<T> >(result));
-  }  
+    return std::move(std::unique_ptr<std::vector<To> >(result));
+  }
 };
-
-typedef ReducePrecision<uint16_t> ReduceToSixteen;
-typedef ReducePrecision<uint8_t> ReduceToAlpha;
 
 class ShortEncoder {
  public:
@@ -102,7 +103,7 @@ class ShortEncoder {
   class EncodeShorts : public EncodeUnit {
    public:
     EncodeShorts(size_t spt, bool sgn) :EncodeUnit(), _symbols_per_thread(spt), _is_signed(sgn) { }
-    typename EncodeUnit::ReturnType Run(const typename EncodeUnit::ArgType &in) const override;
+    EncodeUnit::ReturnType Run(const EncodeUnit::ArgType &in) const override;
     
    private:
     const size_t _symbols_per_thread;
@@ -112,7 +113,7 @@ class ShortEncoder {
   class DecodeShorts : public DecodeUnit {
    public:
     DecodeShorts(size_t spt, bool sgn) :DecodeUnit(), _symbols_per_thread(spt), _is_signed(sgn) { }
-    typename DecodeUnit::ReturnType Run(const typename DecodeUnit::ArgType &in) const override;
+    DecodeUnit::ReturnType Run(const DecodeUnit::ArgType &in) const override;
 
    private:
     const size_t _symbols_per_thread;
@@ -136,7 +137,7 @@ class ByteEncoder {
   class EncodeBytes : public Base {
    public:
     EncodeBytes(size_t spt) :Base(), _symbols_per_thread(spt) { }
-    typename Base::ReturnType Run(const typename Base::ArgType &in) const override;
+    Base::ReturnType Run(const Base::ArgType &in) const override;
     
    private:
     const size_t _symbols_per_thread;
@@ -145,7 +146,7 @@ class ByteEncoder {
   class DecodeBytes : public Base {
    public:
     DecodeBytes(size_t spt) :Base(), _symbols_per_thread(spt) { }
-    typename Base::ReturnType Run(const typename Base::ArgType &in) const override;
+    Base::ReturnType Run(const Base::ArgType &in) const override;
 
    private:
     const size_t _symbols_per_thread;
