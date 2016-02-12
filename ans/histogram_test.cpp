@@ -61,6 +61,17 @@ TEST(Histogram, HandlesImproperTargetSum) {
 #endif
 }
 
+TEST(Histogram, AccuratelyHandlesZeroFrequencies) {
+  const uint32_t counts_vec[] = { 1, 0, 2, 1 };
+  std::vector<uint32_t> counts(counts_vec, counts_vec + (sizeof(counts_vec) / sizeof(counts_vec[0])));
+  std::vector<uint32_t> hist = ans::GenerateHistogram(counts, 256);
+
+  const int expected_vec[] = { 64, 0, 128, 64 };
+  std::vector<uint32_t> expected(expected_vec, expected_vec + (sizeof(expected_vec) / sizeof(expected_vec[0])));
+  EXPECT_TRUE(VectorsAreEqual(hist, expected));
+}
+
+
 TEST(Histogram, ProperlyDistributesPOTFreqs) {
   const uint32_t counts_vec[3] = { 1, 1, 2 };
   std::vector<uint32_t> counts(counts_vec, counts_vec + (sizeof(counts_vec) / sizeof(counts_vec[0])));

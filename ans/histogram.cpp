@@ -51,6 +51,7 @@ namespace ans {
     int sum = fold_sum(counts);
     for (size_t i = 0; i < counts.size(); ++i) {
       if (counts[i] == 0) {
+        histogram.push_back(0);
         continue;
       }
 
