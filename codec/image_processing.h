@@ -30,17 +30,17 @@ class Expand565
   std::unique_ptr<RGBImage> Run(const std::unique_ptr<RGB565Image> &) const override;
 };
 
-template<typename Prec>
-class Linearize : public PipelineUnit<Image<1, Prec>, std::vector<uint32_t> > {
+template<typename T, typename Prec>
+class Linearize : public PipelineUnit<Image<1, T, Prec>, std::vector<T> > {
  public:
-  typedef PipelineUnit<Image<1, Prec>, std::vector<uint32_t> > Base;
-  static std::unique_ptr<Base> New() { return std::unique_ptr<Base>(new Linearize<Prec>); }
+  typedef PipelineUnit<Image<1, T, Prec>, std::vector<T> > Base;
+  static std::unique_ptr<Base> New() { return std::unique_ptr<Base>(new Linearize<T, Prec>); }
   typename Base::ReturnType Run(const typename Base::ArgType &in) const override {
-    std::vector<uint32_t> *result = new std::vector<uint32_t>;
-    result->reserve(in->Width() * in->Height() * Image<1, Prec>::kNumChannels);
+    std::vector<T> *result = new std::vector<T>;
+    result->reserve(in->Width() * in->Height() * Image<1, T, Prec>::kNumChannels);
 
-    for (int j = 0; j < in->Height(); ++j) {
-      for (int i = 0; i < in->Width(); ++i) {
+    for (size_t j = 0; j < in->Height(); ++j) {
+      for (size_t i = 0; i < in->Width(); ++i) {
         auto pixel = in->GetAt(i, j);
         for (auto ch : pixel) {
           result->push_back(ch);
@@ -48,15 +48,15 @@ class Linearize : public PipelineUnit<Image<1, Prec>, std::vector<uint32_t> > {
       }
     }
 
-    return std::move(std::unique_ptr<std::vector<uint32_t> >(result));
+    return std::move(std::unique_ptr<std::vector<T> >(result));
   }
 };
 
-template<typename Prec>
+template<typename T, typename Prec>
 class Quantize8x8
-  : public PipelineUnit < Image<1, Prec>, Image<1, Prec> > {
+  : public PipelineUnit < Image<1, T, Prec>, Image<1, T, Prec> > {
  public:
-   typedef Image<1, Prec> ImageType;
+   typedef Image<1, T, Prec> ImageType;
    typedef PipelineUnit<ImageType, ImageType> Base;
 
    static std::unique_ptr<Base> QuantizeJPEGLuma() {
@@ -81,9 +81,9 @@ class Quantize8x8
      eQuantizeType_JPEGChroma
    };
 
-   class Quantizer : public Quantize8x8 < Prec > {
+   class Quantizer : public Quantize8x8 < T, Prec > {
    public:
-     Quantizer(QuantizeType ty) : Quantize8x8<Prec>(ty) { }
+     Quantizer(QuantizeType ty) : Quantize8x8<T, Prec>(ty) { }
      std::unique_ptr<ImageType> Run(const std::unique_ptr<ImageType> &in) const override {
        ImageType *result = new ImageType(in->Width(), in->Height());
 
@@ -106,9 +106,9 @@ class Quantize8x8
      }
    };
 
-   class Dequantizer : public Quantize8x8 < Prec > {
+   class Dequantizer : public Quantize8x8 < T, Prec > {
    public:
-     Dequantizer(QuantizeType ty) : Quantize8x8<Prec>(ty) { }
+     Dequantizer(QuantizeType ty) : Quantize8x8<T, Prec>(ty) { }
      std::unique_ptr<ImageType> Run(const std::unique_ptr<ImageType> &in) const override {
        ImageType *result = new ImageType(in->Width(), in->Height());
 
@@ -131,19 +131,19 @@ class Quantize8x8
      }
    };
 
-   Quantize8x8<Prec>(QuantizeType ty)
+   Quantize8x8<T, Prec>(QuantizeType ty)
      : Base()
      , _coeffs(ty == eQuantizeType_JPEGLuma ?
-               std::array<uint32_t, 64>(
-                   { 16, 11, 10, 16, 24, 40, 51, 61,
+               std::move(std::array<uint32_t, 64>
+                  {{ 16, 11, 10, 16, 24, 40, 51, 61,
                      12, 12, 14, 19, 26, 58, 60, 55,
                      14, 13, 16, 24, 40, 57, 69, 56,
                      14, 17, 22, 29, 51, 87, 80, 62,
                      18, 22, 37, 56, 68, 109, 103, 77,
                      24, 35, 55, 64, 81, 104, 113, 92,
                      49, 64, 78, 87, 103, 121, 120, 101,
-                     72, 92, 95, 98, 112, 100, 103, 99 }) :
-               std::array<uint32_t, 64>(
+                     72, 92, 95, 98, 112, 100, 103, 99 }}) :
+               std::move(std::array<uint32_t, 64> {
                    { 17, 18, 24, 47, 99, 99, 99, 99,
                      18, 21, 26, 66, 99, 99, 99, 99,
                      24, 26, 56, 99, 99, 99, 99, 99,
@@ -151,7 +151,7 @@ class Quantize8x8
                      99, 99, 99, 99, 99, 99, 99, 99,
                      99, 99, 99, 99, 99, 99, 99, 99,
                      99, 99, 99, 99, 99, 99, 99, 99,
-                     99, 99, 99, 99, 99, 99, 99, 99 })
+                     99, 99, 99, 99, 99, 99, 99, 99 }})
    ) { }
 
    const std::array<uint32_t, 64> _coeffs;

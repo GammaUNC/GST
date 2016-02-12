@@ -712,29 +712,27 @@ int main(int argc, char **argv) {
     ->Chain(std::move(GenTC::YCrCbSplitter::New()));
 
   auto y_pipeline =
-    GenTC::Pipeline<GenTC::UnpackedAlphaImage, GenTC::UnpackedAlphaImage>
-    ::Create(GenTC::Quantize8x8<GenTC::Alpha>::QuantizeJPEGLuma())
-    ->Chain(GenTC::ForwardDCT<GenTC::Alpha>::New())
-    ->Chain(GenTC::Linearize<GenTC::SingleChannel<16> >::New())
-    ->Chain(GenTC::ReducePrecision<uint32_t, uint16_t>::New())
-    ->Chain(GenTC::RearrangeStream<uint16_t>::New(32, endpoint_width))
-    ->Chain(GenTC::RearrangeStream<uint16_t>::New(4, 32))
-    ->Chain(GenTC::ShortEncoder::SignedEncoder(ans::ocl::kNumEncodedSymbols));
+    GenTC::Pipeline<GenTC::UnpackedAlphaImage, GenTC::UnpackedSixteenBitImage>
+    ::Create(GenTC::ForwardDCT<GenTC::Alpha>::New())
+    ->Chain(GenTC::Quantize8x8<int16_t, GenTC::SingleChannel<16> >::QuantizeJPEGLuma())
+    ->Chain(GenTC::Linearize<int16_t, GenTC::SingleChannel<16> >::New())
+    ->Chain(GenTC::RearrangeStream<int16_t>::New(32, endpoint_width))
+    ->Chain(GenTC::RearrangeStream<int16_t>::New(4, 32))
+    ->Chain(GenTC::ShortEncoder::Encoder(ans::ocl::kNumEncodedSymbols));
 
   auto chroma_pipeline =
-    GenTC::Pipeline<GenTC::UnpackedAlphaImage, GenTC::UnpackedAlphaImage>
-    ::Create(GenTC::Quantize8x8<GenTC::Alpha>::QuantizeJPEGChroma())
-    ->Chain(GenTC::ForwardDCT<GenTC::Alpha>::New())
-    ->Chain(GenTC::Linearize<GenTC::SingleChannel<16> >::New())
-    ->Chain(GenTC::ReducePrecision<uint32_t, uint16_t>::New())
-    ->Chain(GenTC::RearrangeStream<uint16_t>::New(32, endpoint_width))
-    ->Chain(GenTC::RearrangeStream<uint16_t>::New(4, 32))
-    ->Chain(GenTC::ShortEncoder::SignedEncoder(ans::ocl::kNumEncodedSymbols));
+    GenTC::Pipeline<GenTC::UnpackedAlphaImage, GenTC::UnpackedSixteenBitImage>
+    ::Create(GenTC::ForwardDCT<GenTC::Alpha>::New())
+    ->Chain(GenTC::Quantize8x8<int16_t, GenTC::SingleChannel<16> >::QuantizeJPEGChroma())
+    ->Chain(GenTC::Linearize<int16_t, GenTC::SingleChannel<16> >::New())
+    ->Chain(GenTC::RearrangeStream<int16_t>::New(32, endpoint_width))
+    ->Chain(GenTC::RearrangeStream<int16_t>::New(4, 32))
+    ->Chain(GenTC::ShortEncoder::Encoder(ans::ocl::kNumEncodedSymbols));
 
-  std::unique_ptr<std::array<GenTC::Image<1>, 3> > ep1_planes =
+  std::unique_ptr<std::array<GenTC::Image<1, uint8_t>, 3> > ep1_planes =
     initial_endpoint_pipeline->Run(endpoint_one);
 
-  std::unique_ptr<std::array<GenTC::Image<1>, 3> > ep2_planes =
+  std::unique_ptr<std::array<GenTC::Image<1, uint8_t>, 3> > ep2_planes =
     initial_endpoint_pipeline->Run(endpoint_two);
 
   // Compress indices...

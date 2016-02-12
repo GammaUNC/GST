@@ -9,31 +9,19 @@
 namespace GenTC {
 
 ShortEncoder::EncodeUnit::ReturnType
-ShortEncoder::EncodeShorts::Run(const ShortEncoder::EncodeUnit::ArgType &in) const {
+ShortEncoder::Encode::Run(const ShortEncoder::EncodeUnit::ArgType &in) const {
   // Extract values larger than or equal to 255...
   std::vector<uint16_t> big_vals;
   std::vector<uint8_t> vals;
   vals.reserve(in->size());
 
-  if (_is_signed) {
-    for (size_t i = 0; i < in->size(); ++i) {
-      int16_t x = static_cast<int16_t>(in->at(i));
-      if (std::abs(x) > 127) {
-        big_vals.push_back(static_cast<uint16_t>(x));
-        vals.push_back(128);
-      } else {
-        vals.push_back(static_cast<uint8_t>(x));
-      }
-    }
-  } else {
-    for (size_t i = 0; i < in->size(); ++i) {
-      uint16_t x = in->at(i);
-      if (x >= 255) {
-        big_vals.push_back(x);
-        vals.push_back(255);
-      } else {
-        vals.push_back(static_cast<uint8_t>(x));
-      }
+  for (size_t i = 0; i < in->size(); ++i) {
+    int16_t x = in->at(i);
+    if (std::abs(x) > 127) {
+      big_vals.push_back(static_cast<uint16_t>(x));
+      vals.push_back(128);
+    } else {
+      vals.push_back(static_cast<uint8_t>(x));
     }
   }
 
@@ -106,7 +94,7 @@ ShortEncoder::EncodeShorts::Run(const ShortEncoder::EncodeUnit::ArgType &in) con
 }
 
 ShortEncoder::DecodeUnit::ReturnType
-ShortEncoder::DecodeShorts::Run(const ShortEncoder::DecodeUnit::ArgType &in) const {
+ShortEncoder::Decode::Run(const ShortEncoder::DecodeUnit::ArgType &in) const {
   // Read header...
   DataStream hdr(*(in.get()));
 
@@ -162,27 +150,19 @@ ShortEncoder::DecodeShorts::Run(const ShortEncoder::DecodeUnit::ArgType &in) con
   assert(symbols.size() == num_symbols);
 
   // Convert the symbols back to their representation...
-  std::vector<uint16_t> *result = new std::vector<uint16_t>;
+  std::vector<int16_t> *result = new std::vector<int16_t>;
   result->reserve(num_symbols);
 
   uint32_t big_val_idx = 0;
   for (size_t i = 0; i < num_symbols; ++i) {
-    if (_is_signed) {
-      if (symbols[i] == 128) {
-        result->push_back(big_vals[big_val_idx++]);
-      } else {
-        result->push_back(static_cast<int16_t>(static_cast<int8_t>(symbols[i])));
-      }
+    if (symbols[i] == 128) {
+      result->push_back(static_cast<int16_t>(big_vals[big_val_idx++]));
     } else {
-      if (symbols[i] == 255) {
-        result->push_back(big_vals[big_val_idx++]);
-      } else {
-        result->push_back(static_cast<uint16_t>(symbols[i]));
-      }
+      result->push_back(static_cast<int16_t>(static_cast<int8_t>(symbols[i])));
     }
   }
 
-  return std::move(std::unique_ptr<std::vector<uint16_t> >(result));
+  return std::move(std::unique_ptr<std::vector<int16_t> >(result));
 }
 
 ByteEncoder::Base::ReturnType

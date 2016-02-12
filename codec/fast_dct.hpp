@@ -130,9 +130,9 @@ namespace GenTC {
   }
 
   template<typename Prec>
-  class ForwardDCT : PipelineUnit<Image<1, Prec>, UnpackedSixteenBitImage > {
+  class ForwardDCT : PipelineUnit<Image<1, uint8_t, Prec>, UnpackedSixteenBitImage > {
   public:
-    typedef Image<1, Prec> InputImage;
+    typedef Image<1, uint8_t, Prec> InputImage;
     typedef UnpackedSixteenBitImage OutputImage;
     typedef PipelineUnit<InputImage, OutputImage> Base;
 
@@ -161,7 +161,7 @@ namespace GenTC {
 
           // Run forward DCT...
           for (int r = 0; r < 8; ++r) {
-            float *row = block + r * 8 * sizeof(float);
+            float *row = block + r * 8;
             fdct(row, row);
           }
 
@@ -170,7 +170,7 @@ namespace GenTC {
 
           // Run forward DCT...
           for (int r = 0; r < 8; ++r) {
-            float *row = block + r * 8 * sizeof(float);
+            float *row = block + r * 8;
             fdct(row, row);
           }
 
@@ -224,7 +224,7 @@ namespace GenTC {
 
           // Run forward DCT...
           for (int r = 0; r < 8; ++r) {
-            float *row = block + r * 8 * sizeof(float);
+            float *row = block + r * 8;
             idct(row, row);
             for (int k = 0; k < 8; ++k) {
               row[k] /= 8.f;
@@ -236,7 +236,7 @@ namespace GenTC {
 
           // Run forward DCT...
           for (int r = 0; r < 8; ++r) {
-            float *row = block + r * 8 * sizeof(float);
+            float *row = block + r * 8;
             fdct(row, row);
             for (int k = 0; k < 8; ++k) {
               row[k] /= 8.f;

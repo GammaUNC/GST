@@ -23,16 +23,16 @@ public:
   }
 };
 
-template <unsigned NumChannels, typename Prec>
-std::unique_ptr<std::array<Image<1>, NumChannels> >
-SplitImage(const Image<NumChannels, Prec> *img) {
-  typedef std::array<Image<1>, NumChannels> ReturnValueType;
+template <unsigned NumChannels, typename T, typename Prec>
+std::unique_ptr<std::array<Image<1, T>, NumChannels> >
+SplitImage(const Image<NumChannels, T, Prec> *img) {
+  typedef std::array<Image<1, T>, NumChannels> ReturnValueType;
   typedef std::unique_ptr<ReturnValueType> ReturnType;
 
   ReturnValueType result;
 
   for (uint32_t i = 0; i < NumChannels; ++i) {
-    result[i] = Image<1>(img->Width(), img->Height());
+    result[i] = Image<1, T>(img->Width(), img->Height());
   }
 
   for (size_t j = 0; j < img->Height(); ++j) {
@@ -47,46 +47,46 @@ SplitImage(const Image<NumChannels, Prec> *img) {
   return ReturnType(new ReturnValueType(std::move(result)));  
 }
 
-template <unsigned NumChannels, typename Prec>
+template <unsigned NumChannels, typename T, typename Prec>
 class ImageSplit
-  : public PipelineUnit<Image<NumChannels, Prec>,
-                        std::array<Image<1>, NumChannels> > {
+  : public PipelineUnit<Image<NumChannels, T, Prec>,
+                        std::array<Image<1, T>, NumChannels> > {
  public:
-  typedef PipelineUnit<Image<NumChannels, Prec>,
-                       std::array<Image<1>, NumChannels> > Base;
+  typedef PipelineUnit<Image<NumChannels, T, Prec>,
+                       std::array<Image<1, T>, NumChannels> > Base;
   static std::unique_ptr<Base> New() {
-    return std::unique_ptr<Base>(new ImageSplit<NumChannels, Prec>());
+    return std::unique_ptr<Base>(new ImageSplit<NumChannels, T, Prec>());
   }
 
   typename Base::ReturnType
-  Run(const std::unique_ptr<Image<NumChannels, Prec> > &in) const override {
+  Run(const std::unique_ptr<Image<NumChannels, T, Prec> > &in) const override {
     return std::move(SplitImage(in.get()));
   }
 };
 
-template <unsigned NumChannels, typename Prec>
+template <unsigned NumChannels, typename T, typename Prec>
 class PackedImageSplit
-  : public PipelineUnit<PackedImage<NumChannels, Prec>,
-                        std::array<Image<1>, NumChannels> > {
+  : public PipelineUnit<PackedImage<NumChannels, T, Prec>,
+                        std::array<Image<1, T>, NumChannels> > {
  public:
-  typedef PipelineUnit<PackedImage<NumChannels, Prec>,
-                       std::array<Image<1>, NumChannels> > Base;
+  typedef PipelineUnit<PackedImage<NumChannels, T, Prec>,
+                       std::array<Image<1, T>, NumChannels> > Base;
 
   static std::unique_ptr<Base> New() {
-    return std::unique_ptr<Base>(new PackedImageSplit<NumChannels, Prec>());
+    return std::unique_ptr<Base>(new PackedImageSplit<NumChannels, T, Prec>());
   }
 
   typename Base::ReturnType
-  Run(const std::unique_ptr<PackedImage<NumChannels, Prec> > &in) const override {
+  Run(const std::unique_ptr<PackedImage<NumChannels, T, Prec> > &in) const override {
     return std::move(SplitImage(in.get()));
   }
 };
 
-typedef PackedImageSplit<3, RGB> RGBSplitter;
-typedef PackedImageSplit<4, RGBA> RGBASplitter;
-typedef PackedImageSplit<3, RGB565> RGB565Splitter;
+typedef PackedImageSplit<3, uint8_t, RGB> RGBSplitter;
+typedef PackedImageSplit<4, uint8_t, RGBA> RGBASplitter;
+typedef PackedImageSplit<3, uint8_t, RGB565> RGB565Splitter;
 
-typedef ImageSplit<3, RGB> YCrCbSplitter;
+typedef ImageSplit<3, uint8_t, RGB> YCrCbSplitter;
 
 }  // namespace GenTC
 

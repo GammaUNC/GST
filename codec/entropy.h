@@ -80,44 +80,34 @@ public:
 
 class ShortEncoder {
  public:
-  typedef PipelineUnit<std::vector<uint16_t>, std::vector<uint8_t> > EncodeUnit;
-  typedef PipelineUnit<std::vector<uint8_t>, std::vector<uint16_t> > DecodeUnit;
+  typedef PipelineUnit<std::vector<int16_t>, std::vector<uint8_t> > EncodeUnit;
+  typedef PipelineUnit<std::vector<uint8_t>, std::vector<int16_t> > DecodeUnit;
 
-  static std::unique_ptr<EncodeUnit> UnsignedEncoder(uint32_t symbols_per_thread) {
-    return std::unique_ptr<EncodeUnit>(new EncodeShorts(symbols_per_thread, false));
+  static std::unique_ptr<EncodeUnit> Encoder(uint32_t symbols_per_thread) {
+    return std::unique_ptr<EncodeUnit>(new Encode(symbols_per_thread));
   }
 
-  static std::unique_ptr<DecodeUnit> UnsignedDecoder(uint32_t symbols_per_thread) {
-    return std::unique_ptr<DecodeUnit>(new DecodeShorts(symbols_per_thread, false));
-  }
-
-  static std::unique_ptr<EncodeUnit> SignedEncoder(uint32_t symbols_per_thread) {
-    return std::unique_ptr<EncodeUnit>(new EncodeShorts(symbols_per_thread, true));
-  }
-
-  static std::unique_ptr<DecodeUnit> SignedDecoder(uint32_t symbols_per_thread) {
-    return std::unique_ptr<DecodeUnit>(new DecodeShorts(symbols_per_thread, true));
+  static std::unique_ptr<DecodeUnit> Decoder(uint32_t symbols_per_thread) {
+    return std::unique_ptr<DecodeUnit>(new Decode(symbols_per_thread));
   }
 
  private:
-  class EncodeShorts : public EncodeUnit {
+  class Encode : public EncodeUnit {
    public:
-    EncodeShorts(size_t spt, bool sgn) :EncodeUnit(), _symbols_per_thread(spt), _is_signed(sgn) { }
+    Encode(size_t spt): EncodeUnit(), _symbols_per_thread(spt) { }
     EncodeUnit::ReturnType Run(const EncodeUnit::ArgType &in) const override;
     
    private:
     const size_t _symbols_per_thread;
-    const bool _is_signed;
   };
 
-  class DecodeShorts : public DecodeUnit {
+  class Decode : public DecodeUnit {
    public:
-    DecodeShorts(size_t spt, bool sgn) :DecodeUnit(), _symbols_per_thread(spt), _is_signed(sgn) { }
+    Decode(size_t spt): DecodeUnit(), _symbols_per_thread(spt) { }
     DecodeUnit::ReturnType Run(const DecodeUnit::ArgType &in) const override;
 
    private:
     const size_t _symbols_per_thread;
-    const bool _is_signed;
   };
 };
 

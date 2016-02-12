@@ -10,7 +10,7 @@ TEST(Image, CanReadPackedBytes) {
     { 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15 });
   for (int j = 0; j < 4; ++j) {
     for (int i = 0; i < 4; ++i) {
-      std::array<uint32_t, 1> pixel = img.GetAt(i, j);
+      std::array<uint8_t, 1> pixel = img.GetAt(i, j);
       EXPECT_EQ(pixel[0], j * 4 + i);
     }
   }
@@ -24,7 +24,7 @@ TEST(Image, CanReadPackedRGBPixels) {
     0xFF, 0x00, 0x00, 0xFF, 0x00, 0x00, 0xFF, 0x00, 0x00, 0xFF, 0x00, 0x00 });
   for (int j = 0; j < 4; ++j) {
     for (int i = 0; i < 4; ++i) {
-      std::array<uint32_t, 3> pixel = img.GetAt(i, j);
+      std::array<uint8_t, 3> pixel = img.GetAt(i, j);
       EXPECT_EQ(pixel[0], 0xFF);
       if (i == 1 && j == 2) {
         EXPECT_EQ(pixel[1], 0xC0);
@@ -44,7 +44,7 @@ TEST(Image, CanReadPackedRGB565) {
     0xF8, 0x1F, 0xF8, 0x1F, 0xF8, 0x1F, 0xF8, 0x1F });
   for (int j = 0; j < 4; ++j) {
     for (int i = 0; i < 4; ++i) {
-      std::array<uint32_t, 3> pixel = img.GetAt(i, j);
+      std::array<uint8_t, 3> pixel = img.GetAt(i, j);
       EXPECT_EQ(pixel[0], 0x1F);
       if (i == 1 && j == 2) {
         EXPECT_EQ(pixel[1], 0x01);
@@ -61,7 +61,7 @@ TEST(Image, CanReadPackedBinaryImage) {
   GenTC::BinaryImage img = GenTC::BinaryImage(4, 4, { 0x5A, 0x5A });
   for (int j = 0; j < 4; ++j) {
     for (int i = 0; i < 4; ++i) {
-      std::array<uint32_t, 1> pixel = img.GetAt(i, j);
+      std::array<uint8_t, 1> pixel = img.GetAt(i, j);
       if ((i + j) & 1) {
         EXPECT_EQ(pixel[0], 0x01);
       } else {
@@ -75,7 +75,7 @@ TEST(Image, CanReadPackedTwoBitImage) {
   GenTC::TwoBitImage img = GenTC::TwoBitImage(4, 4, { 0x5A, 0x5A, 0x5A, 0x5A });
   for (int j = 0; j < 4; ++j) {
     for (int i = 0; i < 4; ++i) {
-      std::array<uint32_t, 1> pixel = img.GetAt(i, j);
+      std::array<uint8_t, 1> pixel = img.GetAt(i, j);
       if (i < 2) {
         EXPECT_EQ(pixel[0], 0x01);
       } else {
@@ -92,15 +92,15 @@ TEST(Image, CanSplitImage) {
     0xFF, 0x00, 0x00, 0xFF, 0xC0, 0x00, 0xFF, 0x00, 0x00, 0xFF, 0x00, 0x00, 
     0xFF, 0x00, 0x00, 0xFF, 0x00, 0x00, 0xFF, 0x00, 0x00, 0xFF, 0x00, 0x00 }));
 
-  typedef std::array<GenTC::Image<1>, 3> SplitResultType;
+  typedef std::array<GenTC::Image<1, uint8_t>, 3> SplitResultType;
   std::unique_ptr<GenTC::RGBSplitter> splitter(new GenTC::RGBSplitter);
-  std::unique_ptr<GenTC::Pipeline<GenTC::RGBImage, SplitResultType> > p =
-    GenTC::Pipeline<GenTC::RGBImage, SplitResultType>::Create(GenTC::RGBSplitter::New());
+  auto p = GenTC::Pipeline<GenTC::RGBImage, SplitResultType>
+    ::Create(GenTC::RGBSplitter::New());
   auto result = p->Run(img);
 
   for (int j = 0; j < 4; ++j) {
     for (int i = 0; i < 4; ++i) {
-      std::array<uint32_t, 1> pixel = result->at(0).GetAt(i, j);
+      std::array<uint8_t, 1> pixel = result->at(0).GetAt(i, j);
       EXPECT_EQ(pixel[0], 0xFF);
 
       pixel = result->at(1).GetAt(i, j);
