@@ -13,8 +13,8 @@ template <unsigned NumChannels>
 class Precision {
  public:
   Precision() {
-    // Default to thirty-two bits per channel...
-    _precision.fill(32);
+    // Default to eight bits per channel...
+    _precision.fill(8);
   }
 
   uint32_t PixelSize() const { return PixelSizeInBits() / 8; }

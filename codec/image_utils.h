@@ -24,15 +24,21 @@ public:
 };
 
 template <unsigned NumChannels, typename T, typename Prec>
-std::unique_ptr<std::array<Image<1, T>, NumChannels> >
+std::unique_ptr<std::array<Image<1, T, Alpha>, NumChannels> >
 SplitImage(const Image<NumChannels, T, Prec> *img) {
-  typedef std::array<Image<1, T>, NumChannels> ReturnValueType;
+  typedef std::array<Image<1, T, Alpha>, NumChannels> ReturnValueType;
   typedef std::unique_ptr<ReturnValueType> ReturnType;
+
+#ifndef NDEBUG
+  for (size_t i = 0; i < NumChannels; ++i) {
+    assert(img->Precision(i) <= 8);
+  }
+#endif
 
   ReturnValueType result;
 
   for (uint32_t i = 0; i < NumChannels; ++i) {
-    result[i] = Image<1, T>(img->Width(), img->Height());
+    result[i] = Image<1, T, Alpha>(img->Width(), img->Height());
   }
 
   for (size_t j = 0; j < img->Height(); ++j) {
@@ -50,10 +56,10 @@ SplitImage(const Image<NumChannels, T, Prec> *img) {
 template <unsigned NumChannels, typename T, typename Prec>
 class ImageSplit
   : public PipelineUnit<Image<NumChannels, T, Prec>,
-                        std::array<Image<1, T>, NumChannels> > {
+                        std::array<Image<1, T, Alpha>, NumChannels> > {
  public:
   typedef PipelineUnit<Image<NumChannels, T, Prec>,
-                       std::array<Image<1, T>, NumChannels> > Base;
+                       std::array<Image<1, T, Alpha>, NumChannels> > Base;
   static std::unique_ptr<Base> New() {
     return std::unique_ptr<Base>(new ImageSplit<NumChannels, T, Prec>());
   }
@@ -67,10 +73,10 @@ class ImageSplit
 template <unsigned NumChannels, typename T, typename Prec>
 class PackedImageSplit
   : public PipelineUnit<PackedImage<NumChannels, T, Prec>,
-                        std::array<Image<1, T>, NumChannels> > {
+                        std::array<Image<1, T, Alpha>, NumChannels> > {
  public:
   typedef PipelineUnit<PackedImage<NumChannels, T, Prec>,
-                       std::array<Image<1, T>, NumChannels> > Base;
+                       std::array<Image<1, T, Alpha>, NumChannels> > Base;
 
   static std::unique_ptr<Base> New() {
     return std::unique_ptr<Base>(new PackedImageSplit<NumChannels, T, Prec>());

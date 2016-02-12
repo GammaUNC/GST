@@ -8,21 +8,13 @@
 #include <numeric>
 
 // #define VERBOSE
-// #define USE_FAST_DCT
-
-#ifdef USE_FAST_DCT
-#else
 #include "opencv_dct.hpp"
-#endif
 
 #include "histogram.h"
 #include "ans_ocl.h"
+
+#include "codec.h"
 #include "dxt_image.h"
-#include "image.h"
-#include "image_processing.h"
-#include "image_utils.h"
-#include "pipeline.h"
-#include "entropy.h"
 
 #include <opencv2/opencv.hpp>
 
@@ -685,8 +677,9 @@ int main(int argc, char **argv) {
     }
   }
 
-  GenTC::DXTImage dxt_img(reinterpret_cast<const uint8_t *>(dxt_blocks.data()),
-                          img.cols, img.rows);
+  const uint8_t *dxt_data = reinterpret_cast<const uint8_t *>(dxt_blocks.data());
+  GenTC::DXTImage dxt_img(dxt_data, img.cols, img.rows);
+  GenTC::CompressDXT(dxt_data, img.cols, img.rows);
 
   // Decompress into image...
   cv::imwrite("img_dxt.png", cv::Mat(img.rows, img.cols, CV_8UC4,
@@ -695,45 +688,6 @@ int main(int argc, char **argv) {
   // Visualize interpolation data...
   cv::imwrite("img_dxt_interp.png", cv::Mat(img.rows, img.cols, CV_8UC1,
     dxt_img.InterpolationImage().data()));
-
-  auto endpoint_one = dxt_img.EndpointOneImage();
-  auto endpoint_two = dxt_img.EndpointTwoImage();
-
-  size_t endpoint_width = endpoint_one->Width();
-  size_t endpoint_height = endpoint_one->Height();
-
-  assert(endpoint_width == endpoint_two->Width());
-  assert(endpoint_height == endpoint_two->Height());
-
-  auto initial_endpoint_pipeline =
-    GenTC::Pipeline<GenTC::RGBAImage, GenTC::RGBImage>
-    ::Create(GenTC::DropAlpha::New())
-    ->Chain(std::move(GenTC::RGBtoYCrCb::New()))
-    ->Chain(std::move(GenTC::YCrCbSplitter::New()));
-
-  auto y_pipeline =
-    GenTC::Pipeline<GenTC::UnpackedAlphaImage, GenTC::UnpackedSixteenBitImage>
-    ::Create(GenTC::ForwardDCT<GenTC::Alpha>::New())
-    ->Chain(GenTC::Quantize8x8<int16_t, GenTC::SingleChannel<16> >::QuantizeJPEGLuma())
-    ->Chain(GenTC::Linearize<int16_t, GenTC::SingleChannel<16> >::New())
-    ->Chain(GenTC::RearrangeStream<int16_t>::New(32, endpoint_width))
-    ->Chain(GenTC::RearrangeStream<int16_t>::New(4, 32))
-    ->Chain(GenTC::ShortEncoder::Encoder(ans::ocl::kNumEncodedSymbols));
-
-  auto chroma_pipeline =
-    GenTC::Pipeline<GenTC::UnpackedAlphaImage, GenTC::UnpackedSixteenBitImage>
-    ::Create(GenTC::ForwardDCT<GenTC::Alpha>::New())
-    ->Chain(GenTC::Quantize8x8<int16_t, GenTC::SingleChannel<16> >::QuantizeJPEGChroma())
-    ->Chain(GenTC::Linearize<int16_t, GenTC::SingleChannel<16> >::New())
-    ->Chain(GenTC::RearrangeStream<int16_t>::New(32, endpoint_width))
-    ->Chain(GenTC::RearrangeStream<int16_t>::New(4, 32))
-    ->Chain(GenTC::ShortEncoder::Encoder(ans::ocl::kNumEncodedSymbols));
-
-  std::unique_ptr<std::array<GenTC::Image<1, uint8_t>, 3> > ep1_planes =
-    initial_endpoint_pipeline->Run(endpoint_one);
-
-  std::unique_ptr<std::array<GenTC::Image<1, uint8_t>, 3> > ep2_planes =
-    initial_endpoint_pipeline->Run(endpoint_two);
 
   // Compress indices...
   std::vector<uint8_t> compressed_indices = compress_indices(dxt_img);

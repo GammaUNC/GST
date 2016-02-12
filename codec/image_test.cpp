@@ -92,7 +92,7 @@ TEST(Image, CanSplitImage) {
     0xFF, 0x00, 0x00, 0xFF, 0xC0, 0x00, 0xFF, 0x00, 0x00, 0xFF, 0x00, 0x00, 
     0xFF, 0x00, 0x00, 0xFF, 0x00, 0x00, 0xFF, 0x00, 0x00, 0xFF, 0x00, 0x00 }));
 
-  typedef std::array<GenTC::Image<1, uint8_t>, 3> SplitResultType;
+  typedef std::array<GenTC::Image<1, uint8_t, GenTC::Alpha>, 3> SplitResultType;
   std::unique_ptr<GenTC::RGBSplitter> splitter(new GenTC::RGBSplitter);
   auto p = GenTC::Pipeline<GenTC::RGBImage, SplitResultType>
     ::Create(GenTC::RGBSplitter::New());
