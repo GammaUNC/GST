@@ -36,6 +36,9 @@ class Linearize : public PipelineUnit<Image<1, T, Prec>, std::vector<T> > {
   typedef PipelineUnit<Image<1, T, Prec>, std::vector<T> > Base;
   static std::unique_ptr<Base> New() { return std::unique_ptr<Base>(new Linearize<T, Prec>); }
   typename Base::ReturnType Run(const typename Base::ArgType &in) const override {
+    assert(in->Width() > 0);
+    assert(in->Height() > 0);
+
     std::vector<T> *result = new std::vector<T>;
     result->reserve(in->Width() * in->Height() * Image<1, T, Prec>::kNumChannels);
 
@@ -47,6 +50,10 @@ class Linearize : public PipelineUnit<Image<1, T, Prec>, std::vector<T> > {
         }
       }
     }
+
+    // This only works on single channel images, so the following
+    // should hold true..
+    assert(result->size() == in->Height() * in->Width());
 
     return std::move(std::unique_ptr<std::vector<T> >(result));
   }

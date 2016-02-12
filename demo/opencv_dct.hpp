@@ -17,7 +17,7 @@ namespace dct {
       }
     }
 
-    *m = flt_m;
+    flt_m.convertTo(*m, CV_16SC1);
   }
 
   static void RunIDCT(cv::Mat *m) {
@@ -32,7 +32,7 @@ namespace dct {
       }
     }
 
-    *m = flt_m;
+    flt_m.convertTo(*m, CV_8UC1);
   }
 
 }

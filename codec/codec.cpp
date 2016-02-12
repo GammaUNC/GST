@@ -15,6 +15,8 @@
 namespace GenTC {
 
 std::vector<uint8_t> CompressDXT(const uint8_t *dxt, int width, int height) {
+  std::cout << "Original DXT size: " << (width * height / 2) << std::endl;
+
   DXTImage dxt_img(dxt, width, height);
 
   auto endpoint_one = dxt_img.EndpointOneImage();
@@ -34,8 +36,8 @@ std::vector<uint8_t> CompressDXT(const uint8_t *dxt, int width, int height) {
     ::Create(ForwardDCT<Alpha>::New())
     ->Chain(Quantize8x8<int16_t, SingleChannel<16> >::QuantizeJPEGLuma())
     ->Chain(Linearize<int16_t, SingleChannel<16> >::New())
-    ->Chain(RearrangeStream<int16_t>::New(32, endpoint_one->Width()))
-    ->Chain(RearrangeStream<int16_t>::New(4, 32))
+    ->Chain(RearrangeStream<int16_t>::New(endpoint_one->Width(), 32))
+    ->Chain(RearrangeStream<int16_t>::New(32, 4))
     ->Chain(ShortEncoder::Encoder(ans::ocl::kNumEncodedSymbols));
 
   auto chroma_pipeline =
@@ -43,8 +45,8 @@ std::vector<uint8_t> CompressDXT(const uint8_t *dxt, int width, int height) {
     ::Create(ForwardDCT<Alpha>::New())
     ->Chain(Quantize8x8<int16_t, SingleChannel<16> >::QuantizeJPEGChroma())
     ->Chain(Linearize<int16_t, SingleChannel<16> >::New())
-    ->Chain(RearrangeStream<int16_t>::New(32, endpoint_one->Width()))
-    ->Chain(RearrangeStream<int16_t>::New(4, 32))
+    ->Chain(RearrangeStream<int16_t>::New(endpoint_one->Width(), 32))
+    ->Chain(RearrangeStream<int16_t>::New(32, 4))
     ->Chain(ShortEncoder::Encoder(ans::ocl::kNumEncodedSymbols));
 
   std::unique_ptr<std::array<UnpackedAlphaImage, 3> > ep1_planes =
@@ -66,19 +68,19 @@ std::vector<uint8_t> CompressDXT(const uint8_t *dxt, int width, int height) {
   auto ep1_y_cmp = y_pipeline->Run(ep1_y);
   out.WriteInt(static_cast<uint32_t>(ep1_y_cmp->size()));
 
-  auto ep1_cr_cmp = y_pipeline->Run(ep1_cr);
+  auto ep1_cr_cmp = chroma_pipeline->Run(ep1_cr);
   out.WriteInt(static_cast<uint32_t>(ep1_cr_cmp->size()));
 
-  auto ep1_cb_cmp = y_pipeline->Run(ep1_cb);
+  auto ep1_cb_cmp = chroma_pipeline->Run(ep1_cb);
   out.WriteInt(static_cast<uint32_t>(ep1_cb_cmp->size()));
 
   auto ep2_y_cmp = y_pipeline->Run(ep2_y);
   out.WriteInt(static_cast<uint32_t>(ep2_y_cmp->size()));
 
-  auto ep2_cr_cmp = y_pipeline->Run(ep2_cr);
+  auto ep2_cr_cmp = chroma_pipeline->Run(ep2_cr);
   out.WriteInt(static_cast<uint32_t>(ep2_cr_cmp->size()));
 
-  auto ep2_cb_cmp = y_pipeline->Run(ep2_cb);
+  auto ep2_cb_cmp = chroma_pipeline->Run(ep2_cb);
   out.WriteInt(static_cast<uint32_t>(ep2_cb_cmp->size()));
 
   std::vector<uint8_t> result = out.GetData();

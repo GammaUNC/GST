@@ -5,6 +5,7 @@
 
 #include <cassert>
 #include <cstdint>
+#include <iostream>
 #include <type_traits>
 #include <vector>
 
@@ -23,37 +24,43 @@ class RearrangeStream : public PipelineUnit<std::vector<T>, std::vector<T> > {
   }
 
   typename Base::ReturnType Run(const typename Base::ArgType &in) const override {
-    assert((in->size() % _img_length) == 0);
-    assert(((in->size() / _img_length) % _block_length) == 0);
+    // Make sure we have some data
+    assert(in->size() > 0);
+
+    // Make sure our data is a multiple of the row length
+    assert((in->size() % _row_length) == 0);
+
+    // Make sure the number of rows is a multiple of the block length
+    assert(((in->size() / _row_length) % _block_length) == 0);
 
     std::vector<T> *result = new std::vector<T>;
     result->reserve(in->size());
 
     size_t j = 0;
-    while (j < result->size()) {
-      for (size_t i = 0; i < _img_length; i += _block_length) {
+    while (j < in->size()) {
+      for (size_t i = 0; i < _row_length; i += _block_length) {
         for (size_t y = 0; y < _block_length; ++y) {
           for (size_t x = 0; x < _block_length; ++x) {
-            size_t idx = (j + y) * _img_length + i + x;
+            size_t idx = j + y * _row_length + i + x;
             result->push_back(in->at(idx));
           }
         }
       }
-      j += _img_length * _block_length;
+      j += _row_length * _block_length;
     }
 
     return std::move(std::unique_ptr<std::vector<T> >(result));
   }
 
  private:
-  size_t _img_length;
+  size_t _row_length;
   size_t _block_length;
 
   RearrangeStream<T>(size_t row_length, size_t block_length)
-    : _img_length(row_length)
+    : _row_length(row_length)
     , _block_length(block_length)
   {
-    assert((_img_length % block_length) == 0);
+    assert((_row_length % _block_length) == 0);
   }
 };
 
@@ -83,11 +90,11 @@ class ShortEncoder {
   typedef PipelineUnit<std::vector<int16_t>, std::vector<uint8_t> > EncodeUnit;
   typedef PipelineUnit<std::vector<uint8_t>, std::vector<int16_t> > DecodeUnit;
 
-  static std::unique_ptr<EncodeUnit> Encoder(uint32_t symbols_per_thread) {
+  static std::unique_ptr<EncodeUnit> Encoder(size_t symbols_per_thread) {
     return std::unique_ptr<EncodeUnit>(new Encode(symbols_per_thread));
   }
 
-  static std::unique_ptr<DecodeUnit> Decoder(uint32_t symbols_per_thread) {
+  static std::unique_ptr<DecodeUnit> Decoder(size_t symbols_per_thread) {
     return std::unique_ptr<DecodeUnit>(new Decode(symbols_per_thread));
   }
 
@@ -96,7 +103,7 @@ class ShortEncoder {
    public:
     Encode(size_t spt): EncodeUnit(), _symbols_per_thread(spt) { }
     EncodeUnit::ReturnType Run(const EncodeUnit::ArgType &in) const override;
-    
+
    private:
     const size_t _symbols_per_thread;
   };

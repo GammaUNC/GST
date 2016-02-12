@@ -2,6 +2,7 @@
 
 #include <cmath>
 #include <numeric>
+#include <iostream>
 
 #include "ans_ocl.h"
 #include "data_stream.h"
@@ -10,6 +11,8 @@ namespace GenTC {
 
 ShortEncoder::EncodeUnit::ReturnType
 ShortEncoder::Encode::Run(const ShortEncoder::EncodeUnit::ArgType &in) const {
+  assert(in->size() > 0);
+
   // Extract values larger than or equal to 255...
   std::vector<uint16_t> big_vals;
   std::vector<uint8_t> vals;
@@ -21,6 +24,7 @@ ShortEncoder::Encode::Run(const ShortEncoder::EncodeUnit::ArgType &in) const {
       big_vals.push_back(static_cast<uint16_t>(x));
       vals.push_back(128);
     } else {
+      assert(static_cast<uint8_t>(x) != 128);
       vals.push_back(static_cast<uint8_t>(x));
     }
   }
@@ -28,14 +32,14 @@ ShortEncoder::Encode::Run(const ShortEncoder::EncodeUnit::ArgType &in) const {
   // Num threads
   const size_t num_symbols = vals.size();
   const size_t num_threads = num_symbols / _symbols_per_thread;
-  assert(num_threads * _symbols_per_thread == num_symbols);
-
   const size_t num_thread_groups = num_threads / ans::ocl::kThreadsPerEncodingGroup;
-  assert(num_thread_groups * ans::ocl::kThreadsPerEncodingGroup == num_thread_groups);
+
+  assert(num_threads * _symbols_per_thread == num_symbols);
+  assert(num_thread_groups * ans::ocl::kThreadsPerEncodingGroup == num_threads);
 
   std::vector<uint32_t> counts(256, 0);
   for (auto v : vals) {
-    assert(static_cast<uint32>(v) < 256);
+    assert(static_cast<uint32_t>(v) < 256);
     counts[v]++;
   }
 
@@ -68,7 +72,7 @@ ShortEncoder::Encode::Run(const ShortEncoder::EncodeUnit::ArgType &in) const {
     symbols_encoded += _symbols_per_thread * ans::ocl::kThreadsPerEncodingGroup;
   }
 
-  assert(encoded_symbol_offsets == num_thread_groups);
+  assert(encoded_symbol_offsets.size() == num_thread_groups);
   assert(symbols_encoded == num_symbols);
 
   // Write header...
@@ -138,7 +142,7 @@ ShortEncoder::Decode::Run(const ShortEncoder::DecodeUnit::ArgType &in) const {
                              ans::ocl::kThreadsPerEncodingGroup);
 
     symbols.insert(symbols.end(), interleaved_symbols.begin(), interleaved_symbols.end());
-    assert(interleaved_symbols.size() == );
+    assert(interleaved_symbols.size() == symbols_to_read);
 
     last_offset = offset;
     symbols_read += interleaved_symbols.size();
