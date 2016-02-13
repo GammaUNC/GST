@@ -30,6 +30,22 @@ class Expand565
   std::unique_ptr<RGBImage> Run(const std::unique_ptr<RGB565Image> &) const override;
 };
 
+class RGB565toYCoCg667
+: public PipelineUnit<RGB565Image, YCoCg667Image> {
+ public:
+  typedef PipelineUnit<RGB565Image, YCoCg667Image> Base;
+  static std::unique_ptr<Base> New() { return std::unique_ptr<Base>(new RGB565toYCoCg667); }
+  std::unique_ptr<YCoCg667Image> Run(const std::unique_ptr<RGB565Image> &) const override;
+};
+
+class YCoCg667toRGB565
+: public PipelineUnit<YCoCg667Image, RGB565Image> {
+ public:
+  typedef PipelineUnit<YCoCg667Image, RGB565Image> Base;
+  static std::unique_ptr<Base> New() { return std::unique_ptr<Base>(new YCoCg667toRGB565); }
+  std::unique_ptr<RGB565Image> Run(const std::unique_ptr<YCoCg667Image> &) const override;
+};
+
 template<typename T, typename Prec>
 class Linearize : public PipelineUnit<Image<1, T, Prec>, std::vector<T> > {
  public:

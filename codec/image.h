@@ -68,6 +68,14 @@ struct RGB565 : public Precision<3> {
   }
 };
 
+struct YCoCg667 : public Precision<3> {
+  YCoCg667() : Precision<3>() {
+    _precision[0] = 6;
+    _precision[1] = 6;
+    _precision[2] = 7;
+  }
+};
+
 template<unsigned NumChannels, typename T, typename Prec = Precision<NumChannels> >
 std::vector<std::array<T, NumChannels> >
 UnpackImageData( const std::vector<uint8_t> &img_data,
@@ -231,6 +239,7 @@ typedef Image<1, int16_t, SingleChannel<16> > UnpackedSixteenBitImage;
 // YCbCrImages aren't packed since we only really get them
 // from RGB images...
 typedef Image<3, uint8_t, RGB> YCbCrImage;
+typedef Image<3, int8_t, YCoCg667> YCoCg667Image;
 
 }  // namespace GenTC
 

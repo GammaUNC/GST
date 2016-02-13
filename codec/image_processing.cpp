@@ -1,5 +1,55 @@
 #include "image_processing.h"
 
+#include <cstdint>
+
+////////////////////////////////////////////////////////////////////////////////
+//
+// Static helper functions
+//
+
+static void rgb565_to_ycocg667(const int8_t *in, int8_t *out) {
+  int8_t r = in[0];
+  int8_t g = in[1];
+  int8_t b = in[2];
+
+  assert(0 <= r && r < 32);
+  assert(0 <= g && g < 64);
+  assert(0 <= b && b < 32);
+
+  out[1] = r - b;
+  int8_t t = r + b + (b >> 4);
+  out[2] = g - t;
+  out[0] = t + (out[2] / 2);
+
+  assert(0 <= out[0] && out[0] < 64);
+  assert(-31 <= out[1] && out[1] < 32);
+  assert(-63 <= out[2] && out[2] < 64);
+}
+
+static void ycocg667_to_rgb565(const int8_t *in, int8_t *out) {
+  int8_t y = in[0];
+  int8_t co = in[1];
+  int8_t cg = in[2];
+
+  assert(0 <= y && y < 64);
+  assert(-31 <= co && co < 32);
+  assert(-63 <= cg && cg < 64);
+
+  int8_t t = y - (cg / 2);
+  out[1] = cg + t;
+  out[2] = (t - co) / 2;
+  out[0] = out[2] + co;
+
+  assert(0 <= out[0] && out[0] < 32);
+  assert(0 <= out[1] && out[1] < 64);
+  assert(0 <= out[2] && out[2] < 32);
+}
+
+////////////////////////////////////////////////////////////////////////////////
+//
+// Implementation
+//
+
 namespace GenTC {
 
 RGBtoYCrCb::Base::ReturnType RGBtoYCrCb::Run(const RGBtoYCrCb::Base::ArgType &in) const {
@@ -76,6 +126,76 @@ std::unique_ptr<RGBImage> Expand565::Run(const std::unique_ptr<RGB565Image> &in)
 
   RGBImage *img = new RGBImage(w, h, std::move(result));
   return std::move(std::unique_ptr<RGBImage>(img));
+}
+
+std::unique_ptr<YCoCg667Image> RGB565toYCoCg667::Run(const std::unique_ptr<RGB565Image> &in) const {
+  const size_t w = in->Width();
+  const size_t h = in->Height();
+
+  YCoCg667Image *img = new YCoCg667Image(w, h);
+
+  for (size_t j = 0; j < h; ++j) {
+    for (size_t i = 0; i < w; ++i) {
+      auto pixel = in->GetAt(i, j);
+
+      assert(0 <= pixel[0] && pixel[0] < 32);
+      assert(0 <= pixel[1] && pixel[1] < 64);
+      assert(0 <= pixel[2] && pixel[2] < 32);
+
+      int8_t rgb[3];
+      for (size_t ch = 0; ch < 3; ++ch) {
+        rgb[ch] = static_cast<int8_t>(pixel[ch]);
+      }
+
+      int8_t ycocg[3];
+      rgb565_to_ycocg667(rgb, ycocg);
+
+      img->SetAt(i, j, {{ ycocg[0], ycocg[1], ycocg[2] }});
+    }
+  }
+
+  return std::move(std::unique_ptr<YCoCg667Image>(img));
+}
+
+std::unique_ptr<RGB565Image> YCoCg667toRGB565::Run(const std::unique_ptr<YCoCg667Image> &in) const {
+  std::vector<uint8_t> data;
+  data.reserve(in->Width() * in->Height() * 2);
+
+  for (size_t j = 0; j < in->Height(); ++j) {
+    for (size_t i = 0; i < in->Height(); ++i) {
+      auto pixel = in->GetAt(i, j);
+
+      assert(0 <= pixel[0] && pixel[0] < 64);
+      assert(-31 <= pixel[1] && pixel[1] < 32);
+      assert(-63 <= pixel[2] && pixel[2] < 64);
+
+      int8_t ycocg[3];
+      for (size_t ch = 0; ch < 3; ++ch) {
+        ycocg[ch] = pixel[ch];
+      }
+
+      int8_t rgb[3];
+      ycocg667_to_rgb565(ycocg, rgb);
+
+      assert(0 <= rgb[0] && rgb[0] < 32);
+      assert(0 <= rgb[1] && rgb[1] < 64);
+      assert(0 <= rgb[2] && rgb[2] < 32);
+
+      // Pack it in...
+      uint16_t x = 0;
+      x |= static_cast<uint16_t>(rgb[0]);
+      x <<= 6;
+      x |= static_cast<uint16_t>(rgb[1]);
+      x <<= 5;
+      x |= static_cast<uint16_t>(rgb[2]);
+
+      data.push_back((x >> 8) & 0xFF);
+      data.push_back(x & 0xFF);
+    }
+  }
+
+  RGB565Image *img = new RGB565Image(in->Width(), in->Height(), std::move(data));
+  return std::move(std::unique_ptr<RGB565Image>(img));
 }
 
 }  // namespace GenTC
