@@ -15,6 +15,7 @@ SET( HEADERS
   "image_utils.h"
   "image_processing.h"
   "pipeline.h"
+  "wavelet.h"
 )  
 
 SET( SOURCES
@@ -23,6 +24,7 @@ SET( SOURCES
   "dxt_image.cpp"
   "entropy.cpp"
   "image_processing.cpp"
+  "wavelet.cpp"
 )
 
 ADD_LIBRARY(gentc_codec ${HEADERS} ${SOURCES})
@@ -41,10 +43,9 @@ if (MSVC AND MSVC_VERSION EQUAL 1700)
   add_definitions(/D _VARIADIC_MAX=10)
 endif()
 
-FOREACH(TEST image)
+FOREACH(TEST image wavelet)
   ADD_EXECUTABLE(${TEST}_test ${TEST}_test.cpp)
-  TARGET_LINK_LIBRARIES(${TEST}_test ans)
-  TARGET_LINK_LIBRARIES(${TEST}_test gtest)
+  TARGET_LINK_LIBRARIES(${TEST}_test gentc_codec)
 
   IF ("${TEST}" STREQUAL "codec_ocl")
     TARGET_LINK_LIBRARIES(${TEST}_test gentc_gpu)
