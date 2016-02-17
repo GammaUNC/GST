@@ -19,7 +19,7 @@ template<typename T>
 class RearrangeStream : public PipelineUnit<std::vector<T>, std::vector<T> > {
  public:
   typedef PipelineUnit<std::vector<T>, std::vector<T> > Base;
-  static std::unique_ptr<Base> New(int row_length, size_t block_length) {
+  static std::unique_ptr<Base> New(size_t row_length, size_t block_length) {
     return std::unique_ptr<Base>(new RearrangeStream<T>(row_length, block_length));
   }
 

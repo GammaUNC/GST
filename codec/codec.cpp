@@ -1,4 +1,4 @@
-#include "fast_dct.hpp"
+#include "fast_dct.h"
 #include "codec.h"
 #include "data_stream.h"
 #include "dxt_image.h"

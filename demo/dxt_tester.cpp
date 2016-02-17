@@ -1,4 +1,4 @@
-#include "fast_dct.hpp"
+#include "fast_dct.h"
 
 #include <cassert>
 #include <cstdint>

@@ -10,6 +10,7 @@ SET( HEADERS
   "data_stream.h"
   "dxt_image.h"
   "entropy.h"
+  "fast_dct.h"
   "image.h"
   "image_utils.h"
   "image_processing.h"
