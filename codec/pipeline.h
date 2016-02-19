@@ -67,11 +67,13 @@ class Pipeline {
 };
 
 template<typename Type>
-class Source : PipelineUnit<void, Type> {
+class Source : public PipelineUnit<void, Type> {
+ public:
   Source<Type>() { };
   virtual ~Source<Type>() { };
 
-  virtual std::unique_ptr<Type> Get() const override = 0;
+  typedef PipelineUnit<Type, int> Base;
+  virtual std::unique_ptr<Type> Get() const = 0;
 
  private:
   std::unique_ptr<Type> Run(const std::unique_ptr<int> &in) const override {
@@ -80,11 +82,13 @@ class Source : PipelineUnit<void, Type> {
 };
 
 template<typename Type>
-class Sink : PipelineUnit<Type, int> {
+class Sink : public PipelineUnit<Type, int> {
+ public:
   Sink<Type>() { };
   virtual ~Sink<Type>() { };
 
-  virtual void Finish(const std::unique_ptr<Type> &in) const override = 0;
+  typedef PipelineUnit<Type, int> Base;
+  virtual void Finish(const std::unique_ptr<Type> &in) const = 0;
 
  private:
   std::unique_ptr<int> Run(const std::unique_ptr<Type> &in) const override {

@@ -47,35 +47,6 @@ class YCoCg667toRGB565
 };
 
 template<typename T, typename Prec>
-class Linearize : public PipelineUnit<Image<1, T, Prec>, std::vector<T> > {
- public:
-  typedef PipelineUnit<Image<1, T, Prec>, std::vector<T> > Base;
-  static std::unique_ptr<Base> New() { return std::unique_ptr<Base>(new Linearize<T, Prec>); }
-  typename Base::ReturnType Run(const typename Base::ArgType &in) const override {
-    assert(in->Width() > 0);
-    assert(in->Height() > 0);
-
-    std::vector<T> *result = new std::vector<T>;
-    result->reserve(in->Width() * in->Height() * Image<1, T, Prec>::kNumChannels);
-
-    for (size_t j = 0; j < in->Height(); ++j) {
-      for (size_t i = 0; i < in->Width(); ++i) {
-        auto pixel = in->GetAt(i, j);
-        for (auto ch : pixel) {
-          result->push_back(ch);
-        }
-      }
-    }
-
-    // This only works on single channel images, so the following
-    // should hold true..
-    assert(result->size() == in->Height() * in->Width());
-
-    return std::move(std::unique_ptr<std::vector<T> >(result));
-  }
-};
-
-template<typename T, typename Prec>
 class Quantize8x8
   : public PipelineUnit < Image<1, T, Prec>, Image<1, T, Prec> > {
  public:
@@ -178,29 +149,6 @@ class Quantize8x8
    ) { }
 
    const std::array<uint32_t, 64> _coeffs;
-};
-
-class DropAlpha : public PipelineUnit<RGBAImage, RGBImage> {
- public:
-  typedef PipelineUnit<RGBAImage, RGBImage> Base;
-  static std::unique_ptr<Base> New() { return std::unique_ptr<Base>(new DropAlpha); }
-  Base::ReturnType Run(const Base::ArgType &in) const override {
-    std::vector<uint8_t> img_data;
-    img_data.reserve(in->Width() * in->Height() * 3);
-
-    for (size_t j = 0; j < in->Height(); ++j) {
-      for (size_t i = 0; i < in->Width(); ++i) {
-        auto pixel = in->GetAt(i, j);
-        for (size_t ch = 0; ch < 3; ++ch) {
-          assert(pixel[ch] < 256);
-          img_data.push_back(static_cast<uint8_t>(pixel[ch]));
-        }
-      }
-    }
-
-    RGBImage *img = new RGBImage(in->Width(), in->Height(), std::move(img_data));
-    return std::move(std::unique_ptr<RGBImage>(img));
-  }
 };
 
 }  // namespace GenTC

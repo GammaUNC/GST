@@ -34,7 +34,9 @@ std::vector<uint8_t> CompressDXT(const uint8_t *dxt, int width, int height) {
   auto y_pipeline =
     Pipeline<UnpackedAlphaImage, UnpackedSixteenBitImage>
     ::Create(ForwardDCT<Alpha>::New())
+    ->Chain(InspectGrayscale<int16_t, SingleChannel<16>>::New("Y-dct"))
     ->Chain(Quantize8x8<int16_t, SingleChannel<16> >::QuantizeJPEGLuma())
+    ->Chain(InspectGrayscale<int16_t, SingleChannel<16>>::New("Y-quantized"))
     ->Chain(Linearize<int16_t, SingleChannel<16> >::New())
     ->Chain(RearrangeStream<int16_t>::New(endpoint_one->Width(), 32))
     ->Chain(RearrangeStream<int16_t>::New(32, 4))
@@ -43,7 +45,9 @@ std::vector<uint8_t> CompressDXT(const uint8_t *dxt, int width, int height) {
   auto chroma_pipeline =
     Pipeline<UnpackedAlphaImage, UnpackedSixteenBitImage>
     ::Create(ForwardDCT<Alpha>::New())
+    ->Chain(InspectGrayscale<int16_t, SingleChannel<16>>::New("Chroma-dct"))
     ->Chain(Quantize8x8<int16_t, SingleChannel<16> >::QuantizeJPEGChroma())
+    ->Chain(InspectGrayscale<int16_t, SingleChannel<16>>::New("Chroma-quantized"))
     ->Chain(Linearize<int16_t, SingleChannel<16> >::New())
     ->Chain(RearrangeStream<int16_t>::New(endpoint_one->Width(), 32))
     ->Chain(RearrangeStream<int16_t>::New(32, 4))

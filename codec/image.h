@@ -167,7 +167,7 @@ class Image {
   size_t BitDepth() const { return _precision.PixelSizeInBits(); }
   size_t Precision(size_t channel) const { return _precision[channel]; }
 
-  const std::vector<uint8_t> &GetPixels() const { return _pixels; }
+  const std::vector<std::array<T, NumChannels> > &GetPixels() const { return _pixels; }
 
   Image<NumChannels, T, Prec> &operator=(const Image<NumChannels, T, Prec> &other) {
     _width = other._width;

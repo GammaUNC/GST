@@ -2,6 +2,8 @@
 #define __TCAR_WAVELET_H__
 
 #include <cstdint>
+#include <cstdlib>
+#include <cstring>
 
 namespace GenTC {
 

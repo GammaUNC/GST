@@ -55,7 +55,7 @@ TEST(Wavelet, ReversibleWithOddNumberCoefficients) {
 
 TEST(Wavelet, ReversibleWithTwoCoefficients) {
   int16_t xs[] = { 10, 100 };
-  static const int kNumCoeffs = sizeof(xs) / sizeof(xs[0]);
+  static const size_t kNumCoeffs = sizeof(xs) / sizeof(xs[0]);
   int16_t tmp[kNumCoeffs];
   int16_t out[kNumCoeffs];
   memset(tmp, 0, sizeof(tmp));
@@ -89,7 +89,7 @@ TEST(Wavelet, IdentityOnSingleCoeff) {
 
 TEST(Wavelet, ExtremeFrequency) {
   int16_t xs[] = { 255, 0, 254, 1, 253, 2, 252, 3, 251, 4, 250 };
-  static const int kNumCoeffs = sizeof(xs) / sizeof(xs[0]);
+  static const size_t kNumCoeffs = sizeof(xs) / sizeof(xs[0]);
   int16_t tmp[kNumCoeffs];
   int16_t out[kNumCoeffs];
   memset(tmp, 0, sizeof(tmp));
@@ -106,8 +106,8 @@ TEST(Wavelet, ExtremeFrequency) {
 
 TEST(Wavelet, Small2DWavelet) {
   int16_t xs[] = { 234, 215, 223, 211 };
-  static const int kNumCoeffs = sizeof(xs) / sizeof(xs[0]);
-  static const int kDim = static_cast<int>(std::sqrt(kNumCoeffs));
+  static const size_t kNumCoeffs = sizeof(xs) / sizeof(xs[0]);
+  static const size_t kDim = static_cast<size_t>(std::sqrt(kNumCoeffs));
   ASSERT_EQ(kDim * kDim, kNumCoeffs);
 
   int16_t tmp[kNumCoeffs];
@@ -132,8 +132,8 @@ TEST(Wavelet, Recursive2DWavelet) {
     201, 198, 112, 174
   };
 
-  static const int kNumCoeffs = sizeof(xs) / sizeof(xs[0]);
-  static const int kDim = static_cast<int>(std::sqrt(kNumCoeffs));
+  static const size_t kNumCoeffs = sizeof(xs) / sizeof(xs[0]);
+  static const size_t kDim = static_cast<size_t>(std::sqrt(kNumCoeffs));
   ASSERT_EQ(kDim * kDim, kNumCoeffs);
 
   static const int kRowBytes = sizeof(xs[0]) * kDim;

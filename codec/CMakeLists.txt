@@ -3,6 +3,7 @@ include_directories("${GenTC_BINARY_DIR}/codec")
 
 include_directories("${GenTC_SOURCE_DIR}/gpu")
 include_directories("${GenTC_SOURCE_DIR}/ans")
+include_directories("${GenTC_SOURCE_DIR}/lib/include")
 INCLUDE_DIRECTORIES( ${OPENCL_INCLUDE_DIRS} )
 
 SET( HEADERS
@@ -24,6 +25,7 @@ SET( SOURCES
   "dxt_image.cpp"
   "entropy.cpp"
   "image_processing.cpp"
+  "image_utils.cpp"
   "wavelet.cpp"
 )
 
