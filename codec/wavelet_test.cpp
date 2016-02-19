@@ -103,3 +103,50 @@ TEST(Wavelet, ExtremeFrequency) {
     EXPECT_EQ(out[i], xs[i]) << "At index: " << i;
   }
 }
+
+TEST(Wavelet, Small2DWavelet) {
+  int16_t xs[] = { 234, 215, 223, 211 };
+  static const int kNumCoeffs = sizeof(xs) / sizeof(xs[0]);
+  static const int kDim = static_cast<int>(std::sqrt(kNumCoeffs));
+  ASSERT_EQ(kDim * kDim, kNumCoeffs);
+
+  int16_t tmp[kNumCoeffs];
+  int16_t out[kNumCoeffs];
+  GenTC::ForwardWavelet2D(xs, sizeof(xs[0]) * kDim, tmp, sizeof(tmp[0]) * kDim, kDim);
+  for (size_t i = 0; i < kNumCoeffs; ++i) {
+    EXPECT_NE(tmp[i], xs[i]) << "At index: " << i;
+  }
+
+  GenTC::InverseWavelet2D(tmp, sizeof(tmp[0]) * kDim, out, sizeof(out[0]) * kDim, kDim);
+
+  for (size_t i = 0; i < kNumCoeffs; ++i) {
+    EXPECT_EQ(out[i], xs[i]) << "At index: " << i;
+  }
+}
+
+TEST(Wavelet, Recursive2DWavelet) {
+  int16_t xs[] = {
+    234, 215, 223, 211,
+    205, 21, 34, 245,
+    101, 234, 110, 159,
+    201, 198, 112, 174
+  };
+
+  static const int kNumCoeffs = sizeof(xs) / sizeof(xs[0]);
+  static const int kDim = static_cast<int>(std::sqrt(kNumCoeffs));
+  ASSERT_EQ(kDim * kDim, kNumCoeffs);
+
+  static const int kRowBytes = sizeof(xs[0]) * kDim;
+
+  int16_t tmp[kNumCoeffs];
+  int16_t out[kNumCoeffs];
+
+  GenTC::ForwardWavelet2D(xs, kRowBytes, tmp, kRowBytes, kDim);
+  GenTC::ForwardWavelet2D(tmp, kRowBytes, tmp, kRowBytes, kDim / 2);
+  GenTC::InverseWavelet2D(tmp, kRowBytes, tmp, kRowBytes, kDim / 2);
+  GenTC::InverseWavelet2D(tmp, kRowBytes, out, kRowBytes, kDim);
+
+  for (size_t i = 0; i < kNumCoeffs; ++i) {
+    EXPECT_EQ(out[i], xs[i]) << "At index: " << i;
+  }
+}

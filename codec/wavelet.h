@@ -13,9 +13,11 @@ extern size_t ForwardWavelet1D(const int16_t *src, int16_t *dst, size_t len);
 
 extern void InverseWavelet1D(const int16_t *src, int16_t *dst, size_t len);
 
-extern void Wavelet2D(
-  const int16_t *src, size_t width, size_t height, size_t src_rowbytes,
-  int16_t *dst, size_t dst_rowbytes);
+extern void ForwardWavelet2D(const int16_t *src, size_t src_rowbytes,
+                             int16_t *dst, size_t dst_rowbytes, size_t dim);
+
+extern void InverseWavelet2D(const int16_t *src, size_t src_rowbytes,
+                             int16_t *dst, size_t dst_rowbytes, size_t dim);
 
 }  // namespace GenTC
 
