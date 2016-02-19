@@ -18,20 +18,20 @@
 namespace GenTC {
 
 DropAlpha::Base::ReturnType DropAlpha::Run(const DropAlpha::Base::ArgType &in) const {
-  std::vector<uint8_t> img_data;
-  img_data.reserve(in->Width() * in->Height() * 3);
+  RGBImage *img = new RGBImage(in->Width(), in->Height());
 
   for (size_t j = 0; j < in->Height(); ++j) {
     for (size_t i = 0; i < in->Width(); ++i) {
-      auto pixel = in->GetAt(i, j);
-      for (size_t ch = 0; ch < 3; ++ch) {
-        assert(pixel[ch] < 256);
-        img_data.push_back(static_cast<uint8_t>(pixel[ch]));
-      }
+      RGBA in_pixel = in->GetAt(i, j);
+      RGB out_pixel;
+      out_pixel.r = in_pixel.r;
+      out_pixel.g = in_pixel.g;
+      out_pixel.b = in_pixel.b;
+
+      img->SetAt(i, j, out_pixel);
     }
   }
 
-  RGBImage *img = new RGBImage(in->Width(), in->Height(), std::move(img_data));
   return std::move(std::unique_ptr<RGBImage>(img));
 }
 

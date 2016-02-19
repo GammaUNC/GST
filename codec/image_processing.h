@@ -46,12 +46,13 @@ class YCoCg667toRGB565
   std::unique_ptr<RGB565Image> Run(const std::unique_ptr<YCoCg667Image> &) const override;
 };
 
-template<typename T, typename Prec>
+template<typename T>
 class Quantize8x8
-  : public PipelineUnit < Image<1, T, Prec>, Image<1, T, Prec> > {
+  : public PipelineUnit < Image<T>, Image<T> > {
+  static_assert(PixelTraits::NumChannels<T>::value == 1, "Can only quantize single channel images!");
  public:
-   typedef Image<1, T, Prec> ImageType;
-   typedef PipelineUnit<ImageType, ImageType> Base;
+   typedef Image<T> ImageType;
+   typedef PipelineUnit<Image<T>, Image<T>> Base;
 
    static std::unique_ptr<Base> QuantizeJPEGLuma() {
      return std::unique_ptr<Base>(new Quantizer(eQuantizeType_JPEGLuma));
@@ -75,9 +76,9 @@ class Quantize8x8
      eQuantizeType_JPEGChroma
    };
 
-   class Quantizer : public Quantize8x8 < T, Prec > {
+   class Quantizer : public Quantize8x8<T> {
    public:
-     Quantizer(QuantizeType ty) : Quantize8x8<T, Prec>(ty) { }
+     Quantizer(QuantizeType ty) : Quantize8x8<T>(ty) { }
      std::unique_ptr<ImageType> Run(const std::unique_ptr<ImageType> &in) const override {
        ImageType *result = new ImageType(in->Width(), in->Height());
 
@@ -88,9 +89,9 @@ class Quantize8x8
          for (size_t i = 0; i < in->Width(); i += 8) {
            for (size_t y = 0; y < 8; ++y) {
              for (size_t x = 0; x < 8; ++x) {
-               auto pixel = in->GetAt(i + x, j + y);
-               pixel[0] /= static_cast<T>(_coeffs[y * 8 + x]);
-               result->SetAt(i + x, j + y, std::move(pixel));
+               T pixel = in->GetAt(i + x, j + y);
+               pixel /= static_cast<T>(_coeffs[y * 8 + x]);
+               result->SetAt(i + x, j + y, pixel);
              }
            }
          }
@@ -100,9 +101,9 @@ class Quantize8x8
      }
    };
 
-   class Dequantizer : public Quantize8x8 < T, Prec > {
+   class Dequantizer : public Quantize8x8<T> {
    public:
-     Dequantizer(QuantizeType ty) : Quantize8x8<T, Prec>(ty) { }
+     Dequantizer(QuantizeType ty) : Quantize8x8<T>(ty) { }
      std::unique_ptr<ImageType> Run(const std::unique_ptr<ImageType> &in) const override {
        ImageType *result = new ImageType(in->Width(), in->Height());
 
@@ -113,9 +114,9 @@ class Quantize8x8
          for (size_t i = 0; i < in->Width(); i += 8) {
            for (size_t y = 0; y < 8; ++y) {
              for (size_t x = 0; x < 8; ++x) {
-               auto pixel = in->GetAt(i + x, j + y);
-               pixel[0] *= static_cast<T>(_coeffs[y * 8 + x]);
-               result->SetAt(i + x, j + y, std::move(pixel));
+               T pixel = in->GetAt(i + x, j + y);
+               pixel *= static_cast<T>(_coeffs[y * 8 + x]);
+               result->SetAt(i + x, j + y, pixel);
              }
            }
          }
@@ -125,7 +126,7 @@ class Quantize8x8
      }
    };
 
-   Quantize8x8<T, Prec>(QuantizeType ty)
+   Quantize8x8<T>(QuantizeType ty)
      : Base()
      , _coeffs(ty == eQuantizeType_JPEGLuma ?
                std::move(std::array<uint32_t, 64>

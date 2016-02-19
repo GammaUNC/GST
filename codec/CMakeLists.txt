@@ -16,6 +16,7 @@ SET( HEADERS
   "image_utils.h"
   "image_processing.h"
   "pipeline.h"
+  "pixel_traits.h"
   "wavelet.h"
 )  
 
@@ -24,6 +25,7 @@ SET( SOURCES
   "data_stream.cpp"
   "dxt_image.cpp"
   "entropy.cpp"
+  "image.cpp"
   "image_processing.cpp"
   "image_utils.cpp"
   "wavelet.cpp"

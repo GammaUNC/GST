@@ -683,7 +683,7 @@ int main(int argc, char **argv) {
 
   // Decompress into image...
   cv::imwrite("img_dxt.png", cv::Mat(img.rows, img.cols, CV_8UC4,
-    const_cast<uint8_t*>(dxt_img.DecompressedImage()->GetData().data())));
+    const_cast<uint8_t*>(dxt_img.DecompressedImage()->Pack().data())));
 
   // Visualize interpolation data...
   cv::imwrite("img_dxt_interp.png", cv::Mat(img.rows, img.cols, CV_8UC1,
@@ -692,8 +692,8 @@ int main(int argc, char **argv) {
   // Compress indices...
   std::vector<uint8_t> compressed_indices = compress_indices(dxt_img);
 
-  std::vector<uint8_t> img_A_bytes = dxt_img.EndpointOneImage()->GetData();
-  std::vector<uint8_t> img_B_bytes = dxt_img.EndpointTwoImage()->GetData();
+  std::vector<uint8_t> img_A_bytes = dxt_img.EndpointOneImage()->Pack();
+  std::vector<uint8_t> img_B_bytes = dxt_img.EndpointTwoImage()->Pack();
   cv::Mat img_A(num_blocks_y, num_blocks_x, CV_8UC4, img_A_bytes.data());
   cv::Mat img_B(num_blocks_y, num_blocks_x, CV_8UC4, img_B_bytes.data());
 
@@ -748,7 +748,7 @@ int main(int argc, char **argv) {
   GenTC::DXTImage gtc_img(reinterpret_cast<const uint8_t *>(dxt_blocks.data()),
                           img.cols, img.rows);
   cv::imwrite("img_gtc.png", cv::Mat(img.rows, img.cols, CV_8UC4,
-    const_cast<uint8_t*>(gtc_img.DecompressedImage()->GetData().data())));
+    const_cast<uint8_t*>(gtc_img.DecompressedImage()->Pack().data())));
 
   return 0;
 }

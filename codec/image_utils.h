@@ -8,113 +8,114 @@
 
 namespace GenTC {
 
-template<unsigned NumChannels, typename Prec>
-class ToUnpackedImage
-  : public PipelineUnit < PackedImage<NumChannels, Prec>, Image<NumChannels, Prec> > {
-public:
-  typedef PipelineUnit < PackedImage<NumChannels, Prec>, Image<NumChannels, Prec> > Base;
+template <typename T>
+class ImageSplit { };
+
+template <typename T1, typename T2, typename T3>
+class ImageSplit<Pixel3<T1, T2, T3> >
+  : public PipelineUnit<Image<Pixel3<T1, T2, T3> >,
+                        std::array<Image<Alpha>, 3> > {
+  typedef Pixel3<T1, T2, T3> PixelTy;
+  static_assert(PixelTraits::NumChannels<PixelTy>::value == 3,
+                "Pixel3 has three channels!");
+  static const size_t kNumChannels = PixelTraits::NumChannels<PixelTy>::value;
+ public:
+  typedef PipelineUnit<Image<PixelTy>, std::array<Image<Alpha>, kNumChannels> > Base;
   static std::unique_ptr<Base> New() {
-    return std::unique_ptr<Base>(new ToUnpackedImage<NumChannels, Prec>);
+    return std::unique_ptr<Base>(new ImageSplit<PixelTy>());
   }
 
-  typename Base::ReturnType
-  Run(const typename Base::ArgType &in) const override {
-    return std::move(typename Base::ReturnType(new Image<NumChannels, Prec>(*(in.get()))));
-  }
-};
+  typename Base::ReturnType Run(const std::unique_ptr<Image<PixelTy> > &in) const override {
+    typedef std::array<Image<Alpha>, kNumChannels> ReturnValueType;
+    typedef std::unique_ptr<ReturnValueType> ReturnType;
+    ReturnValueType *result = new ReturnValueType;
 
-template <unsigned NumChannels, typename T, typename Prec>
-std::unique_ptr<std::array<Image<1, T, Alpha>, NumChannels> >
-SplitImage(const Image<NumChannels, T, Prec> *img) {
-  typedef std::array<Image<1, T, Alpha>, NumChannels> ReturnValueType;
-  typedef std::unique_ptr<ReturnValueType> ReturnType;
+    for (size_t i = 0; i < kNumChannels; ++i) {
+      (*result)[i] = Image<Alpha>(in->Width(), in->Height());
+    }
 
-#ifndef NDEBUG
-  for (size_t i = 0; i < NumChannels; ++i) {
-    assert(img->Precision(i) <= 8);
-  }
-#endif
+    for (size_t j = 0; j < in->Height(); ++j) {
+      for (size_t i = 0; i < in->Width(); ++i) {
+        PixelTy pixel = in->GetAt(i, j);
 
-  ReturnValueType result;
+        assert(PixelTraits::Max<T1>::value < 256);
+        assert(PixelTraits::Min<T1>::value >= 0);
+        assert(PixelTraits::Max<T2>::value < 256);
+        assert(PixelTraits::Min<T2>::value >= 0);
+        assert(PixelTraits::Max<T3>::value < 256);
+        assert(PixelTraits::Min<T3>::value >= 0);
 
-  for (uint32_t i = 0; i < NumChannels; ++i) {
-    result[i] = Image<1, T, Alpha>(img->Width(), img->Height());
-  }
-
-  for (size_t j = 0; j < img->Height(); ++j) {
-    for (size_t i = 0; i < img->Width(); ++i) {
-      auto pixel = std::move(img->GetAt(i, j));
-      for (size_t ch = 0; ch < NumChannels; ++ch) {
-        result[ch].SetAt(i, j, {{ pixel[ch] }});
+        (*result)[0].SetAt(i, j, static_cast<Alpha>(pixel.r));
+        (*result)[1].SetAt(i, j, static_cast<Alpha>(pixel.g));
+        (*result)[2].SetAt(i, j, static_cast<Alpha>(pixel.b));
       }
     }
-  }
 
-  return ReturnType(new ReturnValueType(std::move(result)));  
-}
-
-template <unsigned NumChannels, typename T, typename Prec>
-class ImageSplit
-  : public PipelineUnit<Image<NumChannels, T, Prec>,
-                        std::array<Image<1, T, Alpha>, NumChannels> > {
- public:
-  typedef PipelineUnit<Image<NumChannels, T, Prec>,
-                       std::array<Image<1, T, Alpha>, NumChannels> > Base;
-  static std::unique_ptr<Base> New() {
-    return std::unique_ptr<Base>(new ImageSplit<NumChannels, T, Prec>());
-  }
-
-  typename Base::ReturnType
-  Run(const std::unique_ptr<Image<NumChannels, T, Prec> > &in) const override {
-    return std::move(SplitImage(in.get()));
+    return std::move(ReturnType(result));
   }
 };
 
-template <unsigned NumChannels, typename T, typename Prec>
-class PackedImageSplit
-  : public PipelineUnit<PackedImage<NumChannels, T, Prec>,
-                        std::array<Image<1, T, Alpha>, NumChannels> > {
+template <typename T1, typename T2, typename T3, typename T4>
+class ImageSplit<Pixel4<T1, T2, T3, T4> >
+  : public PipelineUnit<Image<Pixel4<T1, T2, T3, T4> >,
+                        std::array<Image<Alpha>, 4> > {
+  typedef Pixel4<T1, T2, T3, T4> PixelTy;
+  static_assert(PixelTraits::NumChannels<PixelTy>::value == 4,
+                "Pixel4 has four channels!");
+  static const size_t kNumChannels = PixelTraits::NumChannels<PixelTy>::value;
  public:
-  typedef PipelineUnit<PackedImage<NumChannels, T, Prec>,
-                       std::array<Image<1, T, Alpha>, NumChannels> > Base;
-
+  typedef PipelineUnit<Image<PixelTy>, std::array<Image<Alpha>, kNumChannels> > Base;
   static std::unique_ptr<Base> New() {
-    return std::unique_ptr<Base>(new PackedImageSplit<NumChannels, T, Prec>());
+    return std::unique_ptr<Base>(new ImageSplit<PixelTy>());
   }
 
-  typename Base::ReturnType
-  Run(const std::unique_ptr<PackedImage<NumChannels, T, Prec> > &in) const override {
-    return std::move(SplitImage(in.get()));
+  typename Base::ReturnType Run(const std::unique_ptr<Image<PixelTy> > &in) const override {
+    typedef std::array<Image<Alpha>, kNumChannels> ReturnValueType;
+    typedef std::unique_ptr<ReturnValueType> ReturnType;
+    ReturnValueType *result = new ReturnValueType;
+
+    for (size_t i = 0; i < kNumChannels; ++i) {
+      (*result)[i] = Image<Alpha>(in->Width(), in->Height());
+    }
+
+    for (size_t j = 0; j < in->Height(); ++j) {
+      for (size_t i = 0; i < in->Width(); ++i) {
+        PixelTy pixel = in->GetAt(i, j);
+
+        assert(PixelTraits::Max<T1>::value < 256);
+        assert(PixelTraits::Min<T1>::value >= 0);
+        assert(PixelTraits::Max<T2>::value < 256);
+        assert(PixelTraits::Min<T2>::value >= 0);
+        assert(PixelTraits::Max<T3>::value < 256);
+        assert(PixelTraits::Min<T3>::value >= 0);
+        assert(PixelTraits::Max<T4>::value < 256);
+        assert(PixelTraits::Min<T4>::value >= 0);
+
+        (*result)[0].SetAt(i, j, static_cast<Alpha>(pixel.r));
+        (*result)[1].SetAt(i, j, static_cast<Alpha>(pixel.g));
+        (*result)[2].SetAt(i, j, static_cast<Alpha>(pixel.b));
+        (*result)[3].SetAt(i, j, static_cast<Alpha>(pixel.a));
+      }
+    }
+
+    return std::move(ReturnType(result));
   }
 };
 
-typedef PackedImageSplit<3, uint8_t, RGB> RGBSplitter;
-typedef PackedImageSplit<4, uint8_t, RGBA> RGBASplitter;
-typedef PackedImageSplit<3, uint8_t, RGB565> RGB565Splitter;
+typedef ImageSplit<RGB> RGBSplitter;
+typedef ImageSplit<RGBA> RGBASplitter;
+typedef ImageSplit<RGB> YCrCbSplitter;
 
-typedef ImageSplit<3, uint8_t, RGB> YCrCbSplitter;
-
-template<typename T, typename Prec>
-class Linearize : public PipelineUnit<Image<1, T, Prec>, std::vector<T> > {
+template<typename T>
+class Linearize : public PipelineUnit<Image<T>, std::vector<T> > {
  public:
-  typedef PipelineUnit<Image<1, T, Prec>, std::vector<T> > Base;
-  static std::unique_ptr<Base> New() { return std::unique_ptr<Base>(new Linearize<T, Prec>); }
+  typedef PipelineUnit<Image<T>, std::vector<T> > Base;
+  static std::unique_ptr<Base> New() { return std::unique_ptr<Base>(new Linearize<T>); }
   typename Base::ReturnType Run(const typename Base::ArgType &in) const override {
     assert(in->Width() > 0);
     assert(in->Height() > 0);
 
-    std::vector<T> *result = new std::vector<T>;
-    result->reserve(in->Width() * in->Height() * Image<1, T, Prec>::kNumChannels);
-
-    for (size_t j = 0; j < in->Height(); ++j) {
-      for (size_t i = 0; i < in->Width(); ++i) {
-        auto pixel = in->GetAt(i, j);
-        for (auto ch : pixel) {
-          result->push_back(ch);
-        }
-      }
-    }
-
+    std::vector<T> *result = new std::vector<T>(in->GetPixels());
     // This only works on single channel images, so the following
     // should hold true..
     assert(result->size() == in->Height() * in->Width());
@@ -133,33 +134,35 @@ class DropAlpha : public PipelineUnit<RGBAImage, RGBImage> {
 extern void WriteAlphaImage(const std::string &fname, size_t w, size_t h,
                             std::vector<uint8_t> &&pixels);
 
-template<typename T, typename Prec>
-class WriteGrayscale : public Sink<Image<1, T, Prec> > {
-  static_assert(std::is_integral<T>::value, "Only operates on integral values");
+template<typename T>
+class WriteGrayscale : public Sink<Image<T> > {
+  static_assert(PixelTraits::NumChannels<T>::value == 1,
+                "Only single channel images can be output as grayscale");
  public:
-  typedef Image<1, T, Prec> InputImage;
+  typedef Image<T> InputImage;
   typedef Sink<InputImage> SinkBase;
   static std::unique_ptr<typename SinkBase::Base> New(const char *fn) {
-    return std::unique_ptr<typename SinkBase::Base>(new WriteGrayscale<T, Prec>(fn));
+    return std::unique_ptr<typename SinkBase::Base>(new WriteGrayscale<T>(fn));
   }
 
-  virtual void Finish(const std::unique_ptr<Image<1, T, Prec> > &in) const override {
+  virtual void Finish(const std::unique_ptr<Image<T> > &in) const override {
     std::vector<uint8_t> pixels(in->GetPixels().size(), 0);
 
-    assert(std::numeric_limits<T>::max() > 0);
-    uint64_t range = static_cast<uint64_t>(std::numeric_limits<T>::max());
+    T max = PixelTraits::Max<T>::value;
+    assert(PixelTraits::Max<T>::value > 0);
+    uint64_t range = static_cast<uint64_t>(max);
 
-    assert((0 - std::numeric_limits<T>::min()) >= 0);
-    uint64_t offset = static_cast<uint64_t>(0 - std::numeric_limits<T>::min());
+    T min = PixelTraits::Min<T>::value;
+    assert((0 - min) >= 0);
+    uint64_t offset = static_cast<uint64_t>(0 - min);
 
-    if (std::is_signed<T>::value) {
+    if (PixelTraits::IsSigned<T>::value) {
       range += offset;
     }
 
     auto dst = pixels.begin();
     for (const auto &pixel : in->GetPixels()) {
-      T p = pixel[0];
-      double pd = static_cast<double>(p) + static_cast<double>(offset);
+      double pd = static_cast<double>(pixel) + static_cast<double>(offset);
       pd /= static_cast<double>(range);
       pd = (pd * 255.0) + 0.5;
 
@@ -175,25 +178,24 @@ class WriteGrayscale : public Sink<Image<1, T, Prec> > {
   std::string _filename;
 };
 
-template<typename T, typename Prec>
-class InspectGrayscale : public PipelineUnit<Image<1, T, Prec>, Image<1, T, Prec> > {
-  static_assert(std::is_integral<T>::value, "Only operates on integral values");
+template<typename T>
+class InspectGrayscale : public PipelineUnit<Image<T>, Image<T> > {
  public:
-  typedef Image<1, T, Prec> ImageTy;
+  typedef Image<T> ImageTy;
   typedef PipelineUnit<ImageTy, ImageTy> Base;
   static std::unique_ptr<Base> New(const char *fn) {
-    return std::unique_ptr<Base>(new InspectGrayscale<T, Prec>(fn));
+    return std::unique_ptr<Base>(new InspectGrayscale<T>(fn));
   }
 
   typename Base::ReturnType Run(const typename Base::ArgType &in) const override {
-    auto writer = Pipeline<ImageTy, int>::Create(WriteGrayscale<T, Prec>::New(_fname));
+    auto writer = Pipeline<ImageTy, int>::Create(WriteGrayscale<T>::New(_fname));
     writer->Run(in);
     // !FIXME! perhaps we should use a std::move here...
     return std::move(std::unique_ptr<ImageTy>(new ImageTy(*(in.get()))));
   }
 
  private:
-  InspectGrayscale<T, Prec>(const char *filename) : Base(), _fname(filename) { }
+  InspectGrayscale<T>(const char *filename) : Base(), _fname(filename) { }
   const char *const _fname;
 };
 

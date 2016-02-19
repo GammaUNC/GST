@@ -32,40 +32,40 @@ std::vector<uint8_t> CompressDXT(const uint8_t *dxt, int width, int height) {
     ->Chain(std::move(YCrCbSplitter::New()));
 
   auto y_pipeline =
-    Pipeline<UnpackedAlphaImage, UnpackedSixteenBitImage>
+    Pipeline<AlphaImage, SixteenBitImage>
     ::Create(ForwardDCT<Alpha>::New())
-    ->Chain(InspectGrayscale<int16_t, SingleChannel<16>>::New("Y-dct"))
-    ->Chain(Quantize8x8<int16_t, SingleChannel<16> >::QuantizeJPEGLuma())
-    ->Chain(InspectGrayscale<int16_t, SingleChannel<16>>::New("Y-quantized"))
-    ->Chain(Linearize<int16_t, SingleChannel<16> >::New())
+    ->Chain(InspectGrayscale<int16_t>::New("Y-dct"))
+    ->Chain(Quantize8x8<int16_t>::QuantizeJPEGLuma())
+    ->Chain(InspectGrayscale<int16_t>::New("Y-quantized"))
+    ->Chain(Linearize<int16_t>::New())
     ->Chain(RearrangeStream<int16_t>::New(endpoint_one->Width(), 32))
     ->Chain(RearrangeStream<int16_t>::New(32, 4))
     ->Chain(ShortEncoder::Encoder(ans::ocl::kNumEncodedSymbols));
 
   auto chroma_pipeline =
-    Pipeline<UnpackedAlphaImage, UnpackedSixteenBitImage>
+    Pipeline<AlphaImage, SixteenBitImage>
     ::Create(ForwardDCT<Alpha>::New())
-    ->Chain(InspectGrayscale<int16_t, SingleChannel<16>>::New("Chroma-dct"))
-    ->Chain(Quantize8x8<int16_t, SingleChannel<16> >::QuantizeJPEGChroma())
-    ->Chain(InspectGrayscale<int16_t, SingleChannel<16>>::New("Chroma-quantized"))
-    ->Chain(Linearize<int16_t, SingleChannel<16> >::New())
+    ->Chain(InspectGrayscale<int16_t>::New("Chroma-dct"))
+    ->Chain(Quantize8x8<int16_t>::QuantizeJPEGChroma())
+    ->Chain(InspectGrayscale<int16_t>::New("Chroma-quantized"))
+    ->Chain(Linearize<int16_t>::New())
     ->Chain(RearrangeStream<int16_t>::New(endpoint_one->Width(), 32))
     ->Chain(RearrangeStream<int16_t>::New(32, 4))
     ->Chain(ShortEncoder::Encoder(ans::ocl::kNumEncodedSymbols));
 
-  std::unique_ptr<std::array<UnpackedAlphaImage, 3> > ep1_planes =
+  std::unique_ptr<std::array<AlphaImage, 3> > ep1_planes =
     initial_endpoint_pipeline->Run(endpoint_one);
 
-  auto ep1_y = std::unique_ptr<UnpackedAlphaImage>(new UnpackedAlphaImage(ep1_planes->at(0)));
-  auto ep1_cr = std::unique_ptr<UnpackedAlphaImage>(new UnpackedAlphaImage(ep1_planes->at(1)));
-  auto ep1_cb = std::unique_ptr<UnpackedAlphaImage>(new UnpackedAlphaImage(ep1_planes->at(2)));
+  auto ep1_y = std::unique_ptr<AlphaImage>(new AlphaImage(ep1_planes->at(0)));
+  auto ep1_cr = std::unique_ptr<AlphaImage>(new AlphaImage(ep1_planes->at(1)));
+  auto ep1_cb = std::unique_ptr<AlphaImage>(new AlphaImage(ep1_planes->at(2)));
 
-  std::unique_ptr<std::array<UnpackedAlphaImage, 3> > ep2_planes =
+  std::unique_ptr<std::array<AlphaImage, 3> > ep2_planes =
     initial_endpoint_pipeline->Run(endpoint_two);
 
-  auto ep2_y = std::unique_ptr<UnpackedAlphaImage>(new UnpackedAlphaImage(ep2_planes->at(0)));
-  auto ep2_cr = std::unique_ptr<UnpackedAlphaImage>(new UnpackedAlphaImage(ep2_planes->at(1)));
-  auto ep2_cb = std::unique_ptr<UnpackedAlphaImage>(new UnpackedAlphaImage(ep2_planes->at(2)));
+  auto ep2_y = std::unique_ptr<AlphaImage>(new AlphaImage(ep2_planes->at(0)));
+  auto ep2_cr = std::unique_ptr<AlphaImage>(new AlphaImage(ep2_planes->at(1)));
+  auto ep2_cb = std::unique_ptr<AlphaImage>(new AlphaImage(ep2_planes->at(2)));
 
   DataStream out;
 

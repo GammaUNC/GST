@@ -129,15 +129,15 @@ namespace GenTC {
     }
   }
 
-  template<typename Prec>
-  class ForwardDCT : PipelineUnit<Image<1, uint8_t, Prec>, UnpackedSixteenBitImage > {
+  template<typename T>
+  class ForwardDCT : PipelineUnit<Image<T>, SixteenBitImage > {
+    static_assert(PixelTraits::NumChannels<T>::value == 1,
+                  "DCT is a single-channel operation!");
   public:
-    typedef Image<1, uint8_t, Prec> InputImage;
-    typedef UnpackedSixteenBitImage OutputImage;
-    typedef PipelineUnit<InputImage, OutputImage> Base;
+    typedef PipelineUnit<Image<T>, SixteenBitImage> Base;
 
     static std::unique_ptr<Base> New() {
-      return std::unique_ptr<Base>(new ForwardDCT<Prec>);
+      return std::unique_ptr<Base>(new ForwardDCT<T>);
     }
 
     typename Base::ReturnType Run(const typename Base::ArgType &in) const override {
@@ -155,7 +155,7 @@ namespace GenTC {
           for (uint32_t y = 0; y < 8; ++y) {
             for (uint32_t x = 0; x < 8; ++x) {
               uint32_t idx = y * 8 + x;
-              block[idx] = static_cast<float>(in->GetAt(i + x, j + y)[0]);
+              block[idx] = static_cast<float>(in->GetAt(i + x, j + y));
             }
           }
 
@@ -193,16 +193,18 @@ namespace GenTC {
         }
       }
 
-      UnpackedSixteenBitImage *ret_img =
-        new UnpackedSixteenBitImage(in->Width(), in->Height(), result);
+      SixteenBitImage *ret_img =
+        new SixteenBitImage(in->Width(), in->Height(), result);
       return std::move(typename Base::ReturnType(ret_img));
     }
   };
 
-  class InverseDCT : PipelineUnit<UnpackedSixteenBitImage, AlphaImage > {
+  class InverseDCT : PipelineUnit<SixteenBitImage, AlphaImage> {
   public:
-    typedef PipelineUnit<UnpackedSixteenBitImage, AlphaImage> Base;
-    static std::unique_ptr<Base> New() { return std::unique_ptr<Base>(new InverseDCT); }
+    typedef PipelineUnit<SixteenBitImage, AlphaImage> Base;
+    static std::unique_ptr<Base> New() {
+      return std::unique_ptr<Base>(new InverseDCT);
+    }
 
     virtual Base::ReturnType Run(const Base::ArgType &in) const {
       assert(in->Width() % 8 == 0);
@@ -218,11 +220,11 @@ namespace GenTC {
           for (uint32_t y = 0; y < 8; ++y) {
             for (uint32_t x = 0; x < 8; ++x) {
               uint32_t idx = y * 8 + x;
-              block[idx] = static_cast<float>(static_cast<int16_t>(in->GetAt(i + x, j + y)[0]));
+              block[idx] = static_cast<float>(in->GetAt(i + x, j + y));
             }
           }
 
-          // Run forward DCT...
+          // Run inverse DCT...
           for (int r = 0; r < 8; ++r) {
             float *row = block + r * 8;
             idct(row, row);
@@ -234,10 +236,10 @@ namespace GenTC {
           // Transpose
           Transpose8x8(block);
 
-          // Run forward DCT...
+          // Run inverse DCT...
           for (int r = 0; r < 8; ++r) {
             float *row = block + r * 8;
-            fdct(row, row);
+            idct(row, row);
             for (int k = 0; k < 8; ++k) {
               row[k] /= 8.f;
             }
