@@ -25,13 +25,13 @@ TEST(Image, CanReadPackedRGBPixels) {
   for (int j = 0; j < 4; ++j) {
     for (int i = 0; i < 4; ++i) {
       GenTC::RGB pixel = img.GetAt(i, j);
-      EXPECT_EQ(pixel.r, 0xFF);
+      EXPECT_EQ(std::get<0>(pixel), 0xFF);
       if (i == 1 && j == 2) {
-        EXPECT_EQ(pixel.g, 0xC0);
+        EXPECT_EQ(std::get<1>(pixel), 0xC0);
       } else {
-        EXPECT_EQ(pixel.g, 0x00);
+        EXPECT_EQ(std::get<1>(pixel), 0x00);
       }
-      EXPECT_EQ(pixel.b, 0x00);
+      EXPECT_EQ(std::get<2>(pixel), 0x00);
     }
   }
 }
@@ -45,13 +45,13 @@ TEST(Image, CanReadPackedRGB565) {
   for (int j = 0; j < 4; ++j) {
     for (int i = 0; i < 4; ++i) {
       GenTC::RGB565 pixel = img.GetAt(i, j);
-      EXPECT_EQ(pixel.r, 0x1F);
+      EXPECT_EQ(std::get<0>(pixel), 0x1F);
       if (i == 1 && j == 2) {
-        EXPECT_EQ(pixel.g, 0x01);
+        EXPECT_EQ(std::get<1>(pixel), 0x01);
       } else {
-        EXPECT_EQ(pixel.g, 0x00);
+        EXPECT_EQ(std::get<1>(pixel), 0x00);
       }
-      EXPECT_EQ(pixel.b, 0x1F);
+      EXPECT_EQ(std::get<2>(pixel), 0x1F);
     }
   }
 }

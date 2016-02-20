@@ -12,10 +12,10 @@ template <typename T>
 class ImageSplit { };
 
 template <typename T1, typename T2, typename T3>
-class ImageSplit<Pixel3<T1, T2, T3> >
-  : public PipelineUnit<Image<Pixel3<T1, T2, T3> >,
+class ImageSplit<std::tuple<T1, T2, T3> >
+  : public PipelineUnit<Image<std::tuple<T1, T2, T3> >,
                         std::array<Image<Alpha>, 3> > {
-  typedef Pixel3<T1, T2, T3> PixelTy;
+  typedef std::tuple<T1, T2, T3> PixelTy;
   static_assert(PixelTraits::NumChannels<PixelTy>::value == 3,
                 "Pixel3 has three channels!");
   static const size_t kNumChannels = PixelTraits::NumChannels<PixelTy>::value;
@@ -45,9 +45,9 @@ class ImageSplit<Pixel3<T1, T2, T3> >
         assert(PixelTraits::Max<T3>::value < 256);
         assert(PixelTraits::Min<T3>::value >= 0);
 
-        (*result)[0].SetAt(i, j, static_cast<Alpha>(pixel.r));
-        (*result)[1].SetAt(i, j, static_cast<Alpha>(pixel.g));
-        (*result)[2].SetAt(i, j, static_cast<Alpha>(pixel.b));
+        (*result)[0].SetAt(i, j, static_cast<Alpha>(std::get<0>(pixel)));
+        (*result)[1].SetAt(i, j, static_cast<Alpha>(std::get<1>(pixel)));
+        (*result)[2].SetAt(i, j, static_cast<Alpha>(std::get<2>(pixel)));
       }
     }
 
@@ -56,10 +56,10 @@ class ImageSplit<Pixel3<T1, T2, T3> >
 };
 
 template <typename T1, typename T2, typename T3, typename T4>
-class ImageSplit<Pixel4<T1, T2, T3, T4> >
-  : public PipelineUnit<Image<Pixel4<T1, T2, T3, T4> >,
+class ImageSplit<std::tuple<T1, T2, T3, T4> >
+  : public PipelineUnit<Image<std::tuple<T1, T2, T3, T4> >,
                         std::array<Image<Alpha>, 4> > {
-  typedef Pixel4<T1, T2, T3, T4> PixelTy;
+  typedef std::tuple<T1, T2, T3, T4> PixelTy;
   static_assert(PixelTraits::NumChannels<PixelTy>::value == 4,
                 "Pixel4 has four channels!");
   static const size_t kNumChannels = PixelTraits::NumChannels<PixelTy>::value;
@@ -91,10 +91,10 @@ class ImageSplit<Pixel4<T1, T2, T3, T4> >
         assert(PixelTraits::Max<T4>::value < 256);
         assert(PixelTraits::Min<T4>::value >= 0);
 
-        (*result)[0].SetAt(i, j, static_cast<Alpha>(pixel.r));
-        (*result)[1].SetAt(i, j, static_cast<Alpha>(pixel.g));
-        (*result)[2].SetAt(i, j, static_cast<Alpha>(pixel.b));
-        (*result)[3].SetAt(i, j, static_cast<Alpha>(pixel.a));
+        (*result)[0].SetAt(i, j, static_cast<Alpha>(std::get<0>(pixel)));
+        (*result)[1].SetAt(i, j, static_cast<Alpha>(std::get<1>(pixel)));
+        (*result)[2].SetAt(i, j, static_cast<Alpha>(std::get<2>(pixel)));
+        (*result)[3].SetAt(i, j, static_cast<Alpha>(std::get<3>(pixel)));
       }
     }
 

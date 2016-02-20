@@ -58,17 +58,17 @@ RGBtoYCrCb::Base::ReturnType RGBtoYCrCb::Run(const RGBtoYCrCb::Base::ArgType &in
   for (size_t j = 0; j < in->Height(); ++j) {
     for (size_t i = 0; i < in->Width(); ++i) {
       RGB pixel = in->GetAt(i, j);
-      double r = static_cast<double>(pixel.r);
-      double g = static_cast<double>(pixel.g);
-      double b = static_cast<double>(pixel.b);
+      double r = static_cast<double>(std::get<0>(pixel));
+      double g = static_cast<double>(std::get<1>(pixel));
+      double b = static_cast<double>(std::get<2>(pixel));
 
       double y = 0.299 * r + 0.587 * g + 0.114 * b;
       double cr = (r - y) * 0.713 + 128.0;
       double cb = (b - y) * 0.564 + 128.0;
 
-      pixel.r = static_cast<uint32_t>(std::max(0.0, std::min(255.0, y + 0.5)));
-      pixel.g = static_cast<uint32_t>(std::max(0.0, std::min(255.0, cr + 0.5)));
-      pixel.b = static_cast<uint32_t>(std::max(0.0, std::min(255.0, cb + 0.5)));
+      std::get<0>(pixel) = static_cast<uint32_t>(std::max(0.0, std::min(255.0, y + 0.5)));
+      std::get<1>(pixel) = static_cast<uint32_t>(std::max(0.0, std::min(255.0, cr + 0.5)));
+      std::get<2>(pixel) = static_cast<uint32_t>(std::max(0.0, std::min(255.0, cb + 0.5)));
       ret->SetAt(i, j, pixel);
     }
   }
@@ -84,9 +84,9 @@ YCrCbtoRGB::Base::ReturnType YCrCbtoRGB::Run(const YCrCbtoRGB::Base::ArgType &in
   for (size_t j = 0; j < in->Height(); ++j) {
     for (size_t i = 0; i < in->Width(); ++i) {
       auto pixel = in->GetAt(i, j);
-      double y = static_cast<double>(pixel.r);
-      double cr = static_cast<double>(pixel.g);
-      double cb = static_cast<double>(pixel.b);
+      double y = static_cast<double>(std::get<0>(pixel));
+      double cr = static_cast<double>(std::get<1>(pixel));
+      double cb = static_cast<double>(std::get<2>(pixel));
 
       double r = y + 1.403 * (cr - 128.0);
       double g = y - 0.714 * (cr - 128.0) - 0.344 * (cb - 128.0);
@@ -113,13 +113,13 @@ std::unique_ptr<RGBImage> Expand565::Run(const std::unique_ptr<RGB565Image> &in)
     for (size_t i = 0; i < w; ++i) {
       RGB565 pixel = in->GetAt(i, j);
 
-      uint32_t r = (pixel.r << 3) | (pixel.r >> 2);
+      uint64_t r = (std::get<0>(pixel) << 3) | (std::get<0>(pixel) >> 2);
       result.push_back(static_cast<uint8_t>(r));
 
-      uint32_t g = (pixel.g << 2) | (pixel.g >> 4);
+	  uint64_t g = (std::get<1>(pixel) << 2) | (std::get<1>(pixel) >> 4);
       result.push_back(static_cast<uint8_t>(g));
 
-      uint32_t b = (pixel.b << 3) | (pixel.b >> 2);
+	  uint64_t b = (std::get<2>(pixel) << 3) | (std::get<2>(pixel) >> 2);
       result.push_back(static_cast<uint8_t>(b));
     }
   }
@@ -138,23 +138,23 @@ std::unique_ptr<YCoCg667Image> RGB565toYCoCg667::Run(const std::unique_ptr<RGB56
     for (size_t i = 0; i < w; ++i) {
       auto pixel = in->GetAt(i, j);
 
-      assert(0 <= pixel.r && pixel.r < 32);
-      assert(0 <= pixel.g && pixel.g < 64);
-      assert(0 <= pixel.b && pixel.b < 32);
+      assert(0 <= std::get<0>(pixel) && std::get<0>(pixel) < 32);
+      assert(0 <= std::get<1>(pixel) && std::get<1>(pixel) < 64);
+      assert(0 <= std::get<2>(pixel) && std::get<2>(pixel) < 32);
 
       int8_t rgb[3] = {
-        static_cast<int8_t>(pixel.r),
-        static_cast<int8_t>(pixel.g),
-        static_cast<int8_t>(pixel.b)
+        static_cast<int8_t>(std::get<0>(pixel)),
+        static_cast<int8_t>(std::get<1>(pixel)),
+        static_cast<int8_t>(std::get<2>(pixel))
       };
 
       int8_t ycocg[3];
       rgb565_to_ycocg667(rgb, ycocg);
 
       YCoCg667 x;
-      x.r = ycocg[0];
-      x.g = ycocg[1];
-      x.b = ycocg[2];
+      std::get<0>(x) = ycocg[0];
+      std::get<1>(x) = ycocg[1];
+      std::get<2>(x) = ycocg[2];
 
       img->SetAt(i, j, x);
     }
@@ -171,11 +171,14 @@ std::unique_ptr<RGB565Image> YCoCg667toRGB565::Run(const std::unique_ptr<YCoCg66
     for (size_t i = 0; i < in->Height(); ++i) {
       auto pixel = in->GetAt(i, j);
 
-      assert(0 <= pixel.r && pixel.r < 64);
-      assert(-31 <= pixel.g && pixel.g < 32);
-      assert(-63 <= pixel.b && pixel.b < 64);
+      assert(0 <= std::get<0>(pixel) && std::get<0>(pixel) < 64);
+      assert(-31 <= std::get<1>(pixel) && std::get<1>(pixel) < 32);
+      assert(-63 <= std::get<2>(pixel) && std::get<2>(pixel) < 64);
 
-      int8_t ycocg[3] = { pixel.r, pixel.g, pixel.b };
+      int8_t ycocg[3] = {
+          static_cast<int8_t>(std::get<0>(pixel)),
+          static_cast<int8_t>(std::get<1>(pixel)),
+          static_cast<int8_t>(std::get<2>(pixel)) };
       int8_t rgb[3];
       ycocg667_to_rgb565(ycocg, rgb);
 

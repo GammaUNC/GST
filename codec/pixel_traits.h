@@ -3,6 +3,7 @@
 
 #include <cassert>
 #include <cstdint>
+#include <tuple>
 
 namespace GenTC {
 
@@ -33,49 +34,6 @@ struct UnsignedBits {
   operator uint64_t() const { return x; }
 };
 
-template <typename T1, typename T2, typename T3>
-struct Pixel3 {
-  typedef T1 C1Ty;
-  typedef T2 C2Ty;
-  typedef T3 C3Ty;
-
-  union {
-    struct {
-      T1 x;
-      T2 y;
-      T3 z;
-    };
-    struct {
-      T1 r;
-      T2 g;
-      T3 b;
-    };
-  };
-};
-
-template <typename T1, typename T2, typename T3, typename T4>
-struct Pixel4 {
-  typedef T1 C1Ty;
-  typedef T2 C2Ty;
-  typedef T3 C3Ty;
-  typedef T4 C4Ty;
-
-  union {
-    struct {
-      T1 x;
-      T2 y;
-      T3 z;
-      T4 w;
-    };
-    struct {
-      T1 r;
-      T2 g;
-      T3 b;
-      T4 a;
-    };    
-  };
-};
-
 ////////////////////////////////////////////////////////////////////////////////
 
 namespace PixelTraits {
@@ -87,14 +45,9 @@ struct NumChannels {
   static const size_t value = 1;
 };
 
-template <typename T1, typename T2, typename T3>
-struct NumChannels<Pixel3<T1, T2, T3> > {
-  static const size_t value = 3;
-};
-
-template <typename T1, typename T2, typename T3, typename T4>
-struct NumChannels<Pixel4<T1, T2, T3, T4> > {
-  static const size_t value = 4;
+template <class... Types>
+struct NumChannels<std::tuple<Types...> > {
+  static const size_t value = std::tuple_size<std::tuple<Types...> >::value;
 };
 
 ////////////////////////////////////////////////////////////
@@ -130,13 +83,13 @@ struct BitsUsed<SignedBits<NumBits> > {
 };
 
 template <typename T1, typename T2, typename T3>
-struct BitsUsed<Pixel3<T1, T2, T3> > {
+struct BitsUsed<std::tuple<T1, T2, T3> > {
   static const size_t value =
     BitsUsed<T1>::value + BitsUsed<T2>::value + BitsUsed<T3>::value;
 };
 
 template <typename T1, typename T2, typename T3, typename T4>
-struct BitsUsed<Pixel4<T1, T2, T3, T4> > {
+struct BitsUsed<std::tuple<T1, T2, T3, T4> > {
   static const size_t value =
     BitsUsed<T1>::value + BitsUsed<T2>::value + BitsUsed<T3>::value + BitsUsed<T4>::value;
 };
@@ -170,12 +123,12 @@ struct Max {
 
 template <unsigned NumBits>
 struct Max<UnsignedBits<NumBits> > {
-  static const UnsignedBits<NumBits> value = (1ULL << NumBits) - 1;
+  static const uint64_t value = (1ULL << NumBits) - 1;
 };
 
 template <unsigned NumBits>
 struct Max<SignedBits<NumBits> > {
-  static const SignedBits<NumBits> value = (1ULL << (NumBits - 1)) - 1;
+  static const int64_t value = (1ULL << (NumBits - 1)) - 1;
 };
 
 ////////////////////////////////////////////////////////////
@@ -187,12 +140,12 @@ struct Min {
 
 template <unsigned NumBits>
 struct Min<UnsignedBits<NumBits> > {
-  static const UnsignedBits<NumBits> value = (1ULL << NumBits) - 1;
+  static const uint64_t value = (1ULL << NumBits) - 1;
 };
 
 template <unsigned NumBits>
 struct Min<SignedBits<NumBits> > {
-  static const SignedBits<NumBits> value = (1ULL << (NumBits - 1)) - 1;
+  static const int64_t value = (1ULL << (NumBits - 1)) - 1;
 };
 
 ////////////////////////////////////////////////////////////
@@ -203,10 +156,13 @@ struct ConvertUnsigned {
     if (std::is_signed<T>::value) {
       static const uint64_t mask = 1ULL << (BitsUsed<T>::value - 1);
       if (mask & x) {
-        return (-1LL & (~(mask - 1))) | x;
+		int64_t v = (-1LL & (~(mask - 1))) | x;
+		assert(v <= std::numeric_limits<T>::max());
+		assert(v >= std::numeric_limits<T>::min());
+		return static_cast<T>(v);
       }
     }
-    return x;
+    return static_cast<T>(x);
   }
 };
 
@@ -266,21 +222,21 @@ struct BitPacker {
 };
 
 template <typename T1, typename T2, typename T3>
-struct BitPacker<Pixel3<T1, T2, T3> > {
-  static void pack(Pixel3<T1, T2, T3> p, uint8_t *dst, size_t *bit_offset) {
-    BitPacker<T1>::pack(p.r, dst, bit_offset);
-    BitPacker<T2>::pack(p.g, dst, bit_offset);
-    BitPacker<T3>::pack(p.b, dst, bit_offset);
+struct BitPacker<std::tuple<T1, T2, T3> > {
+  static void pack(std::tuple<T1, T2, T3> p, uint8_t *dst, size_t *bit_offset) {
+    BitPacker<T1>::pack(std::get<0>(p), dst, bit_offset);
+    BitPacker<T2>::pack(std::get<1>(p), dst, bit_offset);
+    BitPacker<T3>::pack(std::get<2>(p), dst, bit_offset);
   }
 };
 
 template <typename T1, typename T2, typename T3, typename T4>
-struct BitPacker<Pixel4<T1, T2, T3, T4> > {
-  static void pack(Pixel4<T1, T2, T3, T4> p, uint8_t *dst, size_t *bit_offset) {
-    BitPacker<T1>::pack(p.r, dst, bit_offset);
-    BitPacker<T2>::pack(p.g, dst, bit_offset);
-    BitPacker<T3>::pack(p.b, dst, bit_offset);
-    BitPacker<T4>::pack(p.a, dst, bit_offset);
+struct BitPacker<std::tuple<T1, T2, T3, T4> > {
+  static void pack(std::tuple<T1, T2, T3, T4> p, uint8_t *dst, size_t *bit_offset) {
+    BitPacker<T1>::pack(std::get<0>(p), dst, bit_offset);
+    BitPacker<T2>::pack(std::get<1>(p), dst, bit_offset);
+    BitPacker<T3>::pack(std::get<2>(p), dst, bit_offset);
+    BitPacker<T4>::pack(std::get<3>(p), dst, bit_offset);
   }
 };
 

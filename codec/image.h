@@ -39,8 +39,8 @@ struct ImageUnpacker {
 };
 
 template <typename T1, typename T2, typename T3>
-struct ImageUnpacker<Pixel3<T1, T2, T3> > {
-  typedef Pixel3<T1, T2, T3> PixelTy;
+struct ImageUnpacker<std::tuple<T1, T2, T3> > {
+  typedef std::tuple<T1, T2, T3> PixelTy;
   static std::vector<PixelTy> go( const std::vector<uint8_t> &img_data, size_t width, size_t height) {
     std::vector<PixelTy> result;
     result.reserve(width * height);
@@ -56,10 +56,10 @@ struct ImageUnpacker<Pixel3<T1, T2, T3> > {
         static const size_t prec2 = PixelTraits::BitsUsed<T2>::value;
         static const size_t prec3 = PixelTraits::BitsUsed<T3>::value;
 
-        PixelTy v;
-        v.r = PixelTraits::ConvertUnsigned<T1>::cvt(ReadValue(img_data, &bit_offset, prec1));
-        v.g = PixelTraits::ConvertUnsigned<T2>::cvt(ReadValue(img_data, &bit_offset, prec2));
-        v.b = PixelTraits::ConvertUnsigned<T3>::cvt(ReadValue(img_data, &bit_offset, prec3));
+        T1 r = PixelTraits::ConvertUnsigned<T1>::cvt(ReadValue(img_data, &bit_offset, prec1));
+        T2 g = PixelTraits::ConvertUnsigned<T2>::cvt(ReadValue(img_data, &bit_offset, prec2));
+        T3 b = PixelTraits::ConvertUnsigned<T3>::cvt(ReadValue(img_data, &bit_offset, prec3));
+        PixelTy v = std::make_tuple(r, g, b);
 
         result.push_back(v);
       }
@@ -70,8 +70,8 @@ struct ImageUnpacker<Pixel3<T1, T2, T3> > {
 };
 
 template <typename T1, typename T2, typename T3, typename T4>
-struct ImageUnpacker<Pixel4<T1, T2, T3, T4> > {
-  typedef Pixel4<T1, T2, T3, T4> PixelTy;
+struct ImageUnpacker<std::tuple<T1, T2, T3, T4> > {
+  typedef std::tuple<T1, T2, T3, T4> PixelTy;
   static std::vector<PixelTy> go( const std::vector<uint8_t> &img_data, size_t width, size_t height) {
     std::vector<PixelTy> result;
     result.reserve(width * height);
@@ -88,11 +88,11 @@ struct ImageUnpacker<Pixel4<T1, T2, T3, T4> > {
         static const size_t prec3 = PixelTraits::BitsUsed<T3>::value;
         static const size_t prec4 = PixelTraits::BitsUsed<T4>::value;
 
-        PixelTy v;
-        v.r = PixelTraits::ConvertUnsigned<T1>::cvt(ReadValue(img_data, &bit_offset, prec1));
-        v.g = PixelTraits::ConvertUnsigned<T2>::cvt(ReadValue(img_data, &bit_offset, prec2));
-        v.b = PixelTraits::ConvertUnsigned<T3>::cvt(ReadValue(img_data, &bit_offset, prec3));
-        v.a = PixelTraits::ConvertUnsigned<T4>::cvt(ReadValue(img_data, &bit_offset, prec4));
+        T1 r = PixelTraits::ConvertUnsigned<T1>::cvt(ReadValue(img_data, &bit_offset, prec1));
+        T2 g = PixelTraits::ConvertUnsigned<T2>::cvt(ReadValue(img_data, &bit_offset, prec2));
+        T3 b = PixelTraits::ConvertUnsigned<T3>::cvt(ReadValue(img_data, &bit_offset, prec3));
+        T4 a = PixelTraits::ConvertUnsigned<T4>::cvt(ReadValue(img_data, &bit_offset, prec4));
+        PixelTy v = std::make_tuple(r, g, b, a);
 
         result.push_back(v);
       }
@@ -167,9 +167,9 @@ class Image {
   std::vector<T> _pixels;
 };
 
-typedef Pixel3<uint8_t, uint8_t, uint8_t> RGB;
-typedef Pixel3<UnsignedBits<5>, UnsignedBits<6>, UnsignedBits<5> > RGB565;
-typedef Pixel4<uint8_t, uint8_t, uint8_t, uint8_t> RGBA;
+typedef std::tuple<uint8_t, uint8_t, uint8_t> RGB;
+typedef std::tuple<UnsignedBits<5>, UnsignedBits<6>, UnsignedBits<5> > RGB565;
+typedef std::tuple<uint8_t, uint8_t, uint8_t, uint8_t> RGBA;
 typedef uint8_t Alpha;
 
 typedef Image<RGB> RGBImage;
@@ -186,7 +186,7 @@ typedef Image<int16_t> SixteenBitImage;
 // from RGB images...
 typedef Image<RGB> YCbCrImage;
 
-typedef Pixel3<UnsignedBits<6>, SignedBits<6>, SignedBits<7> > YCoCg667;
+typedef std::tuple<UnsignedBits<6>, SignedBits<6>, SignedBits<7> > YCoCg667;
 typedef Image<YCoCg667> YCoCg667Image;
 
 }  // namespace GenTC
