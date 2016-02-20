@@ -14,25 +14,26 @@ class ImageSplit { };
 template <typename T1, typename T2, typename T3>
 class ImageSplit<std::tuple<T1, T2, T3> >
   : public PipelineUnit<Image<std::tuple<T1, T2, T3> >,
-                        std::array<Image<Alpha>, 3> > {
+                        std::tuple<Image<T1>, Image<T2>, Image<T3> > > {
   typedef std::tuple<T1, T2, T3> PixelTy;
   static_assert(PixelTraits::NumChannels<PixelTy>::value == 3,
                 "Pixel3 has three channels!");
   static const size_t kNumChannels = PixelTraits::NumChannels<PixelTy>::value;
  public:
-  typedef PipelineUnit<Image<PixelTy>, std::array<Image<Alpha>, kNumChannels> > Base;
+  typedef PipelineUnit<Image<PixelTy>, std::tuple<Image<T1>, Image<T2>, Image<T3> > > Base;
   static std::unique_ptr<Base> New() {
     return std::unique_ptr<Base>(new ImageSplit<PixelTy>());
   }
 
   typename Base::ReturnType Run(const std::unique_ptr<Image<PixelTy> > &in) const override {
-    typedef std::array<Image<Alpha>, kNumChannels> ReturnValueType;
+    typedef std::tuple<Image<T1>, Image<T2>, Image<T3> > ReturnValueType;
     typedef std::unique_ptr<ReturnValueType> ReturnType;
+
     ReturnValueType *result = new ReturnValueType;
 
-    for (size_t i = 0; i < kNumChannels; ++i) {
-      (*result)[i] = Image<Alpha>(in->Width(), in->Height());
-    }
+    std::get<0>(*result) = Image<T1>(in->Width(), in->Height());
+    std::get<1>(*result) = Image<T2>(in->Width(), in->Height());
+    std::get<2>(*result) = Image<T3>(in->Width(), in->Height());
 
     for (size_t j = 0; j < in->Height(); ++j) {
       for (size_t i = 0; i < in->Width(); ++i) {
@@ -45,9 +46,9 @@ class ImageSplit<std::tuple<T1, T2, T3> >
         assert(PixelTraits::Max<T3>::value < 256);
         assert(PixelTraits::Min<T3>::value >= 0);
 
-        (*result)[0].SetAt(i, j, static_cast<Alpha>(std::get<0>(pixel)));
-        (*result)[1].SetAt(i, j, static_cast<Alpha>(std::get<1>(pixel)));
-        (*result)[2].SetAt(i, j, static_cast<Alpha>(std::get<2>(pixel)));
+        std::get<0>(*result).SetAt(i, j, std::get<0>(pixel));
+        std::get<1>(*result).SetAt(i, j, std::get<1>(pixel));
+        std::get<2>(*result).SetAt(i, j, std::get<2>(pixel));
       }
     }
 
@@ -58,25 +59,26 @@ class ImageSplit<std::tuple<T1, T2, T3> >
 template <typename T1, typename T2, typename T3, typename T4>
 class ImageSplit<std::tuple<T1, T2, T3, T4> >
   : public PipelineUnit<Image<std::tuple<T1, T2, T3, T4> >,
-                        std::array<Image<Alpha>, 4> > {
+                        std::tuple<Image<T1>, Image<T2>, Image<T3>, Image<T4> > > {
   typedef std::tuple<T1, T2, T3, T4> PixelTy;
   static_assert(PixelTraits::NumChannels<PixelTy>::value == 4,
                 "Pixel4 has four channels!");
   static const size_t kNumChannels = PixelTraits::NumChannels<PixelTy>::value;
  public:
-  typedef PipelineUnit<Image<PixelTy>, std::array<Image<Alpha>, kNumChannels> > Base;
+  typedef PipelineUnit<Image<PixelTy>, std::tuple<Image<T1>, Image<T2>, Image<T3>, Image<T4> > > Base;
   static std::unique_ptr<Base> New() {
     return std::unique_ptr<Base>(new ImageSplit<PixelTy>());
   }
 
   typename Base::ReturnType Run(const std::unique_ptr<Image<PixelTy> > &in) const override {
-    typedef std::array<Image<Alpha>, kNumChannels> ReturnValueType;
+    typedef std::tuple<Image<T1>, Image<T2>, Image<T3>, Image<T4> > ReturnValueType;
     typedef std::unique_ptr<ReturnValueType> ReturnType;
     ReturnValueType *result = new ReturnValueType;
 
-    for (size_t i = 0; i < kNumChannels; ++i) {
-      (*result)[i] = Image<Alpha>(in->Width(), in->Height());
-    }
+    std::get<0>(*result) = Image<T1>(in->Width(), in->Height());
+    std::get<1>(*result) = Image<T2>(in->Width(), in->Height());
+    std::get<2>(*result) = Image<T3>(in->Width(), in->Height());
+    std::get<3>(*result) = Image<T4>(in->Width(), in->Height());
 
     for (size_t j = 0; j < in->Height(); ++j) {
       for (size_t i = 0; i < in->Width(); ++i) {
@@ -91,10 +93,10 @@ class ImageSplit<std::tuple<T1, T2, T3, T4> >
         assert(PixelTraits::Max<T4>::value < 256);
         assert(PixelTraits::Min<T4>::value >= 0);
 
-        (*result)[0].SetAt(i, j, static_cast<Alpha>(std::get<0>(pixel)));
-        (*result)[1].SetAt(i, j, static_cast<Alpha>(std::get<1>(pixel)));
-        (*result)[2].SetAt(i, j, static_cast<Alpha>(std::get<2>(pixel)));
-        (*result)[3].SetAt(i, j, static_cast<Alpha>(std::get<3>(pixel)));
+        std::get<0>(*result).SetAt(i, j, std::get<0>(pixel));
+        std::get<1>(*result).SetAt(i, j, std::get<1>(pixel));
+        std::get<2>(*result).SetAt(i, j, std::get<2>(pixel));
+        std::get<3>(*result).SetAt(i, j, std::get<3>(pixel));
       }
     }
 

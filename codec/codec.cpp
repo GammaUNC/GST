@@ -53,19 +53,19 @@ std::vector<uint8_t> CompressDXT(const uint8_t *dxt, int width, int height) {
     ->Chain(RearrangeStream<int16_t>::New(32, 4))
     ->Chain(ShortEncoder::Encoder(ans::ocl::kNumEncodedSymbols));
 
-  std::unique_ptr<std::array<AlphaImage, 3> > ep1_planes =
+  std::unique_ptr<std::tuple<AlphaImage, AlphaImage, AlphaImage> > ep1_planes =
     initial_endpoint_pipeline->Run(endpoint_one);
 
-  auto ep1_y = std::unique_ptr<AlphaImage>(new AlphaImage(ep1_planes->at(0)));
-  auto ep1_cr = std::unique_ptr<AlphaImage>(new AlphaImage(ep1_planes->at(1)));
-  auto ep1_cb = std::unique_ptr<AlphaImage>(new AlphaImage(ep1_planes->at(2)));
+  auto ep1_y = std::unique_ptr<AlphaImage>(new AlphaImage(std::get<0>(*ep1_planes)));
+  auto ep1_cr = std::unique_ptr<AlphaImage>(new AlphaImage(std::get<1>(*ep1_planes)));
+  auto ep1_cb = std::unique_ptr<AlphaImage>(new AlphaImage(std::get<2>(*ep1_planes)));
 
-  std::unique_ptr<std::array<AlphaImage, 3> > ep2_planes =
+  std::unique_ptr<std::tuple<AlphaImage, AlphaImage, AlphaImage> > ep2_planes =
     initial_endpoint_pipeline->Run(endpoint_two);
 
-  auto ep2_y = std::unique_ptr<AlphaImage>(new AlphaImage(ep2_planes->at(0)));
-  auto ep2_cr = std::unique_ptr<AlphaImage>(new AlphaImage(ep2_planes->at(1)));
-  auto ep2_cb = std::unique_ptr<AlphaImage>(new AlphaImage(ep2_planes->at(2)));
+  auto ep2_y = std::unique_ptr<AlphaImage>(new AlphaImage(std::get<0>(*ep2_planes)));
+  auto ep2_cr = std::unique_ptr<AlphaImage>(new AlphaImage(std::get<1>(*ep2_planes)));
+  auto ep2_cb = std::unique_ptr<AlphaImage>(new AlphaImage(std::get<2>(*ep2_planes)));
 
   DataStream out;
 
