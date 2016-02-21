@@ -53,38 +53,27 @@ std::vector<uint8_t> CompressDXT(const uint8_t *dxt, int width, int height) {
     ->Chain(RearrangeStream<int16_t>::New(32, 4))
     ->Chain(ShortEncoder::Encoder(ans::ocl::kNumEncodedSymbols));
 
-  std::unique_ptr<std::tuple<AlphaImage, AlphaImage, AlphaImage> > ep1_planes =
-    initial_endpoint_pipeline->Run(endpoint_one);
-
-  auto ep1_y = std::unique_ptr<AlphaImage>(new AlphaImage(std::get<0>(*ep1_planes)));
-  auto ep1_cr = std::unique_ptr<AlphaImage>(new AlphaImage(std::get<1>(*ep1_planes)));
-  auto ep1_cb = std::unique_ptr<AlphaImage>(new AlphaImage(std::get<2>(*ep1_planes)));
-
-  std::unique_ptr<std::tuple<AlphaImage, AlphaImage, AlphaImage> > ep2_planes =
-    initial_endpoint_pipeline->Run(endpoint_two);
-
-  auto ep2_y = std::unique_ptr<AlphaImage>(new AlphaImage(std::get<0>(*ep2_planes)));
-  auto ep2_cr = std::unique_ptr<AlphaImage>(new AlphaImage(std::get<1>(*ep2_planes)));
-  auto ep2_cb = std::unique_ptr<AlphaImage>(new AlphaImage(std::get<2>(*ep2_planes)));
+  auto ep1_planes = initial_endpoint_pipeline->Run(endpoint_one);
+  auto ep2_planes = initial_endpoint_pipeline->Run(endpoint_two);
 
   DataStream out;
 
-  auto ep1_y_cmp = y_pipeline->Run(ep1_y);
+  auto ep1_y_cmp = y_pipeline->Run(std::move(std::get<0>(*ep1_planes)));
   out.WriteInt(static_cast<uint32_t>(ep1_y_cmp->size()));
 
-  auto ep1_cr_cmp = chroma_pipeline->Run(ep1_cr);
+  auto ep1_cr_cmp = chroma_pipeline->Run(std::move(std::get<1>(*ep1_planes)));
   out.WriteInt(static_cast<uint32_t>(ep1_cr_cmp->size()));
 
-  auto ep1_cb_cmp = chroma_pipeline->Run(ep1_cb);
+  auto ep1_cb_cmp = chroma_pipeline->Run(std::move(std::get<2>(*ep1_planes)));
   out.WriteInt(static_cast<uint32_t>(ep1_cb_cmp->size()));
 
-  auto ep2_y_cmp = y_pipeline->Run(ep2_y);
+  auto ep2_y_cmp = y_pipeline->Run(std::move(std::get<0>(*ep2_planes)));
   out.WriteInt(static_cast<uint32_t>(ep2_y_cmp->size()));
 
-  auto ep2_cr_cmp = chroma_pipeline->Run(ep2_cr);
+  auto ep2_cr_cmp = chroma_pipeline->Run(std::move(std::get<1>(*ep2_planes)));
   out.WriteInt(static_cast<uint32_t>(ep2_cr_cmp->size()));
 
-  auto ep2_cb_cmp = chroma_pipeline->Run(ep2_cb);
+  auto ep2_cb_cmp = chroma_pipeline->Run(std::move(std::get<2>(*ep2_planes)));
   out.WriteInt(static_cast<uint32_t>(ep2_cb_cmp->size()));
 
   std::vector<uint8_t> result = out.GetData();

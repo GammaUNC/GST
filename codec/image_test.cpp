@@ -118,27 +118,26 @@ TEST(Image, CanSplitImage) {
     0xFF, 0x00, 0x00, 0xFF, 0xC0, 0x00, 0xFF, 0x00, 0x00, 0xFF, 0x00, 0x00, 
     0xFF, 0x00, 0x00, 0xFF, 0x00, 0x00, 0xFF, 0x00, 0x00, 0xFF, 0x00, 0x00 }));
 
-  typedef std::tuple<GenTC::Image<GenTC::Alpha>,
-                     GenTC::Image<GenTC::Alpha>,
-                     GenTC::Image<GenTC::Alpha> > SplitResultType;
-  std::unique_ptr<GenTC::RGBSplitter> splitter(new GenTC::RGBSplitter);
+  typedef std::tuple<std::unique_ptr<GenTC::Image<GenTC::Alpha> >,
+                     std::unique_ptr<GenTC::Image<GenTC::Alpha> >,
+                     std::unique_ptr<GenTC::Image<GenTC::Alpha> > > SplitResultType;
   auto p = GenTC::Pipeline<GenTC::RGBImage, SplitResultType>
     ::Create(GenTC::RGBSplitter::New());
   auto result = p->Run(img);
 
   for (int j = 0; j < 4; ++j) {
     for (int i = 0; i < 4; ++i) {
-      uint8_t pixel = std::get<0>(*result).GetAt(i, j);
+      uint8_t pixel = std::get<0>(*result)->GetAt(i, j);
       EXPECT_EQ(pixel, 0xFF);
 
-      pixel = std::get<1>(*result).GetAt(i, j);
+      pixel = std::get<1>(*result)->GetAt(i, j);
       if (i == 1 && j == 2) {
         EXPECT_EQ(pixel, 0xC0);
       } else {
         EXPECT_EQ(pixel, 0x00);
       }
 
-      pixel = std::get<2>(*result).GetAt(i, j);
+      pixel = std::get<2>(*result)->GetAt(i, j);
       EXPECT_EQ(pixel, 0x00);      
     }
   }

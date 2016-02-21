@@ -14,93 +14,91 @@ class ImageSplit { };
 template <typename T1, typename T2, typename T3>
 class ImageSplit<std::tuple<T1, T2, T3> >
   : public PipelineUnit<Image<std::tuple<T1, T2, T3> >,
-                        std::tuple<Image<T1>, Image<T2>, Image<T3> > > {
+                        std::tuple<std::unique_ptr<Image<T1> >,
+                                   std::unique_ptr<Image<T2> >,
+                                   std::unique_ptr<Image<T3> > > > {
   typedef std::tuple<T1, T2, T3> PixelTy;
   static_assert(PixelTraits::NumChannels<PixelTy>::value == 3,
-                "Pixel3 has three channels!");
+                "Pixel4 has four channels!");
   static const size_t kNumChannels = PixelTraits::NumChannels<PixelTy>::value;
- public:
-  typedef PipelineUnit<Image<PixelTy>, std::tuple<Image<T1>, Image<T2>, Image<T3> > > Base;
+public:
+  typedef std::unique_ptr<Image<T1> > I1Ty;
+  typedef std::unique_ptr<Image<T2> > I2Ty;
+  typedef std::unique_ptr<Image<T3> > I3Ty;
+  typedef PipelineUnit<Image<PixelTy>, std::tuple<I1Ty, I2Ty, I3Ty> > Base;
   static std::unique_ptr<Base> New() {
     return std::unique_ptr<Base>(new ImageSplit<PixelTy>());
   }
 
   typename Base::ReturnType Run(const std::unique_ptr<Image<PixelTy> > &in) const override {
-    typedef std::tuple<Image<T1>, Image<T2>, Image<T3> > ReturnValueType;
-    typedef std::unique_ptr<ReturnValueType> ReturnType;
-
-    ReturnValueType *result = new ReturnValueType;
-
-    std::get<0>(*result) = Image<T1>(in->Width(), in->Height());
-    std::get<1>(*result) = Image<T2>(in->Width(), in->Height());
-    std::get<2>(*result) = Image<T3>(in->Width(), in->Height());
+    Image<T1> *img1 = new Image<T1>(in->Width(), in->Height());
+    Image<T2> *img2 = new Image<T2>(in->Width(), in->Height());
+    Image<T3> *img3 = new Image<T3>(in->Width(), in->Height());
 
     for (size_t j = 0; j < in->Height(); ++j) {
       for (size_t i = 0; i < in->Width(); ++i) {
         PixelTy pixel = in->GetAt(i, j);
 
-        assert(PixelTraits::Max<T1>::value < 256);
-        assert(PixelTraits::Min<T1>::value >= 0);
-        assert(PixelTraits::Max<T2>::value < 256);
-        assert(PixelTraits::Min<T2>::value >= 0);
-        assert(PixelTraits::Max<T3>::value < 256);
-        assert(PixelTraits::Min<T3>::value >= 0);
-
-        std::get<0>(*result).SetAt(i, j, std::get<0>(pixel));
-        std::get<1>(*result).SetAt(i, j, std::get<1>(pixel));
-        std::get<2>(*result).SetAt(i, j, std::get<2>(pixel));
+        img1->SetAt(i, j, std::get<0>(pixel));
+        img2->SetAt(i, j, std::get<1>(pixel));
+        img3->SetAt(i, j, std::get<2>(pixel));
       }
     }
 
-    return std::move(ReturnType(result));
+    typename Base::ReturnValueType *result = new typename Base::ReturnValueType;
+    std::get<0>(*result) = I1Ty(img1);
+    std::get<1>(*result) = I2Ty(img2);
+    std::get<2>(*result) = I3Ty(img3);
+
+    return std::move(typename Base::ReturnType(result));
   }
 };
 
 template <typename T1, typename T2, typename T3, typename T4>
 class ImageSplit<std::tuple<T1, T2, T3, T4> >
   : public PipelineUnit<Image<std::tuple<T1, T2, T3, T4> >,
-                        std::tuple<Image<T1>, Image<T2>, Image<T3>, Image<T4> > > {
+                        std::tuple<std::unique_ptr<Image<T1> >, 
+                                   std::unique_ptr<Image<T2> >,
+                                   std::unique_ptr<Image<T3> >,
+                                   std::unique_ptr<Image<T4> > > > {
   typedef std::tuple<T1, T2, T3, T4> PixelTy;
   static_assert(PixelTraits::NumChannels<PixelTy>::value == 4,
                 "Pixel4 has four channels!");
   static const size_t kNumChannels = PixelTraits::NumChannels<PixelTy>::value;
  public:
-  typedef PipelineUnit<Image<PixelTy>, std::tuple<Image<T1>, Image<T2>, Image<T3>, Image<T4> > > Base;
+  typedef std::unique_ptr<Image<T1> > I1Ty;
+  typedef std::unique_ptr<Image<T2> > I2Ty;
+  typedef std::unique_ptr<Image<T3> > I3Ty;
+  typedef std::unique_ptr<Image<T4> > I4Ty;
+  typedef PipelineUnit<Image<PixelTy>, std::tuple<I1Ty, I2Ty, I3Ty, I4Ty> > Base;
   static std::unique_ptr<Base> New() {
     return std::unique_ptr<Base>(new ImageSplit<PixelTy>());
   }
 
   typename Base::ReturnType Run(const std::unique_ptr<Image<PixelTy> > &in) const override {
-    typedef std::tuple<Image<T1>, Image<T2>, Image<T3>, Image<T4> > ReturnValueType;
-    typedef std::unique_ptr<ReturnValueType> ReturnType;
-    ReturnValueType *result = new ReturnValueType;
-
-    std::get<0>(*result) = Image<T1>(in->Width(), in->Height());
-    std::get<1>(*result) = Image<T2>(in->Width(), in->Height());
-    std::get<2>(*result) = Image<T3>(in->Width(), in->Height());
-    std::get<3>(*result) = Image<T4>(in->Width(), in->Height());
+    Image<T1> *img1 = new Image<T1>(in->Width(), in->Height());
+    Image<T2> *img2 = new Image<T2>(in->Width(), in->Height());
+    Image<T3> *img3 = new Image<T3>(in->Width(), in->Height());
+    Image<T4> *img4 = new Image<T4>(in->Width(), in->Height());
 
     for (size_t j = 0; j < in->Height(); ++j) {
       for (size_t i = 0; i < in->Width(); ++i) {
         PixelTy pixel = in->GetAt(i, j);
 
-        assert(PixelTraits::Max<T1>::value < 256);
-        assert(PixelTraits::Min<T1>::value >= 0);
-        assert(PixelTraits::Max<T2>::value < 256);
-        assert(PixelTraits::Min<T2>::value >= 0);
-        assert(PixelTraits::Max<T3>::value < 256);
-        assert(PixelTraits::Min<T3>::value >= 0);
-        assert(PixelTraits::Max<T4>::value < 256);
-        assert(PixelTraits::Min<T4>::value >= 0);
-
-        std::get<0>(*result).SetAt(i, j, std::get<0>(pixel));
-        std::get<1>(*result).SetAt(i, j, std::get<1>(pixel));
-        std::get<2>(*result).SetAt(i, j, std::get<2>(pixel));
-        std::get<3>(*result).SetAt(i, j, std::get<3>(pixel));
+        img1->SetAt(i, j, std::get<0>(pixel));
+        img2->SetAt(i, j, std::get<1>(pixel));
+        img3->SetAt(i, j, std::get<2>(pixel));
+        img4->SetAt(i, j, std::get<3>(pixel));
       }
     }
 
-    return std::move(ReturnType(result));
+    typename Base::ReturnValueType *result = new typename Base::ReturnValueType;
+    std::get<0>(*result) = I1Ty(img1);
+    std::get<1>(*result) = I2Ty(img2);
+    std::get<2>(*result) = I3Ty(img3);
+    std::get<3>(*result) = I4Ty(img4);
+
+    return std::move(typename Base::ReturnType(result));
   }
 };
 
