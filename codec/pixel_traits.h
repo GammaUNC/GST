@@ -156,10 +156,10 @@ struct ConvertUnsigned {
     if (std::is_signed<T>::value) {
       static const uint64_t mask = 1ULL << (BitsUsed<T>::value - 1);
       if (mask & x) {
-		int64_t v = (-1LL & (~(mask - 1))) | x;
-		assert(v <= std::numeric_limits<T>::max());
-		assert(v >= std::numeric_limits<T>::min());
-		return static_cast<T>(v);
+		    int64_t v = (-1LL & (~(mask - 1))) | x;
+		    assert(v <= std::numeric_limits<T>::max());
+		    assert(v >= std::numeric_limits<T>::min());
+		    return static_cast<T>(v);
       }
     }
     return static_cast<T>(x);

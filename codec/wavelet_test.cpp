@@ -136,7 +136,7 @@ TEST(Wavelet, Recursive2DWavelet) {
   static const size_t kDim = static_cast<size_t>(std::sqrt(kNumCoeffs));
   ASSERT_EQ(kDim * kDim, kNumCoeffs);
 
-  static const int kRowBytes = sizeof(xs[0]) * kDim;
+  static const size_t kRowBytes = sizeof(xs[0]) * kDim;
 
   int16_t tmp[kNumCoeffs];
   int16_t out[kNumCoeffs];
