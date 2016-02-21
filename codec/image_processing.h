@@ -1,6 +1,8 @@
 #ifndef __TCAR_IMAGE_PROCESSING_H__
 #define __TCAR_IMAGE_PROCESSING_H__
 
+#include "fast_dct.h"
+
 #include "pipeline.h"
 #include "image.h"
 
@@ -150,6 +152,100 @@ class Quantize8x8
    ) { }
 
    const std::array<uint32_t, 64> _coeffs;
+};
+
+template<typename T>
+static void Transpose8x8(T *block) {
+  // Transpose block
+  for (uint32_t y = 0; y < 8; ++y) {
+    for (uint32_t x = 0; x < 8; ++x) {
+      if (x < y) {
+        uint32_t idx1 = y * 8 + x;
+        uint32_t idx2 = x * 8 + y;
+        std::swap(block[idx1], block[idx2]);
+      }
+    }
+  }
+}
+
+template<typename T>
+class ForwardDCT : PipelineUnit<Image<T>, SixteenBitImage > {
+  static_assert(PixelTraits::NumChannels<T>::value == 1,
+                "DCT is a single-channel operation!");
+public:
+  typedef PipelineUnit<Image<T>, SixteenBitImage> Base;
+
+  static std::unique_ptr<Base> New() {
+    return std::unique_ptr<Base>(new ForwardDCT<T>);
+  }
+
+  typename Base::ReturnType Run(const typename Base::ArgType &in) const override {
+    assert(in->Width() % 8 == 0);
+    assert(in->Height() % 8 == 0);
+
+    // Sixteen bit images are packed...
+    std::vector<uint8_t> result(in->Width() * in->Height() * 2);
+
+    for (uint32_t j = 0; j < in->Height(); j += 8) {
+      for (uint32_t i = 0; i < in->Width(); i += 8) {
+        float block[64];
+
+        // Read block
+        for (uint32_t y = 0; y < 8; ++y) {
+          for (uint32_t x = 0; x < 8; ++x) {
+            uint32_t idx = y * 8 + x;
+            block[idx] = static_cast<float>(in->GetAt(i + x, j + y));
+          }
+        }
+
+        // Run forward DCT...
+        for (int r = 0; r < 8; ++r) {
+          float *row = block + r * 8;
+          fdct(row, row);
+        }
+
+        // Transpose
+        Transpose8x8(block);
+
+        // Run forward DCT...
+        for (int r = 0; r < 8; ++r) {
+          float *row = block + r * 8;
+          fdct(row, row);
+        }
+
+        // Transpose
+        Transpose8x8(block);
+
+        // Write block
+        for (size_t y = 0; y < 8; ++y) {
+          for (size_t x = 0; x < 8; ++x) {
+            size_t idx = y * 8 + x;
+
+            size_t dst_idx = ((j + y) * in->Width() + i + x) * 2;
+            uint8_t *ptr = result.data();
+
+            int16_t v = static_cast<int16_t>(block[idx]);
+            ptr[dst_idx + 0] = (v >> 8) & 0xFF;
+            ptr[dst_idx + 1] = v & 0xFF;
+          }
+        }
+      }
+    }
+
+    SixteenBitImage *ret_img =
+      new SixteenBitImage(in->Width(), in->Height(), result);
+    return std::move(typename Base::ReturnType(ret_img));
+  }
+};
+
+class InverseDCT : PipelineUnit<SixteenBitImage, AlphaImage> {
+public:
+  typedef PipelineUnit<SixteenBitImage, AlphaImage> Base;
+  static std::unique_ptr<Base> New() {
+    return std::unique_ptr<Base>(new InverseDCT);
+  }
+
+  virtual Base::ReturnType Run(const Base::ArgType &in) const override;
 };
 
 }  // namespace GenTC

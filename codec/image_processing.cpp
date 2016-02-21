@@ -203,4 +203,62 @@ std::unique_ptr<RGB565Image> YCoCg667toRGB565::Run(const std::unique_ptr<YCoCg66
   return std::move(std::unique_ptr<RGB565Image>(img));
 }
 
+InverseDCT::Base::ReturnType InverseDCT::Run(const InverseDCT::Base::ArgType & in) const {
+  assert(in->Width() % 8 == 0);
+  assert(in->Height() % 8 == 0);
+
+  std::vector<uint8_t> result(in->Width() * in->Height());
+
+  for (uint32_t j = 0; j < in->Height(); j += 8) {
+    for (uint32_t i = 0; i < in->Width(); i += 8) {
+      float block[64];
+
+      // Read block
+      for (uint32_t y = 0; y < 8; ++y) {
+        for (uint32_t x = 0; x < 8; ++x) {
+          uint32_t idx = y * 8 + x;
+          block[idx] = static_cast<float>(in->GetAt(i + x, j + y));
+        }
+      }
+
+      // Run inverse DCT...
+      for (int r = 0; r < 8; ++r) {
+        float *row = block + r * 8;
+        idct(row, row);
+        for (int k = 0; k < 8; ++k) {
+          row[k] /= 8.f;
+        }
+      }
+
+      // Transpose
+      Transpose8x8(block);
+
+      // Run inverse DCT...
+      for (int r = 0; r < 8; ++r) {
+        float *row = block + r * 8;
+        idct(row, row);
+        for (int k = 0; k < 8; ++k) {
+          row[k] /= 8.f;
+        }
+      }
+
+      // Transpose
+      Transpose8x8(block);
+
+      // Write block
+      for (uint32_t y = 0; y < 8; ++y) {
+        for (uint32_t x = 0; x < 8; ++x) {
+          uint32_t idx = y * 8 + x;
+
+          float fv = std::max(0.f, std::min(255.f, block[idx] + 0.5f));
+          result[(j + y) * in->Width() + i + x] = static_cast<uint8_t>(fv);
+        }
+      }
+    }
+  }
+
+  AlphaImage *ret_img = new AlphaImage(in->Width(), in->Height(), std::move(result));
+  return std::move(std::unique_ptr<typename Base::ReturnValueType>(ret_img));
+}
+
 }  // namespace GenTC
