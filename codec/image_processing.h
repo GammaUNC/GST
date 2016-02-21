@@ -2,6 +2,7 @@
 #define __TCAR_IMAGE_PROCESSING_H__
 
 #include "fast_dct.h"
+#include "wavelet.h"
 
 #include "pipeline.h"
 #include "image.h"
@@ -248,24 +249,72 @@ public:
   virtual Base::ReturnType Run(const Base::ArgType &in) const override;
 };
 
-template <typename T>
-class ForwardWavelet2D : public PipelineUnit<Image<T>,
+template <typename T, size_t BlockSize>
+class FWavelet2D : public PipelineUnit<Image<T>,
   Image<
     typename PixelTraits::SignedTypeForBits<PixelTraits::BitsUsed<T>::value + 1>::Ty
   > > {
- public:
-   typedef Image<T> InputImage;
-   typedef Image<typename PixelTraits::SignedTypeForBits<PixelTraits::BitsUsed<T>::value + 1>::Ty>
-     OutputImage;
-   typedef PipelineUnit<InputImage, OutputImage> Base;
+public:
+  static const size_t kNumSrcBits = PixelTraits::BitsUsed<T>::value;
+  static const size_t kNumDstBits = kNumSrcBits + 1;
+  typedef typename PixelTraits::SignedTypeForBits<kNumDstBits>::Ty DstTy;
+  typedef Image<T> InputImage;
+  typedef Image<DstTy> OutputImage;
+  typedef PipelineUnit<InputImage, OutputImage> Base;
 
-   static std::unique_ptr<Base> New() {
-     return std::unique_ptr<Base>(new InverseDCT);
-   }
+  static_assert(PixelTraits::NumChannels<T>::value == 1,
+    "Wavelet transform only operates on single channel images");
+  static_assert(PixelTraits::BitsUsed<typename OutputImage::PixelType>::value <= 16,
+    "Wavelet coefficients end up in 16 bit signed integers!");
+  static_assert((BlockSize & (BlockSize - 1)) == 0,
+    "Block size must be a power of two!");
 
-   virtual Base::ReturnType Run(const Base::ArgType &in) const override {
-     return Base::ReturnType(nullptr);
-   }
+  static std::unique_ptr<Base> New() {
+    return std::unique_ptr<Base>(new FWavelet2D<T, BlockSize>);
+  }
+
+  virtual typename Base::ReturnType Run(const typename Base::ArgType &in) const override {
+    assert((in->Width() % BlockSize) == 0);
+    assert((in->Height() % BlockSize) == 0);
+    OutputImage *result = new OutputImage(in->Width(), in->Height());
+
+    for (size_t j = 0; j < in->Height(); j += BlockSize) {
+      for (size_t i = 0; i < in->Width(); i += BlockSize) {
+        std::vector<int16_t> block(BlockSize * BlockSize);
+
+        // Populate block
+        for (size_t y = 0; y < BlockSize; ++y) {
+          for (size_t x = 0; x < BlockSize; ++x) {
+            size_t local_idx = y * BlockSize + x;
+            T pixel = in->GetAt(i + x, j + y);
+            assert(pixel <= PixelTraits::Max<int16_t>::value);
+            assert(pixel >= PixelTraits::Min<int16_t>::value);
+            block[local_idx] = static_cast<int16_t>(pixel);
+          }
+        }
+
+        // Do transform
+        static const size_t kRowBytes = sizeof(int16_t) * BlockSize;
+        size_t dim = BlockSize;
+        while (dim > 1) {
+          ForwardWavelet2D(block.data(), kRowBytes, block.data(), kRowBytes, dim);
+          dim /= 2;
+        }
+
+        // Output to image...
+        for (size_t y = 0; y < BlockSize; ++y) {
+          for (size_t x = 0; x < BlockSize; ++x) {
+            size_t local_idx = y * BlockSize + x;
+            assert(block[local_idx] <= PixelTraits::Max<DstTy>::value);
+            assert(block[local_idx] >= PixelTraits::Min<DstTy>::value);
+            result->SetAt(i + x, j + y, static_cast<DstTy>(block[local_idx]));
+          }
+        }
+      }
+    }
+
+    return std::move(Base::ReturnType(result));
+  }
 };
 
 }  // namespace GenTC

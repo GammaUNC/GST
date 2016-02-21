@@ -245,9 +245,14 @@ struct BitPacker<std::tuple<T1, T2, T3, T4> > {
 template <typename T>
 struct ToUnsigned {
   static uint64_t cvt(T x) {
-    if (IsSigned<T>::value && x < 0) {
-      uint64_t sub_zero = static_cast<uint64_t>(-x);
-      return (static_cast<uint64_t>(Max<T>::value) / 2) - sub_zero;
+    if (IsSigned<T>::value) {
+      if (x < 0) {
+        uint64_t sub_zero = static_cast<uint64_t>(-x);
+        return (static_cast<uint64_t>(Max<T>::value) / 2) - sub_zero;
+      } else {
+        uint64_t above_zero = static_cast<uint64_t>(x);
+        return (static_cast<uint64_t>(Max<T>::value) / 2) + above_zero;
+      }
     }
     return static_cast<uint64_t>(x);
   }
@@ -324,6 +329,18 @@ struct UnsignedTypeForBits<32> {
 template <>
 struct UnsignedTypeForBits<64> {
   typedef uint64_t Ty;
+};
+
+////////////////////////////////////////////////////////////
+
+template <typename T>
+struct SignedForUnsigned {
+  typedef typename SignedTypeForBits<PixelTraits::BitsUsed<T>::value>::Ty Ty;
+};
+
+template <typename T>
+struct UnsignedForSigned {
+  typedef typename UnsignedTypeForBits<PixelTraits::BitsUsed<T>::value>::Ty Ty;
 };
 
 }  // namespace PixelTraits

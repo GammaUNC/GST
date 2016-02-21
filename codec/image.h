@@ -105,6 +105,7 @@ struct ImageUnpacker<std::tuple<T1, T2, T3, T4> > {
 template <typename T>
 class Image {
  public:
+   typedef T PixelType;
   static const size_t kNumChannels = PixelTraits::NumChannels<T>::value;
 
   Image<T>()

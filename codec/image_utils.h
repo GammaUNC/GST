@@ -131,6 +131,33 @@ class DropAlpha : public PipelineUnit<RGBAImage, RGBImage> {
   Base::ReturnType Run(const Base::ArgType &in) const override;
 };
 
+template <typename T>
+class MakeUnsigned
+  : public PipelineUnit < Image<T>, Image<typename PixelTraits::UnsignedForSigned<T>::Ty > > {
+ public:
+   typedef typename PixelTraits::UnsignedForSigned<T>::Ty DstTy;
+   typedef Image<T> InputImage;
+   typedef Image<DstTy> OutputImage;
+   typedef PipelineUnit<InputImage, OutputImage> Base;
+
+   static std::unique_ptr<Base> New() { return std::unique_ptr<Base>(new MakeUnsigned); }
+
+   typename Base::ReturnType Run(const typename Base::ArgType &in) const override {
+     OutputImage *result = new OutputImage(in->Width(), in->Height());
+     for (size_t y = 0; y < in->Height(); ++y) {
+       for (size_t x = 0; x < in->Width(); ++x) {
+         DstTy p = static_cast<DstTy>(PixelTraits::ToUnsigned<T>::cvt(in->GetAt(x, y)));
+         result->SetAt(x, y, p);
+       }
+     }
+
+     return std::move(Base::ReturnType(result));
+   }
+};
+
+////////////////////////////////////////////////////////////
+// Output utils
+
 extern void WriteAlphaImage(const std::string &fname, size_t w, size_t h,
                             std::vector<uint8_t> &&pixels);
 

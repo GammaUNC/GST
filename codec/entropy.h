@@ -1,6 +1,7 @@
 #ifndef __TCAR_ENTROPY_H__
 #define __TCAR_ENTROPY_H__
 
+#include "pixel_traits.h"
 #include "pipeline.h"
 
 #include <cassert>
@@ -66,8 +67,10 @@ class RearrangeStream : public PipelineUnit<std::vector<T>, std::vector<T> > {
 
 template<typename From, typename To>
 class ReducePrecision : public PipelineUnit<std::vector<From>, std::vector<To> > {
-  static_assert(std::is_integral<To>::value, "Only operates on integral values");
-  static_assert(std::is_integral<From>::value, "Only operates on integral values");
+  static_assert(PixelTraits::NumChannels<To>::value == 1,
+                "Only operates to single channel values");
+  static_assert(PixelTraits::NumChannels<From>::value == 1,
+                "Only operates from single channel values");
 public:
   typedef PipelineUnit<std::vector<From>, std::vector<To> > Base;
   static std::unique_ptr<Base> New() {
