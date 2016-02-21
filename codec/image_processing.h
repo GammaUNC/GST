@@ -248,6 +248,26 @@ public:
   virtual Base::ReturnType Run(const Base::ArgType &in) const override;
 };
 
+template <typename T>
+class ForwardWavelet2D : public PipelineUnit<Image<T>,
+  Image<
+    typename PixelTraits::SignedTypeForBits<PixelTraits::BitsUsed<T>::value + 1>::Ty
+  > > {
+ public:
+   typedef Image<T> InputImage;
+   typedef Image<typename PixelTraits::SignedTypeForBits<PixelTraits::BitsUsed<T>::value + 1>::Ty>
+     OutputImage;
+   typedef PipelineUnit<InputImage, OutputImage> Base;
+
+   static std::unique_ptr<Base> New() {
+     return std::unique_ptr<Base>(new InverseDCT);
+   }
+
+   virtual Base::ReturnType Run(const Base::ArgType &in) const override {
+     return Base::ReturnType(nullptr);
+   }
+};
+
 }  // namespace GenTC
 
 #endif  // __TCAR_IMAGE_PROCESSING_H__

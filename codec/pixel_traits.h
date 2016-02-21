@@ -240,6 +240,92 @@ struct BitPacker<std::tuple<T1, T2, T3, T4> > {
   }
 };
 
+////////////////////////////////////////////////////////////
+
+template <typename T>
+struct ToUnsigned {
+  static uint64_t cvt(T x) {
+    if (IsSigned<T>::value && x < 0) {
+      uint64_t sub_zero = static_cast<uint64_t>(-x);
+      return (static_cast<uint64_t>(Max<T>::value) / 2) - sub_zero;
+    }
+    return static_cast<uint64_t>(x);
+  }
+};
+
+template <typename T1, typename T2, typename T3>
+struct ToUnsigned<std::tuple<T1, T2, T3> > {
+  static uint64_t cvt(std::tuple<T1, T2, T3> p) {
+    std::get<0>(p) = ToUnsigned<T1>::cvt(std::get<0>(p));
+    std::get<1>(p) = ToUnsigned<T2>::cvt(std::get<1>(p));
+    std::get<2>(p) = ToUnsigned<T3>::cvt(std::get<2>(p));
+  }
+};
+
+template <typename T1, typename T2, typename T3, typename T4>
+struct ToUnsigned<std::tuple<T1, T2, T3, T4> > {
+  static uint64_t cvt(std::tuple<T1, T2, T3, T4> p) {
+    std::get<0>(p) = ToUnsigned<T1>::cvt(std::get<0>(p));
+    std::get<1>(p) = ToUnsigned<T2>::cvt(std::get<1>(p));
+    std::get<2>(p) = ToUnsigned<T3>::cvt(std::get<2>(p));
+    std::get<3>(p) = ToUnsigned<T4>::cvt(std::get<3>(p));
+  }
+};
+
+////////////////////////////////////////////////////////////
+
+template <unsigned NumBits>
+struct SignedTypeForBits {
+  typedef SignedBits<NumBits> Ty;
+};
+
+template <>
+struct SignedTypeForBits<8> {
+  typedef int8_t Ty;
+};
+
+template <>
+struct SignedTypeForBits<16> {
+  typedef int16_t Ty;
+};
+
+template <>
+struct SignedTypeForBits<32> {
+  typedef int32_t Ty;
+};
+
+template <>
+struct SignedTypeForBits<64> {
+  typedef int64_t Ty;
+};
+
+////////////////////////////////////////////////////////////
+
+template <unsigned NumBits>
+struct UnsignedTypeForBits {
+  typedef UnsignedBits<NumBits> Ty;
+};
+
+template <>
+struct UnsignedTypeForBits<8> {
+  typedef uint8_t Ty;
+};
+
+template <>
+struct UnsignedTypeForBits<16> {
+  typedef uint16_t Ty;
+};
+
+template <>
+struct UnsignedTypeForBits<32> {
+  typedef uint32_t Ty;
+};
+
+template <>
+struct UnsignedTypeForBits<64> {
+  typedef uint64_t Ty;
+};
+
 }  // namespace PixelTraits
 
 }  // namespace GenTC
