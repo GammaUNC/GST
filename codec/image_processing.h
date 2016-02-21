@@ -9,6 +9,8 @@
 
 #include <array>
 
+#include <iostream>
+
 namespace GenTC {
 
 class RGBtoYCrCb: public PipelineUnit<RGBImage, YCbCrImage> {
@@ -252,11 +254,11 @@ public:
 template <typename T, size_t BlockSize>
 class FWavelet2D : public PipelineUnit<Image<T>,
   Image<
-    typename PixelTraits::SignedTypeForBits<PixelTraits::BitsUsed<T>::value + 1>::Ty
+    typename PixelTraits::SignedTypeForBits<PixelTraits::BitsUsed<T>::value + 2>::Ty
   > > {
 public:
   static const size_t kNumSrcBits = PixelTraits::BitsUsed<T>::value;
-  static const size_t kNumDstBits = kNumSrcBits + 1;
+  static const size_t kNumDstBits = kNumSrcBits + 2;
   typedef typename PixelTraits::SignedTypeForBits<kNumDstBits>::Ty DstTy;
   typedef Image<T> InputImage;
   typedef Image<DstTy> OutputImage;
@@ -287,8 +289,8 @@ public:
           for (size_t x = 0; x < BlockSize; ++x) {
             size_t local_idx = y * BlockSize + x;
             T pixel = in->GetAt(i + x, j + y);
-            assert(pixel <= PixelTraits::Max<int16_t>::value);
-            assert(pixel >= PixelTraits::Min<int16_t>::value);
+            assert(static_cast<int64_t>(pixel) <= PixelTraits::Max<int16_t>::value);
+            assert(static_cast<int64_t>(pixel) >= PixelTraits::Min<int16_t>::value);
             block[local_idx] = static_cast<int16_t>(pixel);
           }
         }
@@ -305,8 +307,8 @@ public:
         for (size_t y = 0; y < BlockSize; ++y) {
           for (size_t x = 0; x < BlockSize; ++x) {
             size_t local_idx = y * BlockSize + x;
-            assert(block[local_idx] <= PixelTraits::Max<DstTy>::value);
-            assert(block[local_idx] >= PixelTraits::Min<DstTy>::value);
+            assert(static_cast<DstTy>(block[local_idx]) <= PixelTraits::Max<DstTy>::value);
+            assert(static_cast<DstTy>(block[local_idx]) >= PixelTraits::Min<DstTy>::value);
             result->SetAt(i + x, j + y, static_cast<DstTy>(block[local_idx]));
           }
         }

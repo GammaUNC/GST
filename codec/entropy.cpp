@@ -180,15 +180,10 @@ ByteEncoder::EncodeBytes::Run(const ByteEncoder::Base::ArgType &in) const {
   }
 
   // Determine size
-  uint32_t non_zero_counts = 0;
+  size_t non_zero_counts = 0;
   for (size_t i = 0; i < counts.size(); ++i) {
     if (0 != counts[i]) {
-      if(i != non_zero_counts) {
-        assert(!"Zero-count symbols are not supported!");
-        break;
-      }
-
-      non_zero_counts++;
+      non_zero_counts = i + 1;
     }
   }
 
@@ -199,7 +194,7 @@ ByteEncoder::EncodeBytes::Run(const ByteEncoder::Base::ArgType &in) const {
   const size_t num_symbols = in->size();
   ans::Options opts = ans::ocl::GetOpenCLOptions(counts);
 
-  std::vector<uint8_t> encoded_symbols;
+  std::vector<uint8_t> encoded_stream;
   size_t num_encoded_symbols = 0;
   while (num_encoded_symbols < num_symbols) {
     size_t num_symbols_to_encode = 
@@ -213,12 +208,12 @@ ByteEncoder::EncodeBytes::Run(const ByteEncoder::Base::ArgType &in) const {
                              ans::ocl::kThreadsPerEncodingGroup);
 
     offsets.push_back(encoded_symbols.size());
-    encoded_symbols.insert(encoded_symbols.end(), encoded_symbols.begin(), encoded_symbols.end());
+    encoded_stream.insert(encoded_stream.end(), encoded_symbols.begin(), encoded_symbols.end());
     num_encoded_symbols += num_symbols_to_encode;
   }
 
   DataStream hdr;
-  hdr.WriteByte(non_zero_counts);
+  hdr.WriteByte(static_cast<uint8_t>(non_zero_counts));
   for (auto c : counts) {
     assert(static_cast<uint32_t>(c) < (1 << 16));
     hdr.WriteShort(c);
@@ -232,7 +227,7 @@ ByteEncoder::EncodeBytes::Run(const ByteEncoder::Base::ArgType &in) const {
 
   std::vector<uint8_t> *result = new std::vector<uint8_t>;
   result->insert(result->end(), hdr.GetData().begin(), hdr.GetData().end());
-  result->insert(result->end(), encoded_symbols.begin(), encoded_symbols.end());
+  result->insert(result->end(), encoded_stream.begin(), encoded_stream.end());
 
   return std::move(std::unique_ptr<std::vector<uint8_t> >(result));
 }

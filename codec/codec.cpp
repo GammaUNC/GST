@@ -20,7 +20,7 @@ std::unique_ptr<std::vector<uint8_t> > RunDXTEndpointPipeline(const std::unique_
     "This should operate on each DXT endpoing channel separately");
 
   static const size_t kNumBits = PixelTraits::BitsUsed<T>::value;
-  typedef typename PixelTraits::SignedTypeForBits<kNumBits+1>::Ty WaveletSignedTy;
+  typedef typename PixelTraits::SignedTypeForBits<kNumBits+2>::Ty WaveletSignedTy;
   typedef typename PixelTraits::UnsignedForSigned<WaveletSignedTy>::Ty WaveletUnsignedTy;
 
   auto pipeline = Pipeline<Image<T>, Image<WaveletSignedTy> >

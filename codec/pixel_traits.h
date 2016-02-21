@@ -11,12 +11,13 @@ template <unsigned NumBits>
 struct SignedBits {
   static_assert(NumBits > 0, "Must have at least some bits!");
   static_assert(NumBits <= 64, "Can't hold more than 64 bits!");
+  static const size_t kNumBits = NumBits;
   int64_t x;
 
   SignedBits(): x(0) { }
   SignedBits(int64_t _x): x(_x) {
-    assert(_x < (1 << (NumBits - 1)));
-    assert(_x >= (-1 << (NumBits - 1)));
+    assert(_x < (1LL << (NumBits - 1)));
+    assert(_x >= -(1LL << (NumBits - 1)));
   }
   operator int64_t() const { return x; }
 };
@@ -25,6 +26,7 @@ template <unsigned NumBits>
 struct UnsignedBits {
   static_assert(NumBits > 0, "Must have at least some bits!");
   static_assert(NumBits <= 64, "Can't hold more than 64 bits!");
+  static const size_t kNumBits = NumBits;
   uint64_t x;
 
   UnsignedBits(): x(0) { }
@@ -140,12 +142,12 @@ struct Min {
 
 template <unsigned NumBits>
 struct Min<UnsignedBits<NumBits> > {
-  static const uint64_t value = (1ULL << NumBits) - 1;
+  static const uint64_t value = 0;
 };
 
 template <unsigned NumBits>
 struct Min<SignedBits<NumBits> > {
-  static const int64_t value = (1ULL << (NumBits - 1)) - 1;
+  static const int64_t value = -(1LL << (NumBits - 1));
 };
 
 ////////////////////////////////////////////////////////////
