@@ -3,6 +3,8 @@
 
 #include <cassert>
 #include <cstdint>
+#include <cstdlib>
+#include <limits>
 #include <tuple>
 
 namespace GenTC {
@@ -262,20 +264,24 @@ struct ToUnsigned {
 
 template <typename T1, typename T2, typename T3>
 struct ToUnsigned<std::tuple<T1, T2, T3> > {
-  static uint64_t cvt(std::tuple<T1, T2, T3> p) {
-    std::get<0>(p) = ToUnsigned<T1>::cvt(std::get<0>(p));
-    std::get<1>(p) = ToUnsigned<T2>::cvt(std::get<1>(p));
-    std::get<2>(p) = ToUnsigned<T3>::cvt(std::get<2>(p));
+  static std::tuple<T1, T2, T3> cvt(std::tuple<T1, T2, T3> p) {
+    std::tuple<T1, T2, T3> result;
+    std::get<0>(result) = ToUnsigned<T1>::cvt(std::get<0>(p));
+    std::get<1>(result) = ToUnsigned<T2>::cvt(std::get<1>(p));
+    std::get<2>(result) = ToUnsigned<T3>::cvt(std::get<2>(p));
+    return result;
   }
 };
 
 template <typename T1, typename T2, typename T3, typename T4>
 struct ToUnsigned<std::tuple<T1, T2, T3, T4> > {
-  static uint64_t cvt(std::tuple<T1, T2, T3, T4> p) {
-    std::get<0>(p) = ToUnsigned<T1>::cvt(std::get<0>(p));
-    std::get<1>(p) = ToUnsigned<T2>::cvt(std::get<1>(p));
-    std::get<2>(p) = ToUnsigned<T3>::cvt(std::get<2>(p));
-    std::get<3>(p) = ToUnsigned<T4>::cvt(std::get<3>(p));
+  static std::tuple<T1, T2, T3, T4> cvt(std::tuple<T1, T2, T3, T4> p) {
+    std::tuple<T1, T2, T3, T4> result;
+    std::get<0>(result) = ToUnsigned<T1>::cvt(std::get<0>(p));
+    std::get<1>(result) = ToUnsigned<T2>::cvt(std::get<1>(p));
+    std::get<2>(result) = ToUnsigned<T3>::cvt(std::get<2>(p));
+    std::get<3>(result) = ToUnsigned<T4>::cvt(std::get<3>(p));
+    return result;
   }
 };
 

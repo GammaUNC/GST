@@ -315,7 +315,7 @@ public:
       }
     }
 
-    return std::move(Base::ReturnType(result));
+    return std::move(typename Base::ReturnType(result));
   }
 };
 

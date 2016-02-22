@@ -14,7 +14,7 @@ namespace GenTC {
   static const float s6 = sinf(3.f * static_cast<float>(M_PI) / 8.f);
   static const float c6 = cosf(3.f * static_cast<float>(M_PI) / 8.f);
 
-  static void fdct(float in[8], float out[8]) {
+  static inline void fdct(float in[8], float out[8]) {
     // After stage 1:
     const float s1_0 = in[0] + in[7];
     const float s1_1 = in[1] + in[6];
@@ -69,7 +69,7 @@ namespace GenTC {
     out[1] = s4_7;
   }
 
-  static void idct(float in[8], float out[8]) {
+  static inline void idct(float in[8], float out[8]) {
     const float s3_0 = out[0];
     const float s3_1 = out[4];
     const float s3_2 = out[2];

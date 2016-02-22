@@ -319,7 +319,7 @@ int decode(cv::Mat *result, const uint8_t *buf) {
 
   // Populate the image properly
   assert(result->type() == CV_16SC1);
-  uint32_t coeff_idx = 0;
+  int coeff_idx = 0;
 #ifdef VERBOSE
   std::cout << "First 16 decoded values: ";
 #endif
@@ -523,7 +523,7 @@ std::vector<uint8_t> entropy_encode_index_symbols(const std::vector<uint8_t> &sy
     opts.Fs = F;
 
     const uint32_t M = std::accumulate(F.begin(), F.end(), 0);
-    assert(M == denominator);
+    assert(static_cast<int>(M) == denominator);
 
     std::vector<uint8_t> rANS_Stream(2048, 0);
     ans::BitWriter rANS_Writer = ans::BitWriter(rANS_Stream.data());
