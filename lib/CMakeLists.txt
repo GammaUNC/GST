@@ -1,1 +1,1 @@
-MESSAGE("Implement library...")
+ADD_SUBDIRECTORY(vptree)

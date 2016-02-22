@@ -1,0 +1,10 @@
+The files pqueue.h and pqueue.c are from Apache and are licensed under the Apache License, Version 2.0.  A copy can be obtained at
+
+http://www.apache.org/licenses/LICENSE-2.0
+
+The remainder of this distribution is also licensed under the Apache License, Version 2.0.
+
+This distribution without the files pqueue.h and pqueue.c may be redistributed
+under the MIT License, a copy of which may be obtained at
+
+http://opensource.org/licenses/MIT
