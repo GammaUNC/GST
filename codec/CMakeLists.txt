@@ -4,6 +4,7 @@ include_directories("${GenTC_BINARY_DIR}/codec")
 include_directories("${GenTC_SOURCE_DIR}/gpu")
 include_directories("${GenTC_SOURCE_DIR}/ans")
 include_directories("${GenTC_SOURCE_DIR}/lib/include")
+include_directories("${GenTC_SOURCE_DIR}/lib/vptree/include")
 INCLUDE_DIRECTORIES( ${OPENCL_INCLUDE_DIRS} )
 
 SET( HEADERS
@@ -34,6 +35,7 @@ SET( SOURCES
 ADD_LIBRARY(gentc_codec ${HEADERS} ${SOURCES})
 TARGET_LINK_LIBRARIES(gentc_codec ans)
 TARGET_LINK_LIBRARIES(gentc_codec gentc_gpu)
+TARGET_LINK_LIBRARIES(gentc_codec vptree)
 
 INCLUDE_DIRECTORIES(${GenTC_SOURCE_DIR}/googletest/include)
 

@@ -7,7 +7,7 @@
 #include <algorithm>
 #include <numeric>
 
-#define VERBOSE
+// #define VERBOSE
 #include "opencv_dct.hpp"
 
 #include "histogram.h"

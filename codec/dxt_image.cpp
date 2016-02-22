@@ -2,9 +2,14 @@
 
 #include <algorithm>
 #include <cassert>
+#include <chrono>
 #include <cstring>
 #include <iostream>
 #include <functional>
+#include <random>
+
+#include "vptree/vptree.hh"
+#define PREDICT_VPTREE
 
 static void LerpChannels(uint8_t a[3], uint8_t b[3], uint8_t out[3], int num, int div) {
   for (int i = 0; i < 3; ++i) {
@@ -359,7 +364,7 @@ int distance(uint8_t *colorA, const uint8_t *colorB) {
   return distance;
 }
 
-uint8_t prediction_delta(const uint8_t colors[4][4], uint8_t *predicted_color, uint8_t idx) {
+uint8_t predict_index(const uint8_t colors[4][4], uint8_t *predicted_color) {
   int difference[4];
 
   for (int i = 0; i<4; i++)
@@ -374,16 +379,191 @@ uint8_t prediction_delta(const uint8_t colors[4][4], uint8_t *predicted_color, u
     }
   }
 
+  return min_id;
+}
+
+uint8_t compute_prediction_delta(uint8_t idx, uint8_t orig_idx) {
   // The indices are ordered like 0, 3, 1, 2
   static const uint8_t idx_to_order[4] = { 0, 3, 1, 2 };
 
+  assert(orig_idx < 4);
   assert(idx < 4);
-  assert(min_id < 4);
-  uint8_t orig_order = idx_to_order[idx];
-  uint8_t pred_order = idx_to_order[min_id];
+  uint8_t orig_order = idx_to_order[orig_idx];
+  uint8_t pred_order = idx_to_order[idx];
 
   return ((orig_order + 4) - pred_order) % 4;
 }
+
+#ifdef PREDICT_VPTREE
+
+static bool operator==(const LogicalDXTBlock &p1, const LogicalDXTBlock &p2) {
+  return memcmp(&p1, &p2, sizeof(p1)) == 0;
+}
+
+static double BlockDist(const LogicalDXTBlock &p1, const LogicalDXTBlock &p2) {
+  // The indices are ordered like 0, 3, 1, 2
+  static const uint8_t idx_to_order[4] = { 0, 3, 1, 2 };
+
+  double dist = 0.0;
+  for (size_t i = 0; i < 16; ++i) {
+    double x = static_cast<double>(idx_to_order[p1.indices[i]]);
+    double y = static_cast<double>(idx_to_order[p2.indices[i]]);
+
+    double err = x - y;
+    dist += err * err;
+  }
+
+  return dist;
+}
+
+static std::vector<LogicalDXTBlock> KMeansBlocks(const std::vector<LogicalDXTBlock> &blocks,
+                                                 size_t num_clusters) {
+  // Generate num_clusters random logical blocks
+  std::vector<LogicalDXTBlock> clusters;
+  clusters.reserve(num_clusters);
+
+  unsigned seed = std::chrono::system_clock::now().time_since_epoch().count();
+  std::default_random_engine gen(seed);
+  std::uniform_int_distribution<unsigned> dist(0, 3);
+
+  while (clusters.size() < num_clusters) {
+
+    LogicalDXTBlock blk;
+    memset(&blk, 0, sizeof(blk));
+
+    for (int i = 0; i < 16; ++i) {
+      blk.indices[i] = dist(gen);
+      assert(blk.indices[i] < 4);
+    }
+
+    // If we already have this seeded cluster, then generate a new one...
+    if (std::find(clusters.begin(), clusters.end(), blk) != clusters.end()) {
+      continue;
+    }
+
+    clusters.push_back(blk);
+  }
+
+  // Allocate data for k-means
+  std::vector<std::vector<double> > old_clusters(clusters.size(), std::vector<double>(16, 0.0));
+  std::vector<size_t> cluster_idx(blocks.size(), 0);
+  std::vector<std::vector<double> > new_clusters(clusters.size(), std::vector<double>(16, 0.0));
+  std::vector<double> tmp(16, 0.0);
+
+  // Get old clusters from initial clusters...
+  for (size_t i = 0; i < num_clusters; ++i) {
+    for (size_t j = 0; j < 16; ++j) {
+      old_clusters[i][j] = static_cast<double>(clusters[i].indices[j]);
+    }
+  }
+
+  // Do until fixed point...
+  for (;;) {
+
+    // Assign each block to a cluster
+    EuclideanVPTree vp_tree;
+    vp_tree.addMany(old_clusters.begin(), old_clusters.end());
+
+    for (size_t i = 0; i < blocks.size(); ++i) {
+      for (size_t j = 0; j < 16; ++j) {
+        tmp[j] = static_cast<double>(blocks[i].indices[j]);
+      }
+
+      const std::vector<double> *closest = vp_tree.nearestNeighbors(tmp)[0];
+
+      auto closest_itr = std::find(old_clusters.begin(), old_clusters.end(), *closest);
+      size_t idx = closest_itr - old_clusters.begin();
+      assert(idx < blocks.size());
+      cluster_idx[i] = idx;
+    }
+
+    // Generate new clusters based on the index of each cluster...
+    for (size_t c = 0; c < clusters.size(); ++c) {
+      tmp.assign(16, 0.0);
+      double cluster_sz = 0.0;
+      for (size_t b = 0; b < blocks.size(); ++b) {
+        if (cluster_idx[b] == c) {
+          for (size_t i = 0; i < 16; ++i) {
+            tmp[i] += static_cast<double>(blocks[b].indices[i]);
+          }
+
+          cluster_sz += 1.0;
+        }
+      }
+
+      for (size_t i = 0; i < 16; ++i) {
+        tmp[i] /= cluster_sz;
+      }
+
+      new_clusters[c].assign(tmp.begin(), tmp.end());
+    }
+
+    bool fixed_point = true;
+    for (size_t i = 0; i < new_clusters.size(); ++i) {
+      if (old_clusters[i] != new_clusters[i]) {
+        continue;
+      }
+    }
+
+    if (fixed_point) {
+      break;
+    }
+
+    // Not fixed point, so set each old cluster to a new cluster...
+    for (size_t i = 0; i < clusters.size(); ++i) {
+      old_clusters[i].assign(new_clusters[i].begin(), new_clusters[i].end());
+    }
+  }
+
+  // Create discrete clusters by rounding continuous clusters
+  for (size_t i = 0; i < clusters.size(); ++i) {
+    for (size_t j = 0; j < 16; ++j) {
+      clusters[i].indices[j] = static_cast<uint8_t>(old_clusters[i][j] + 0.5);
+      assert(0 <= clusters[i].indices[j] && clusters[i].indices[j] < 4);
+    }
+  }
+
+  return std::move(clusters);
+}
+
+class IndexVPTree : public VPTree<LogicalDXTBlock> {
+ protected:
+  double distance(const LogicalDXTBlock &p1, const LogicalDXTBlock &p2) override {
+    return BlockDist(p1, p2);
+  }
+};
+
+std::vector<uint8_t>
+DXTImage::PredictIndices(int chunk_width, int chunk_height) const {
+  // Operate in 16-block chunks arranged as 4x4 blocks
+  assert(Width() % 16 == 0);
+  assert(Height() % 16 == 0);
+
+  std::vector<LogicalDXTBlock> blocks = std::move(KMeansBlocks(LogicalBlocks(), 256));
+
+  IndexVPTree vptree;
+  vptree.addMany(blocks.begin(), blocks.end());
+
+  std::vector<uint8_t> symbols;
+  symbols.reserve(Height() * Width());
+
+  for (int py = 0; py < Height(); ++py) {
+    for (int px = 0; px < Width(); ++px) {
+
+      const LogicalDXTBlock &blk = LogicalBlockAt(px, py);
+
+      int local_idx = (py % 4) * 4 + (px % 4);
+      uint8_t predicted_index = vptree.nearestNeighbors(blk)[0]->indices[local_idx];
+      uint8_t predicted_delta = compute_prediction_delta(predicted_index, blk.indices[local_idx]);
+
+      symbols.push_back(predicted_delta);
+    }
+  }  
+
+  return std::move(symbols);
+}
+
+#else
 
 std::vector<uint8_t>
 DXTImage::PredictIndices(int chunk_width, int chunk_height) const {
@@ -411,9 +591,8 @@ DXTImage::PredictIndices(int chunk_width, int chunk_height) const {
       uint8_t predicted[4];
       predict_color(diag_color, top_color, left_color, predicted);
 
-      uint8_t predicted_delta =
-        prediction_delta(LogicalBlockAt(px, py).palette,
-          predicted, indices[pixel_index]);
+      uint8_t predicted_index = predict_index(LogicalBlockAt(px, py).palette, predicted);
+      uint8_t predicted_delta = compute_prediction_delta(predicted_index, indices[pixel_index]);
 
       symbols.push_back(predicted_delta);
     }
@@ -422,6 +601,8 @@ DXTImage::PredictIndices(int chunk_width, int chunk_height) const {
   assert(symbols.size() == indices.size());
   return std::move(symbols);
 }
+
+#endif
 
 std::vector<uint8_t>
 DXTImage::PredictIndicesLinearize(int chunk_width, int chunk_height) const {

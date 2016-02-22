@@ -93,7 +93,29 @@ std::vector<uint8_t> CompressDXT(const uint8_t *dxt, int width, int height) {
 
   result.insert(result.end(), idx_cmp->begin(), idx_cmp->end());
 
-  std::cout << "Compressed DXT size: " << result.size() << std::endl;
+  std::cout << "Interpolation value stats:" << std::endl;
+  std::cout << "Uncompressed Size of 2-bit symbols: " << (idx_img->size() * 2) / 8 << std::endl;
+
+  std::vector<size_t> F(4, 0);
+  for (auto it = idx_img->begin(); it != idx_img->end(); ++it) {
+    F[*it]++;
+  }
+  size_t M = std::accumulate(F.begin(), F.end(), 0);
+
+  double H = 0;
+  for (auto f : F) {
+    double Ps = static_cast<double>(f);
+    H -= Ps * log2(Ps);
+  }
+  H = log2(static_cast<double>(M)) + (H / static_cast<double>(M));
+
+  std::cout << "H: " << H << std::endl;
+  std::cout << "Expected num bytes: " << H*(idx_img->size() / 8) << std::endl;
+  std::cout << "Actual num bytes: " << idx_cmp->size() << std::endl;
+
+  double bpp = static_cast<double>(result.size() * 8) / static_cast<double>(width * height);
+  std::cout << "Compressed DXT size: " << result.size()
+            << " (" << bpp << " bpp)" << std::endl;
 
   return std::move(result);
 }
