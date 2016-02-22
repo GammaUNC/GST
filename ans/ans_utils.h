@@ -57,6 +57,8 @@ static bool OptionsValid(const ans::Options &opts) {
   // at least one, otherwise our states are zero.
   ok = ok && opts.k > 0;
 
+  ok = ok && opts.M > 0;
+
   return ok;
 }
 

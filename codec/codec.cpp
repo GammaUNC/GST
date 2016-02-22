@@ -73,6 +73,16 @@ std::vector<uint8_t> CompressDXT(const uint8_t *dxt, int width, int height) {
   auto ep2_cg_cmp = RunDXTEndpointPipeline(std::get<2>(*ep2_planes));
   out.WriteInt(static_cast<uint32_t>(ep2_cg_cmp->size()));
 
+  // !FIXME! Do something with the index data...
+  auto index_pipeline =
+    Pipeline<std::vector<uint8_t>, std::vector<uint8_t> >
+    ::Create(ByteEncoder::Encoder(ans::ocl::kNumEncodedSymbols));
+
+  std::unique_ptr<std::vector<uint8_t> > idx_img(
+    new std::vector<uint8_t>(dxt_img.PredictIndicesLinearize(16, 16)));
+  auto idx_cmp = index_pipeline->Run(idx_img);
+  out.WriteInt(static_cast<uint32_t>(idx_cmp->size()));
+
   std::vector<uint8_t> result = out.GetData();
   result.insert(result.end(), ep1_y_cmp->begin(), ep1_y_cmp->end());
   result.insert(result.end(), ep1_co_cmp->begin(), ep1_co_cmp->end());
@@ -81,10 +91,9 @@ std::vector<uint8_t> CompressDXT(const uint8_t *dxt, int width, int height) {
   result.insert(result.end(), ep2_co_cmp->begin(), ep2_co_cmp->end());
   result.insert(result.end(), ep2_cg_cmp->begin(), ep2_cg_cmp->end());
 
-  // !FIXME! Do something with the index data...
-  const size_t idx_sz = dxt_img.LogicalBlocks().size() * 4;
+  result.insert(result.end(), idx_cmp->begin(), idx_cmp->end());
 
-  std::cout << "Compressed DXT size: " << idx_sz + result.size() << std::endl;
+  std::cout << "Compressed DXT size: " << result.size() << std::endl;
 
   return std::move(result);
 }

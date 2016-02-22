@@ -7,7 +7,7 @@
 #include <algorithm>
 #include <numeric>
 
-// #define VERBOSE
+#define VERBOSE
 #include "opencv_dct.hpp"
 
 #include "histogram.h"
@@ -511,11 +511,17 @@ std::vector<uint8_t> entropy_encode_index_symbols(const std::vector<uint8_t> &sy
 
 #ifdef VERBOSE
   {
+    double num_predicted = static_cast<double>(counts[0]);
+    double num_indices = static_cast<double>(std::accumulate(counts.begin(), counts.end(), 0));
+    std::cout << "Predicted: " << (num_predicted * 100.0) / num_indices << std::endl;
+
     ans::Options opts;
     opts.b = 2;
     opts.k = 1;
     const int denominator = 2048;
     std::vector<uint32_t> F = ans::GenerateHistogram(counts, denominator);
+    opts.Fs = F;
+
     const uint32_t M = std::accumulate(F.begin(), F.end(), 0);
     assert(M == denominator);
 
@@ -526,10 +532,10 @@ std::vector<uint8_t> entropy_encode_index_symbols(const std::vector<uint8_t> &sy
     ans::BitWriter tANS_Writer = ans::BitWriter(tANS_Stream.data());
 
     opts.type = ans::eType_rANS;
-    std::unique_ptr<ans::Encoder> rANS_coder = ans::Encoder::Create(F, opts);
+    std::unique_ptr<ans::Encoder> rANS_coder = ans::Encoder::Create(opts);
 
     opts.type = ans::eType_tANS;
-    std::unique_ptr<ans::Encoder> tANS_coder = ans::Encoder::Create(F, opts);
+    std::unique_ptr<ans::Encoder> tANS_coder = ans::Encoder::Create(opts);
 
     double H = 0;
     for (auto f : F) {

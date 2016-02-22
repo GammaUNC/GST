@@ -254,35 +254,39 @@ uint8_t get_gray(const uint8_t color[]) {
   return eight_bit_gray;
 }
 
-void predict_color(const uint8_t diag[], const uint8_t upper[],
-  const uint8_t left[], uint8_t *predicted) {
-  uint8_t gray_diag, gray_upper, gray_left;
-  gray_diag = get_gray(diag);
-  gray_upper = get_gray(upper);
-  gray_left = get_gray(left);
+template <typename T>
+static inline T AbsDiff(T a, T b) {
+  return a > b ? a - b : b - a;
+}
 
-  uint8_t mb = std::abs(gray_diag - gray_upper);
-  uint8_t mc = std::abs(gray_diag - gray_left);
-  uint8_t ma = std::abs(mb - mc);
-
-  int temp[3];
+void predict_color_wennersten(const uint8_t diag[], const uint8_t upper[],
+                              const uint8_t left[], uint8_t *predicted) {
+  int16_t temp[3];
 
   for (int i = 0; i<3; i++) {
+    int16_t l = static_cast<uint16_t>(left[i]);
+    int16_t u = static_cast<uint16_t>(upper[i]);
+    int16_t d = static_cast<uint16_t>(diag[i]);
+
+    int16_t mb = AbsDiff(d, u);
+    int16_t mc = AbsDiff(d, l);
+    int16_t ma = AbsDiff(mb, mc);
+
     if ((ma < 4) && (mb < 4))
-      temp[i] = left[i] + upper[i] - diag[i];
+      temp[i] = l + u - d;
     else if (ma < 10)
-      temp[i] = (left[i] + upper[i]) / 2;
+      temp[i] = (l + u) / 2;
     else if (ma < 64) {
       if (mb < mc)
-        temp[i] = (3 * left[i] + upper[i]) / 4;
+        temp[i] = (3 * l + u) / 4;
       else
-        temp[i] = (left[i] + 3 * upper[i]) / 4;
+        temp[i] = (l + 3 * u) / 4;
     }
     else {
       if (mb < mc)
-        temp[i] = left[i];
+        temp[i] = l;
       else
-        temp[i] = upper[i];
+        temp[i] = u;
     }
   } // for
 
@@ -292,9 +296,46 @@ void predict_color(const uint8_t diag[], const uint8_t upper[],
     else if (temp[i] > 255)
       temp[i] = 255;
 
-    predicted[i] = temp[i];
+    predicted[i] = static_cast<uint8_t>(temp[i]);
   }
   predicted[3] = 0xFF;
+}
+
+void predict_color_med(const uint8_t diag[], const uint8_t upper[],
+                       const uint8_t left[], uint8_t *predicted) {
+  int16_t temp[3];
+
+  for (int i = 0; i<3; i++) {
+    int16_t l = static_cast<uint16_t>(left[i]);
+    int16_t u = static_cast<uint16_t>(upper[i]);
+    int16_t d = static_cast<uint16_t>(diag[i]);
+
+    int16_t mxa = std::max(l, u);
+    int16_t mna = std::min(l, u);
+
+    if ( d >= mxa )
+      temp[i] = mna;
+    else if ( d <= mna )
+      temp[i] = mxa;
+    else {
+      temp[i] = l + u - d;
+    }
+  } // for
+
+  for (int i = 0; i<3; i++) {
+    if (temp[i] < 0)
+      temp[i] = 0;
+    else if (temp[i] > 255)
+      temp[i] = 255;
+
+    predicted[i] = static_cast<uint8_t>(temp[i]);
+  }
+  predicted[3] = 0xFF;
+}
+
+void predict_color(const uint8_t diag[], const uint8_t upper[],
+                   const uint8_t left[], uint8_t *predicted) {
+  predict_color_med(diag, upper, left, predicted);
 }
 
 int distance(uint8_t *colorA, const uint8_t *colorB) {
@@ -318,7 +359,7 @@ int distance(uint8_t *colorA, const uint8_t *colorB) {
   return distance;
 }
 
-int predict_index(const uint8_t colors[4][4], uint8_t *predicted_color) {
+uint8_t prediction_delta(const uint8_t colors[4][4], uint8_t *predicted_color, uint8_t idx) {
   int difference[4];
 
   for (int i = 0; i<4; i++)
@@ -327,13 +368,21 @@ int predict_index(const uint8_t colors[4][4], uint8_t *predicted_color) {
   int min = difference[0];
   int min_id = 0;
   for (int i = 1; i<4; i++) {
-    if (min > difference[i]) {
+    if (difference[i] <= min) {
       min = difference[i];
       min_id = i;
     }
   }
 
-  return min_id;
+  // The indices are ordered like 0, 3, 1, 2
+  static const uint8_t idx_to_order[4] = { 0, 3, 1, 2 };
+
+  assert(idx < 4);
+  assert(min_id < 4);
+  uint8_t orig_order = idx_to_order[idx];
+  uint8_t pred_order = idx_to_order[min_id];
+
+  return ((orig_order + 4) - pred_order) % 4;
 }
 
 std::vector<uint8_t>
@@ -362,11 +411,11 @@ DXTImage::PredictIndices(int chunk_width, int chunk_height) const {
       uint8_t predicted[4];
       predict_color(diag_color, top_color, left_color, predicted);
 
-      int predicted_index =
-        predict_index(LogicalBlockAt(px, py).palette, predicted);
+      uint8_t predicted_delta =
+        prediction_delta(LogicalBlockAt(px, py).palette,
+          predicted, indices[pixel_index]);
 
-      int delta = ((indices[pixel_index] + 4) - predicted_index) % 4;
-      symbols.push_back(delta);
+      symbols.push_back(predicted_delta);
     }
   }
 

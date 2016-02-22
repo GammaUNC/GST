@@ -9,8 +9,11 @@
 #include <sstream>
 #include <vector>
 
+#pragma warning( push )
+#pragma warning( disable : 4312 )
 #define STB_IMAGE_IMPLEMENTATION
 #include "stb_image.h"
+#pragma warning( pop )
 
 #include "gpu.h"
 #include "config.h"
