@@ -2,6 +2,7 @@
 
 #include <cassert>
 #include <cstdint>
+#include <fstream>
 #include <iostream>
 #include <vector>
 #include <algorithm>
@@ -23,10 +24,17 @@
 #pragma GCC diagnostic ignored "-Wmaybe-uninitialized"
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wuninitialized"
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wunused-value"
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wconversion-null"
 #endif
 #define STB_DXT_IMPLEMENTATION
 #include "stb_dxt.h"
+#include "crn_decomp.h"
 #ifndef _MSC_VER
+#pragma GCC diagnostic pop
+#pragma GCC diagnostic pop
 #pragma GCC diagnostic pop
 #pragma GCC diagnostic pop
 #endif
@@ -652,47 +660,94 @@ int main(int argc, char **argv) {
     return 1;
   }
 
-  // Otherwise, load the file
-  const cv::Mat img = cv::imread(argv[1], -1);
-  if (!img.data) {
-    std::cerr << "Error loading image: " << argv[1] << std::endl;
-    return 1;
-  }
+  // Is it a crunch img?
+  size_t width, height;
+  std::vector<GenTC::PhysicalDXTBlock> dxt_blocks;
+  std::string fname(argv[1]);
+  if (fname.substr(fname.find_last_of(".") + 1) == "crn") {
+    std::ifstream ifs(fname.c_str(), std::ifstream::binary|std::ifstream::ate);
+    std::ifstream::pos_type pos = ifs.tellg();
 
-  assert((img.cols & 0x3) == 0);
-  assert((img.rows & 0x3) == 0);
+    std::vector<uint8_t> crn(pos);
 
-  const int num_blocks_x = (img.cols + 3) / 4;
-  const int num_blocks_y = (img.rows + 3) / 4;
-  const int num_blocks = num_blocks_x * num_blocks_y;
+    ifs.seekg(0, std::ifstream::beg);
+    ifs.read(reinterpret_cast<char *>(crn.data()), pos);
 
-  // Now do the dxt compression...
-  std::vector<GenTC::PhysicalDXTBlock> dxt_blocks(num_blocks);
+    crnd::crn_texture_info tinfo;
+    if (!crnd::crnd_get_texture_info(crn.data(), crn.size(), &tinfo)) {
+      assert(!"Invalid texture?");
+      return 1;
+    }
 
-  for (int j = 0; j < img.rows; j += 4) {
-    for (int i = 0; i < img.cols; i += 4) {
-      int block_idx = (j / 4) * num_blocks_x + (i / 4);
-      const unsigned char *offset_data = img.ptr(j) + i * img.channels();
-      if (3 == img.channels()) {
-        dxt_blocks[block_idx].dxt_block = CompressRGB(offset_data, img.cols);
-      } else if (4 == img.channels()) {
-        dxt_blocks[block_idx].dxt_block = CompressRGBA(offset_data, img.cols);
-      } else {
-        std::cerr << "Error! Only accepts RGB or RGBA images!" << std::endl;
+    width = tinfo.m_width;
+    height = tinfo.m_height;
+
+    crnd::crnd_unpack_context ctx = crnd::crnd_unpack_begin(crn.data(), crn.size());
+    if (!ctx) {
+      assert(!"Error beginning crn decoding!");
+      return 1;
+    }
+
+    const int num_blocks_x = (width + 3) / 4;
+    const int num_blocks_y = (height + 3) / 4;
+    const int num_blocks = num_blocks_x * num_blocks_y;
+    dxt_blocks.resize(num_blocks);
+
+    void *dst = dxt_blocks.data();
+    if (!crnd::crnd_unpack_level(ctx, &dst, dxt_blocks.size() * 8, num_blocks_x * 8, 0)) {
+      assert(!"Error decoding crunch texture!");
+      return 1;
+    }
+
+    crnd::crnd_unpack_end(ctx);
+
+  } else {
+    // Otherwise, load the file
+    const cv::Mat img = cv::imread(argv[1], -1);
+    if (!img.data) {
+      std::cerr << "Error loading image: " << argv[1] << std::endl;
+      return 1;
+    }
+    width = img.cols;
+    height = img.rows;
+
+    assert((img.cols & 0x3) == 0);
+    assert((img.rows & 0x3) == 0);
+
+    const int num_blocks_x = (img.cols + 3) / 4;
+    const int num_blocks_y = (img.rows + 3) / 4;
+    const int num_blocks = num_blocks_x * num_blocks_y;
+
+    // Now do the dxt compression...
+    dxt_blocks.resize(num_blocks);
+    for (int j = 0; j < img.rows; j += 4) {
+      for (int i = 0; i < img.cols; i += 4) {
+        int block_idx = (j / 4) * num_blocks_x + (i / 4);
+        const unsigned char *offset_data = img.ptr(j) + i * img.channels();
+        if (3 == img.channels()) {
+          dxt_blocks[block_idx].dxt_block = CompressRGB(offset_data, img.cols);
+        } else if (4 == img.channels()) {
+          dxt_blocks[block_idx].dxt_block = CompressRGBA(offset_data, img.cols);
+        } else {
+          std::cerr << "Error! Only accepts RGB or RGBA images!" << std::endl;
+        }
       }
     }
   }
 
+  const int num_blocks_x = (width + 3) / 4;
+  const int num_blocks_y = (height + 3) / 4;
+
   const uint8_t *dxt_data = reinterpret_cast<const uint8_t *>(dxt_blocks.data());
-  GenTC::DXTImage dxt_img(dxt_data, img.cols, img.rows);
-  GenTC::CompressDXT(dxt_data, img.cols, img.rows);
+  GenTC::DXTImage dxt_img(dxt_data, width, height);
+  GenTC::CompressDXT(dxt_data, width, height);
 
   // Decompress into image...
-  cv::imwrite("img_dxt.png", cv::Mat(img.rows, img.cols, CV_8UC4,
+  cv::imwrite("img_dxt.png", cv::Mat(height, width, CV_8UC4,
     const_cast<uint8_t*>(dxt_img.DecompressedImage()->Pack().data())));
 
   // Visualize interpolation data...
-  cv::imwrite("img_dxt_interp.png", cv::Mat(img.rows, img.cols, CV_8UC1,
+  cv::imwrite("img_dxt_interp.png", cv::Mat(height, width, CV_8UC1,
     dxt_img.InterpolationImage().data()));
 
   // Compress indices...
@@ -715,7 +770,7 @@ int main(int argc, char **argv) {
   uint32_t total_compressed_sz =
     static_cast<uint32_t>(strm_A.size() + strm_B.size() + compressed_indices.size());
   uint32_t dxt_sz = static_cast<uint32_t>(dxt_blocks.size() * 8);
-  uint32_t uncompressed_sz = img.cols * img.rows * 3;
+  uint32_t uncompressed_sz = width * height * 3;
 
   std::cout << "Uncompressed size: " << uncompressed_sz << std::endl;
   std::cout << "DXT compressed size: " << dxt_sz << std::endl;
@@ -752,8 +807,8 @@ int main(int argc, char **argv) {
   }  
   
   GenTC::DXTImage gtc_img(reinterpret_cast<const uint8_t *>(dxt_blocks.data()),
-                          img.cols, img.rows);
-  cv::imwrite("img_gtc.png", cv::Mat(img.rows, img.cols, CV_8UC4,
+                          width, height);
+  cv::imwrite("img_gtc.png", cv::Mat(height, width, CV_8UC4,
     const_cast<uint8_t*>(gtc_img.DecompressedImage()->Pack().data())));
 
   return 0;
