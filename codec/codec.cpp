@@ -96,7 +96,7 @@ std::vector<uint8_t> CompressDXT(const uint8_t *dxt, int width, int height) {
   std::cout << "Interpolation value stats:" << std::endl;
   std::cout << "Uncompressed Size of 2-bit symbols: " << (idx_img->size() * 2) / 8 << std::endl;
 
-  std::vector<size_t> F(4, 0);
+  std::vector<size_t> F(256, 0);
   for (auto it = idx_img->begin(); it != idx_img->end(); ++it) {
     F[*it]++;
   }
@@ -104,6 +104,9 @@ std::vector<uint8_t> CompressDXT(const uint8_t *dxt, int width, int height) {
 
   double H = 0;
   for (auto f : F) {
+    if (f == 0)
+      continue;
+
     double Ps = static_cast<double>(f);
     H -= Ps * log2(Ps);
   }

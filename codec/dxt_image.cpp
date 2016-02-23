@@ -416,30 +416,92 @@ static double BlockDist(const LogicalDXTBlock &p1, const LogicalDXTBlock &p2) {
   return dist;
 }
 
-static std::vector<LogicalDXTBlock> KMeansBlocks(const std::vector<LogicalDXTBlock> &blocks,
+static std::vector<std::pair<uint32_t, size_t> > CountBlocks(
+  const std::vector<PhysicalDXTBlock> &blocks) {
+  typedef std::pair<uint32_t, size_t> Res;
+  std::vector<Res> result;
+  result.reserve(blocks.size());
+
+  for (const auto &b : blocks) {
+    bool found = false;
+    for (auto &r : result) {
+      if (r.first == b.interpolation) {
+        r.second++;
+        found = true;
+        break;
+      }
+    }
+
+    if (!found) {
+      result.push_back(std::make_pair(b.interpolation, 0));
+    }
+  }
+
+  std::sort(result.begin(), result.end(), [](const Res &a, const Res &b) {
+    return std::greater<size_t>()(a.second, b.second);
+  });
+
+  return std::move(result);
+}
+
+static std::vector<LogicalDXTBlock> KMeansBlocks(const std::vector<PhysicalDXTBlock> &blocks,
                                                  size_t num_clusters) {
   // Generate num_clusters random logical blocks
   std::vector<LogicalDXTBlock> clusters;
   clusters.reserve(num_clusters);
 
-  unsigned seed = std::chrono::system_clock::now().time_since_epoch().count();
-  std::default_random_engine gen(seed);
-  std::uniform_int_distribution<unsigned> dist(0, 3);
+  std::default_random_engine gen(
+    std::chrono::system_clock::now().time_since_epoch().count());
+  std::uniform_int_distribution<unsigned> dist(0, blocks.size() - 1);
+
+  std::vector<std::pair<uint32_t, size_t> > counted_indices = CountBlocks(blocks);
+  std::cout << "Num unique index blocks: " << counted_indices.size() << std::endl;
 
   while (clusters.size() < num_clusters) {
 
     LogicalDXTBlock blk;
     memset(&blk, 0, sizeof(blk));
 
-    for (int i = 0; i < 16; ++i) {
-      blk.indices[i] = dist(gen);
-      assert(blk.indices[i] < 4);
-    }
+    //////////
+    /// Choose cluster samples as first most-used 
+    ///
+    PhysicalDXTBlock pblk;
+    pblk.interpolation = counted_indices[clusters.size()].first;
+    memcpy(blk.indices, PhysicalToLogical(pblk).indices, sizeof(blk.indices));
 
-    // If we already have this seeded cluster, then generate a new one...
-    if (std::find(clusters.begin(), clusters.end(), blk) != clusters.end()) {
-      continue;
-    }
+    //////////
+    /// Choose cluster samples as sampling of existing index values
+    ///
+    // memcpy(blk.indices, PhysicalToLogical(blocks[dist(gen)]).indices, sizeof(blk.indices));
+
+    //////////
+    /// Choose a stratified initial distribution of clusters
+    ///
+    //for (int i = 0; i < 8; ++i) {
+    //  uint8_t blk0[2] = { 0xFF, 0x00 };
+    //  uint8_t blk1[2] = { 0x00, 0xFF };
+
+    //  if ((clusters.size() >> i) & 0x1) {
+    //    blk.indices[2 * i + 0] = blk0[0];
+    //    blk.indices[2 * i + 1] = blk0[1];
+    //  } else {
+    //    blk.indices[2 * i + 0] = blk1[0];
+    //    blk.indices[2 * i + 1] = blk1[1];
+    //  }
+    //}
+
+    //////////
+    /// Choose a random initial distribution of clusters
+    ///
+    //for (int i = 0; i < 16; ++i) {
+    //  blk.indices[i] = dist(gen);
+    //  assert(blk.indices[i] < 4);
+    //}
+
+    //// If we already have this seeded cluster, then generate a new one...
+    //if (std::find(clusters.begin(), clusters.end(), blk) != clusters.end()) {
+    //  continue;
+    //}
 
     clusters.push_back(blk);
   }
@@ -466,7 +528,7 @@ static std::vector<LogicalDXTBlock> KMeansBlocks(const std::vector<LogicalDXTBlo
 
     for (size_t i = 0; i < blocks.size(); ++i) {
       for (size_t j = 0; j < 16; ++j) {
-        tmp[j] = static_cast<double>(blocks[i].indices[j]);
+        tmp[j] = static_cast<double>(PhysicalToLogical(blocks[i]).indices[j]);
       }
 
       const std::vector<double> *closest = vp_tree.nearestNeighbors(tmp)[0];
@@ -478,31 +540,33 @@ static std::vector<LogicalDXTBlock> KMeansBlocks(const std::vector<LogicalDXTBlo
     }
 
     // Generate new clusters based on the index of each cluster...
+    size_t cidx = 0;
     for (size_t c = 0; c < clusters.size(); ++c) {
       tmp.assign(16, 0.0);
       double cluster_sz = 0.0;
       for (size_t b = 0; b < blocks.size(); ++b) {
         if (cluster_idx[b] == c) {
           for (size_t i = 0; i < 16; ++i) {
-            tmp[i] += static_cast<double>(blocks[b].indices[i]);
+            tmp[i] += static_cast<double>(PhysicalToLogical(blocks[b]).indices[i]);
           }
 
           cluster_sz += 1.0;
         }
       }
 
-      for (size_t i = 0; i < 16; ++i) {
-        tmp[i] /= cluster_sz;
-      }
+      if (0.0 != cluster_sz) {
+        for (size_t i = 0; i < 16; ++i) {
+          tmp[i] /= cluster_sz;
+        }
 
-      new_clusters[c].assign(tmp.begin(), tmp.end());
+        new_clusters[cidx].assign(tmp.begin(), tmp.end());
+        cidx++;
+      }
     }
 
-    bool fixed_point = true;
-    for (size_t i = 0; i < new_clusters.size(); ++i) {
-      if (old_clusters[i] != new_clusters[i]) {
-        continue;
-      }
+    bool fixed_point = cidx == old_clusters.size();
+    for (size_t i = 0; i < cidx && fixed_point; ++i) {
+      fixed_point = old_clusters[i] == new_clusters[i];
     }
 
     if (fixed_point) {
@@ -510,19 +574,21 @@ static std::vector<LogicalDXTBlock> KMeansBlocks(const std::vector<LogicalDXTBlo
     }
 
     // Not fixed point, so set each old cluster to a new cluster...
-    for (size_t i = 0; i < clusters.size(); ++i) {
+    for (size_t i = 0; i < cidx; ++i) {
       old_clusters[i].assign(new_clusters[i].begin(), new_clusters[i].end());
     }
+    old_clusters.resize(cidx);
   }
 
   // Create discrete clusters by rounding continuous clusters
-  for (size_t i = 0; i < clusters.size(); ++i) {
+  for (size_t i = 0; i < old_clusters.size(); ++i) {
     for (size_t j = 0; j < 16; ++j) {
       clusters[i].indices[j] = static_cast<uint8_t>(old_clusters[i][j] + 0.5);
       assert(0 <= clusters[i].indices[j] && clusters[i].indices[j] < 4);
     }
   }
 
+  clusters.resize(old_clusters.size());
   return std::move(clusters);
 }
 
@@ -539,7 +605,8 @@ DXTImage::PredictIndices(int chunk_width, int chunk_height) const {
   assert(Width() % 16 == 0);
   assert(Height() % 16 == 0);
 
-  std::vector<LogicalDXTBlock> blocks = std::move(KMeansBlocks(LogicalBlocks(), 256));
+  std::vector<LogicalDXTBlock> blocks = std::move(KMeansBlocks(PhysicalBlocks(), 256));
+  std::cout << "Number of block clusters: " << blocks.size() << std::endl;
 
   IndexVPTree vptree;
   vptree.addMany(blocks.begin(), blocks.end());
@@ -549,7 +616,6 @@ DXTImage::PredictIndices(int chunk_width, int chunk_height) const {
 
   for (int py = 0; py < Height(); ++py) {
     for (int px = 0; px < Width(); ++px) {
-
       const LogicalDXTBlock &blk = LogicalBlockAt(px, py);
 
       int local_idx = (py % 4) * 4 + (px % 4);
@@ -558,7 +624,7 @@ DXTImage::PredictIndices(int chunk_width, int chunk_height) const {
 
       symbols.push_back(predicted_delta);
     }
-  }  
+  }
 
   return std::move(symbols);
 }

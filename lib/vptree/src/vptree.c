@@ -1,3 +1,4 @@
+#include <math.h>
 #include <stdlib.h>
 #include <memory.h>
 #include <assert.h>
@@ -421,7 +422,7 @@ static void add_nbr_point(int *n, const void ***nbr, const void *p)
   // TODO: using realloc here may not place nicely with user-provided
   // allocate/deallocate
   *n += 1;
-  *nbr = realloc(*nbr, *n * sizeof(const void *));
+  *nbr = realloc((void **)(*nbr), *n * sizeof(const void *));
   (*nbr)[*n - 1] = p;
 }
 
