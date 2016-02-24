@@ -34,10 +34,12 @@ std::unique_ptr<std::vector<uint8_t> > RunDXTEndpointPipeline(const std::unique_
   return std::move(pipeline->Run(img));
 }
 
-std::vector<uint8_t> CompressDXT(const uint8_t *dxt, int width, int height) {
+std::vector<uint8_t> CompressDXT(const char *fn, int width, int height) {
   std::cout << "Original DXT size: " << (width * height / 2) << std::endl;
 
-  DXTImage dxt_img(dxt, width, height);
+  DXTImage dxt_img(width, height, fn);
+
+  dxt_img.ReassignIndices(0);
 
   auto endpoint_one = dxt_img.EndpointOneValues();
   auto endpoint_two = dxt_img.EndpointTwoValues();
@@ -100,7 +102,7 @@ std::vector<uint8_t> CompressDXT(const uint8_t *dxt, int width, int height) {
   for (auto it = idx_img->begin(); it != idx_img->end(); ++it) {
     F[*it]++;
   }
-  size_t M = std::accumulate(F.begin(), F.end(), 0);
+  size_t M = std::accumulate(F.begin(), F.end(), 0ULL);
 
   double H = 0;
   for (auto f : F) {

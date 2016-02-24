@@ -29,6 +29,7 @@ namespace GenTC {
   class DXTImage {
    public:
     DXTImage(const uint8_t *dxt_image, int width, int height);
+    DXTImage(int width, int height, const char *filename);
 
     int Width() const { return _width;  }
     int Height() const { return _height;  }
@@ -77,18 +78,24 @@ namespace GenTC {
     std::vector<uint8_t> PredictIndices(int chunk_width, int chunk_height) const;
     std::vector<uint8_t> PredictIndicesLinearize(int chunk_width, int chunk_height) const;
 
+    void ReassignIndices(int mse_threshold);
+
   private:
     uint32_t BlockAt(int x, int y) const {
       return (y / 4) * _blocks_width + (x / 4);
     }
+
+    void LoadDXTFromFile(const char *filename);
 
     const int _width;
     const int _height;
     const int _blocks_width;
     const int _blocks_height;
 
-    const std::vector<PhysicalDXTBlock> _physical_blocks;
-    const std::vector<LogicalDXTBlock> _logical_blocks;
+    std::vector<PhysicalDXTBlock> _physical_blocks;
+    std::vector<LogicalDXTBlock> _logical_blocks;
+
+    std::vector<uint8_t> _src_img;
   };
 
 }  // namespace GenTC

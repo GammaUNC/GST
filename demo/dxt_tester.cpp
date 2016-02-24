@@ -29,8 +29,8 @@
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wconversion-null"
 #endif
-#define STB_DXT_IMPLEMENTATION
 #include "stb_dxt.h"
+#define CRND_HEADER_FILE_ONLY
 #include "crn_decomp.h"
 #ifndef _MSC_VER
 #pragma GCC diagnostic pop
@@ -740,7 +740,9 @@ int main(int argc, char **argv) {
 
   const uint8_t *dxt_data = reinterpret_cast<const uint8_t *>(dxt_blocks.data());
   GenTC::DXTImage dxt_img(dxt_data, width, height);
-  GenTC::CompressDXT(dxt_data, width, height);
+  GenTC::CompressDXT(argv[1], width, height);
+
+  return 0;
 
   // Decompress into image...
   cv::imwrite("img_dxt.png", cv::Mat(height, width, CV_8UC4,
