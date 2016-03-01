@@ -93,6 +93,24 @@ static uint64_t CompressRGB(const uint8_t *img, int width) {
   return result;
 }
 
+static uint8_t ToFiveBits(const uint8_t x) {
+  int result = static_cast<int>(x);
+  result = std::max(255, result + (1 << 2));
+  result &= 0xF8;
+  result |= (result >> 5);
+  assert(0 <= result && result < 256);
+  return result;
+}
+
+static uint8_t ToSixBits(const uint8_t x) {
+  int result = static_cast<int>(x);
+  result = std::max(255, result + (1 << 1));
+  result &= 0xFC;
+  result |= (result >> 6);
+  assert(0 <= result && result < 256);
+  return static_cast<uint8_t>(result);
+}
+
 namespace GenTC {
 
 PhysicalDXTBlock LogicalToPhysical(const LogicalDXTBlock &b);
@@ -101,6 +119,12 @@ LogicalDXTBlock PhysicalToLogical(const PhysicalDXTBlock &b);
 static bool operator==(const LogicalDXTBlock &a, const LogicalDXTBlock &b) {
   return memcmp(&a, &b, sizeof(a)) == 0;
 }
+
+#ifndef NDEBUG
+static bool operator==(const PhysicalDXTBlock &a, const PhysicalDXTBlock &b) {
+  return a.dxt_block == b.dxt_block;
+}
+#endif
   
 LogicalDXTBlock PhysicalToLogical(const PhysicalDXTBlock &b) {
   LogicalDXTBlock out;
@@ -138,7 +162,7 @@ PhysicalDXTBlock LogicalToPhysical(const LogicalDXTBlock &b) {
   result.ep2 = Pack565(b.ep2);
 
   bool swap = false;
-  if (result.ep1 > result.ep2 && b.palette[3][3] != 0) {
+  if (result.ep1 > result.ep2 && b.palette[3][3] == 0) {
     // Swap it all 
     swap = true;
     std::swap(result.ep1, result.ep2);
@@ -160,7 +184,6 @@ PhysicalDXTBlock LogicalToPhysical(const LogicalDXTBlock &b) {
     bytes[k] |= b.indices[3 + 4 * k] << 6;
   }
 
-  assert(PhysicalToLogical(result) == b);
   return result;
 }
 
@@ -179,7 +202,9 @@ PhysicalToLogicalBlocks(const std::vector<PhysicalDXTBlock> &blocks) {
   out.reserve(blocks.size());
 
   for (const auto &b : blocks) {
-    out.push_back(PhysicalToLogical(b));
+    LogicalDXTBlock lb = PhysicalToLogical(b);
+    assert(LogicalToPhysical(lb) == b);
+    out.push_back(lb);
   }
 
   return std::move(out);
@@ -191,7 +216,9 @@ LogicalToPhysicalBlocks(const std::vector<LogicalDXTBlock> &blocks) {
   out.reserve(blocks.size());
 
   for (const auto &b : blocks) {
-    out.push_back(LogicalToPhysical(b));
+    PhysicalDXTBlock pb = LogicalToPhysical(b);
+    assert(PhysicalToLogical(pb) == b);
+    out.push_back(pb);
   }
 
   return std::move(out);
@@ -617,7 +644,7 @@ static std::vector<std::pair<uint32_t, size_t> > CountBlocks(
     }
 
     if (!found) {
-      result.push_back(std::make_pair(b.interpolation, 0));
+      result.push_back(std::make_pair(b.interpolation, 1));
     }
   }
 
@@ -964,6 +991,15 @@ struct CompressedBlock {
       _logical.ep2[i] = std::max(0, std::min(255, static_cast<int32_t>(p2[i] + 0.5f)));
     }
 
+    _logical.ep1[0] = ToFiveBits(_logical.ep1[0]);
+    _logical.ep2[0] = ToFiveBits(_logical.ep2[0]);
+
+    _logical.ep1[1] = ToSixBits(_logical.ep1[1]);
+    _logical.ep2[1] = ToSixBits(_logical.ep2[1]);
+
+    _logical.ep1[2] = ToFiveBits(_logical.ep1[2]);
+    _logical.ep2[2] = ToFiveBits(_logical.ep2[2]);
+
     memcpy(_logical.palette[0], _logical.ep1, 4);
     memcpy(_logical.palette[1], _logical.ep2, 4);
 
@@ -1006,28 +1042,29 @@ void DXTImage::ReassignIndices(int mse_threshold) {
   // all of the other indices and measure it against the current index. If we
   // find one that's not as bad w.r.t. the current one, then switch the index...
 
+  int idx = 0;
   for (auto &block : blocks) {
+    idx++;
     size_t min_MSE = mse_threshold;
     std::pair<uint32_t, size_t> *cnt_ptr = nullptr;
     std::pair<uint32_t, size_t> *orig_cnt_ptr = nullptr;
 
+    PhysicalDXTBlock pb = LogicalToPhysical(block._logical);
+    assert(PhysicalToLogical(pb) == block._logical);
+    
     for (auto &cnt : counted_indices) {
       if (cnt.second == 0) {
         continue;
       }
 
-      PhysicalDXTBlock pb;
-      pb.interpolation = cnt.first;
-
-      LogicalDXTBlock lb = PhysicalToLogical(pb);
-      memcpy(lb.ep1, block._logical.ep1, sizeof(lb.ep1));
-      memcpy(lb.ep2, block._logical.ep2, sizeof(lb.ep2));
-      memcpy(lb.palette, block._logical.palette, sizeof(lb.palette));
-
-      if (memcmp(&block._logical, &lb, sizeof(block._logical)) == 0) {
+      if (pb.interpolation == cnt.first) {
         orig_cnt_ptr = &cnt;
         continue;
       }
+
+      PhysicalDXTBlock npb = pb;
+      npb.interpolation = cnt.first;
+      LogicalDXTBlock lb = PhysicalToLogical(npb);
 
       size_t mse = block.CompareAgainst(lb);
       if (mse < mse_threshold) {
@@ -1037,7 +1074,11 @@ void DXTImage::ReassignIndices(int mse_threshold) {
       }
     }
 
+    assert(orig_cnt_ptr);
+
     if (min_MSE < mse_threshold) {
+      assert(cnt_ptr);
+
       orig_cnt_ptr->second--;
       cnt_ptr->second++;
       block.RecalculateEndpoints();

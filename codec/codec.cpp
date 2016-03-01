@@ -39,7 +39,7 @@ std::vector<uint8_t> CompressDXT(const char *fn, int width, int height) {
 
   DXTImage dxt_img(width, height, fn);
 
-  dxt_img.ReassignIndices(0);
+  dxt_img.ReassignIndices(10);
 
   auto endpoint_one = dxt_img.EndpointOneValues();
   auto endpoint_two = dxt_img.EndpointTwoValues();
