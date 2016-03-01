@@ -116,11 +116,11 @@ namespace GenTC {
 PhysicalDXTBlock LogicalToPhysical(const LogicalDXTBlock &b);
 LogicalDXTBlock PhysicalToLogical(const PhysicalDXTBlock &b);
 
+#ifndef NDEBUG
 static bool operator==(const LogicalDXTBlock &a, const LogicalDXTBlock &b) {
   return memcmp(&a, &b, sizeof(a)) == 0;
 }
 
-#ifndef NDEBUG
 static bool operator==(const PhysicalDXTBlock &a, const PhysicalDXTBlock &b) {
   return a.dxt_block == b.dxt_block;
 }
@@ -164,8 +164,8 @@ PhysicalDXTBlock LogicalToPhysical(const LogicalDXTBlock &b) {
   bool swap = false;
   if (result.ep1 > result.ep2 && b.palette[3][3] == 0) {
     // Swap it all 
-    swap = true;
     std::swap(result.ep1, result.ep2);
+    swap = true;
   }
 
   result.interpolation = 0;
@@ -182,6 +182,10 @@ PhysicalDXTBlock LogicalToPhysical(const LogicalDXTBlock &b) {
 
     assert(b.indices[3 + 4 * k] < 4);
     bytes[k] |= b.indices[3 + 4 * k] << 6;
+  }
+
+  if (swap) {
+    result.interpolation ^= 0x55555555;
   }
 
   return result;
@@ -1021,13 +1025,13 @@ void DXTImage::ReassignIndices(int mse_threshold) {
   std::vector<CompressedBlock> blocks;
   blocks.resize(LogicalBlocks().size());
 
-  for (size_t y = 0; y < _blocks_height; ++y) {
-    for (size_t x = 0; x < _blocks_width; ++x) {
-      size_t block_idx = y * _blocks_width + x;
+  for (int y = 0; y < _blocks_height; ++y) {
+    for (int x = 0; x < _blocks_width; ++x) {
+      int block_idx = y * _blocks_width + x;
       CompressedBlock &blk = blocks[block_idx];
 
-      for (size_t row = 0; row < 4; ++row) {
-        size_t row_idx = ((4 * y + row) * _width + (4 * x)) * 3;
+      for (int row = 0; row < 4; ++row) {
+        int row_idx = ((4 * y + row) * _width + (4 * x)) * 3;
         blk._uncompressed.insert(
           blk._uncompressed.end(),
           _src_img.begin() + row_idx,
@@ -1067,7 +1071,7 @@ void DXTImage::ReassignIndices(int mse_threshold) {
       LogicalDXTBlock lb = PhysicalToLogical(npb);
 
       size_t mse = block.CompareAgainst(lb);
-      if (mse < mse_threshold) {
+      if (mse < min_MSE) {
         block._logical = lb;
         min_MSE = mse;
         cnt_ptr = &cnt;
@@ -1076,7 +1080,7 @@ void DXTImage::ReassignIndices(int mse_threshold) {
 
     assert(orig_cnt_ptr);
 
-    if (min_MSE < mse_threshold) {
+    if (min_MSE < static_cast<size_t>(mse_threshold)) {
       assert(cnt_ptr);
 
       orig_cnt_ptr->second--;
