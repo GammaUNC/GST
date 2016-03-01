@@ -47,8 +47,10 @@ rANS_Encoder::rANS_Encoder(const std::vector<uint32_t> &Fs, uint32_t b, uint32_t
   , _state(_k * _M)
 {
   assert((b & (b - 1)) == 0 || "rANS encoder may only emit powers-of-two for renormalization!");
-  assert(_k * _M < (1ULL << 32));
-  assert((b * _k * _M) < (1ULL << 32));
+  assert(static_cast<uint64_t>(_k) * static_cast<uint64_t>(_M) < (1ULL << 32));
+  assert((static_cast<uint64_t>(b) *
+          static_cast<uint64_t>(_k) *
+          static_cast<uint64_t>(_M)) < (1ULL << 32));
 }
 
 void rANS_Encoder::Encode(uint32_t symbol, BitWriter *w) {
@@ -158,8 +160,10 @@ tANS_Encoder::tANS_Encoder(const std::vector<uint32_t> &Fs, uint32_t b, uint32_t
   , _state(_k * _M)
 {
   assert((b & (b - 1)) == 0 || "rANS encoder may only emit powers-of-two for renormalization!");
-  assert(_k * _M < (1ULL << 32));
-  assert((b * _k * _M) < (1ULL << 32));
+  assert(static_cast<uint64_t>(_k) * static_cast<uint64_t>(_M) < (1ULL << 32));
+  assert((static_cast<uint64_t>(b) *
+          static_cast<uint64_t>(_k) *
+          static_cast<uint64_t>(_M)) < (1ULL << 32));
 }
 
 void tANS_Encoder::Encode(uint32_t symbol, BitWriter *w) {

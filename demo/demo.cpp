@@ -22,6 +22,7 @@
 #include "gpu.h"
 #include "config.h"
 
+#define GLFW_INCLUDE_GLCOREARB 1
 #ifdef __APPLE__
 #  define GL_GLEXT_PROTOTYPES 1
 #  define GLFW_INCLUDE_GLEXT 1
@@ -242,7 +243,7 @@ void LoadTexture(const std::unique_ptr<gpu::GPUContext> &ctx, cl_kernel kernel, 
   RunKernel(ctx, kernel, data, pbo, x, y, channels);
   
   // "Bind" the newly created texture : all future texture functions will modify this texture
-  glBindBuffer(GL_PIXEL_UNPACK_BUFFER_ARB, pbo);
+  glBindBuffer(GL_PIXEL_UNPACK_BUFFER, pbo);
 
   glBindTexture(GL_TEXTURE_2D, texID);
   glCompressedTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, x, y,
@@ -259,7 +260,7 @@ void LoadTexture(const std::unique_ptr<gpu::GPUContext> &ctx, cl_kernel kernel, 
   assert ( query == GL_COMPRESSED_RGB_S3TC_DXT1_EXT );
 
   glBindTexture(GL_TEXTURE_2D, 0);
-  glBindBuffer(GL_PIXEL_UNPACK_BUFFER_ARB, 0);
+  glBindBuffer(GL_PIXEL_UNPACK_BUFFER, 0);
 
   stbi_image_free(data);
 }
@@ -346,9 +347,9 @@ int main(int argc, char* argv[])
 
     glGenBuffers(1, &pbo);
 
-    glBindBuffer(GL_PIXEL_UNPACK_BUFFER_ARB, pbo);
-    glBufferData(GL_PIXEL_UNPACK_BUFFER_ARB, 960 * 540 / 2, NULL, GL_DYNAMIC_DRAW_ARB);
-    glBindBuffer(GL_PIXEL_UNPACK_BUFFER_ARB, 0);
+    glBindBuffer(GL_PIXEL_UNPACK_BUFFER, pbo);
+    glBufferData(GL_PIXEL_UNPACK_BUFFER, 960 * 540 / 2, NULL, GL_DYNAMIC_DRAW);
+    glBindBuffer(GL_PIXEL_UNPACK_BUFFER, 0);
 
     static const GLfloat g_FullScreenQuad[] = {
       -1.0f, -1.0f, 0.0f,

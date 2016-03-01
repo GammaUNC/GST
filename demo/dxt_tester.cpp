@@ -3,6 +3,7 @@
 #include <cassert>
 #include <cstdint>
 #include <fstream>
+#include <iomanip>
 #include <iostream>
 #include <vector>
 #include <algorithm>
@@ -21,8 +22,6 @@
 
 #ifndef _MSC_VER
 #pragma GCC diagnostic push
-#pragma GCC diagnostic ignored "-Wmaybe-uninitialized"
-#pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wuninitialized"
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wunused-value"
@@ -33,7 +32,6 @@
 #define CRND_HEADER_FILE_ONLY
 #include "crn_decomp.h"
 #ifndef _MSC_VER
-#pragma GCC diagnostic pop
 #pragma GCC diagnostic pop
 #pragma GCC diagnostic pop
 #pragma GCC diagnostic pop
@@ -86,7 +84,10 @@ uint16_t Into565(uint8_t r, uint8_t g, uint8_t b) {
   return (rr << 11) | (gg << 5) | bb;
 }
 
+#ifdef VERBOSE
 static const int coeff_offset = 512;
+#endif
+
 static const uint32_t kNumStreams = 16;
 void encode(const cv::Mat &img, std::vector<uint8_t> *result) {
   // Collect stats for frequency analysis
@@ -653,6 +654,58 @@ std::vector<uint8_t> compress_indices(const GenTC::DXTImage &dxt) {
   return std::move(entropy_encode_index_symbols(symbolized_indices));
 }
 
+cv::Mat dft_opencv(const cv::Mat I) {
+  using namespace cv; // !YUCK!
+  
+  Mat padded;                            //expand input image to optimal size
+  int m = getOptimalDFTSize( I.rows );
+  int n = getOptimalDFTSize( I.cols ); // on the border add zero values
+  copyMakeBorder(I, padded, 0, m - I.rows, 0, n - I.cols, BORDER_CONSTANT, Scalar::all(0));
+
+  Mat planes[] = {Mat_<float>(padded), Mat::zeros(padded.size(), CV_32F)};
+  Mat complexI;
+  merge(planes, 2, complexI);         // Add to the expanded another plane with zeros
+
+  dft(complexI, complexI);            // this way the result may fit in the source matrix
+
+  // compute the magnitude and switch to logarithmic scale
+  // => log(1 + sqrt(Re(DFT(I))^2 + Im(DFT(I))^2))
+  split(complexI, planes);                   // planes[0] = Re(DFT(I), planes[1] = Im(DFT(I))
+  magnitude(planes[0], planes[1], planes[0]);// planes[0] = magnitude
+  Mat magI = planes[0];
+
+  magI += Scalar::all(1);                    // switch to logarithmic scale
+  log(magI, magI);
+  
+  // crop the spectrum, if it has an odd number of rows or columns
+  magI = magI(Rect(0, 0, magI.cols & -2, magI.rows & -2));
+
+  // rearrange the quadrants of Fourier image  so that the origin is at the image center
+  int cx = magI.cols/2;
+  int cy = magI.rows/2;
+
+  Mat q0(magI, Rect(0, 0, cx, cy));   // Top-Left - Create a ROI per quadrant
+  Mat q1(magI, Rect(cx, 0, cx, cy));  // Top-Right
+  Mat q2(magI, Rect(0, cy, cx, cy));  // Bottom-Left
+  Mat q3(magI, Rect(cx, cy, cx, cy)); // Bottom-Right
+
+  Mat tmp;                           // swap quadrants (Top-Left with Bottom-Right)
+  q0.copyTo(tmp);
+  q3.copyTo(q0);
+  tmp.copyTo(q3);
+
+  q1.copyTo(tmp);                    // swap quadrant (Top-Right with Bottom-Left)
+  q2.copyTo(q1);
+  tmp.copyTo(q2);
+
+  normalize(magI, magI, 0, 1, CV_MINMAX); // Transform the matrix with float values into a
+
+  Mat result;
+  magI.convertTo(result, CV_8UC1, 255.0, 0.5);
+  
+  return result;
+}
+
 int main(int argc, char **argv) {
   // Make sure that we have the proper number of arguments...
   if (argc != 2) {
@@ -733,85 +786,27 @@ int main(int argc, char **argv) {
         }
       }
     }
-  }
 
-  const int num_blocks_x = (width + 3) / 4;
-  const int num_blocks_y = (height + 3) / 4;
+    cv::Mat planes[3];
+    cv::split(img, planes);
+    cv::imwrite("img_red.png", planes[0]);
+    cv::imwrite("img_red_dft.png", dft_opencv(planes[0]));
+  }
 
   const uint8_t *dxt_data = reinterpret_cast<const uint8_t *>(dxt_blocks.data());
   GenTC::DXTImage dxt_img(dxt_data, width, height);
   GenTC::CompressDXT(argv[1], width, height);
-
-  return 0;
 
   // Decompress into image...
   cv::imwrite("img_dxt.png", cv::Mat(height, width, CV_8UC4,
     const_cast<uint8_t*>(dxt_img.DecompressedImage()->Pack().data())));
 
   // Visualize interpolation data...
-  cv::imwrite("img_dxt_interp.png", cv::Mat(height, width, CV_8UC1,
-    dxt_img.InterpolationImage().data()));
+  cv::Mat interp_img = cv::Mat(height, width, CV_8UC1,
+                               dxt_img.InterpolationImage().data());
+  cv::imwrite("img_dxt_interp.png", interp_img);
 
-  // Compress indices...
-  std::vector<uint8_t> compressed_indices = compress_indices(dxt_img);
-
-  std::vector<uint8_t> img_A_bytes = dxt_img.EndpointOneImage()->Pack();
-  std::vector<uint8_t> img_B_bytes = dxt_img.EndpointTwoImage()->Pack();
-  cv::Mat img_A(num_blocks_y, num_blocks_x, CV_8UC4, img_A_bytes.data());
-  cv::Mat img_B(num_blocks_y, num_blocks_x, CV_8UC4, img_B_bytes.data());
-
-  cv::imwrite("img_dxtA.png", img_A);
-  cv::imwrite("img_dxtB.png", img_B);
-
-  std::vector<uint8_t> strm_A = compress(img_A);
-  cv::Mat decomp_A = decompress(strm_A);
-
-  std::vector<uint8_t> strm_B = compress(img_B);
-  cv::Mat decomp_B = decompress(strm_B);
-
-  uint32_t total_compressed_sz =
-    static_cast<uint32_t>(strm_A.size() + strm_B.size() + compressed_indices.size());
-  uint32_t dxt_sz = static_cast<uint32_t>(dxt_blocks.size() * 8);
-  uint32_t uncompressed_sz = width * height * 3;
-
-  std::cout << "Uncompressed size: " << uncompressed_sz << std::endl;
-  std::cout << "DXT compressed size: " << dxt_sz << std::endl;
-  std::cout << "GTC compressed size: " << total_compressed_sz << std::endl;
-
-  cv::imwrite("img_codec_dxtA.png", decomp_A);
-  cv::imwrite("img_codec_dxtB.png", decomp_B);
-
-  for (int j = 0; j < num_blocks_y; j ++) {
-    for (int i = 0; i < num_blocks_x; i ++) {
-      uint8_t *pixel;
-      int block_idx = j * num_blocks_x + i;
-
-      pixel = decomp_A.ptr(j) + i * 3;
-      uint16_t e1 = Into565(pixel[0], pixel[1], pixel[2]);
-
-      pixel = decomp_B.ptr(j) + i * 3;
-      uint16_t e2 = Into565(pixel[0], pixel[1], pixel[2]);
-
-      if (e1 > e2) {
-        dxt_blocks[block_idx].ep1 = e1;
-        dxt_blocks[block_idx].ep2 = e2;
-      } else if (e2 < e1) {
-        dxt_blocks[block_idx].interpolation ^= 0x55555555;
-
-        dxt_blocks[block_idx].ep1 = e2;
-        dxt_blocks[block_idx].ep2 = e1;
-      } else {
-        dxt_blocks[block_idx].ep1 = e1;
-        dxt_blocks[block_idx].ep2 = e1;
-        dxt_blocks[block_idx].interpolation = 0;
-      }
-    }
-  }  
-  
-  GenTC::DXTImage gtc_img(reinterpret_cast<const uint8_t *>(dxt_blocks.data()),
-                          width, height);
-  cv::imwrite("img_gtc.png", cv::Mat(height, width, CV_8UC4,
-    const_cast<uint8_t*>(gtc_img.DecompressedImage()->Pack().data())));
+  cv::imwrite("img_dxt_interp_dft.png", dft_opencv(interp_img));
 
   return 0;
 }

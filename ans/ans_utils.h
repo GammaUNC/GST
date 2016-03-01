@@ -47,7 +47,9 @@ static bool OptionsValid(const ans::Options &opts) {
   ok = ok && opts.Fs.size() > 1;
 
   // Make sure we can represent all states
-  ok = ok && (opts.b * opts.k * opts.M) < (1ULL << 32);
+  ok = ok && (static_cast<uint64_t>(opts.b) *
+              static_cast<uint64_t>(opts.k) *
+              static_cast<uint64_t>(opts.M)) < (1ULL << 32);
 
   // We have to spit out at least bits somehow.
   ok = ok && opts.b > 0;

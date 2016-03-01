@@ -1,6 +1,8 @@
-#include <cstdint>
-
 #include "wavelet.h"
+
+#include <cstdint>
+#include <cmath>
+
 #include "gtest/gtest.h"
 
 TEST(Wavelet, ForwardTransform) {

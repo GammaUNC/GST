@@ -18,7 +18,7 @@
 #include <vector>
 
 #ifndef NDEBUG
-static const char *clErrMsg(cl_int err) {
+static inline const char *clErrMsg(cl_int err) {
   const char *errMsg = NULL;
   switch(err) {
   case CL_SUCCESS:                         errMsg = "Success!"; break;
@@ -67,7 +67,9 @@ static const char *clErrMsg(cl_int err) {
   case CL_INVALID_GL_OBJECT:               errMsg = "Invalid OpenGL object"; break;
   case CL_INVALID_BUFFER_SIZE:             errMsg = "Invalid buffer size"; break;
   case CL_INVALID_MIP_LEVEL:               errMsg = "Invalid mip-map level"; break;
+#ifndef __APPLE__
   case CL_PLATFORM_NOT_FOUND_KHR:          errMsg = "Platform not found"; break;
+#endif
   }
 
   return errMsg;

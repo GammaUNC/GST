@@ -215,7 +215,7 @@ ByteEncoder::EncodeBytes::Run(const ByteEncoder::Base::ArgType &in) const {
   DataStream hdr;
   hdr.WriteByte(static_cast<uint8_t>(non_zero_counts));
   for (auto c : counts) {
-    assert(c < (1ULL << 32));
+    assert(static_cast<uint64_t>(c) < (1ULL << 32));
     hdr.WriteInt(c);
   }
 

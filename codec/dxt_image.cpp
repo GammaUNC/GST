@@ -11,8 +11,6 @@
 
 #ifndef _MSC_VER
 #pragma GCC diagnostic push
-#pragma GCC diagnostic ignored "-Wmaybe-uninitialized"
-#pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wuninitialized"
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wunused-value"
@@ -28,7 +26,6 @@
 #pragma GCC diagnostic pop
 #pragma GCC diagnostic pop
 #pragma GCC diagnostic pop
-#pragma GCC diagnostic pop
 #endif
 
 #include "vptree/vptree.hh"
@@ -36,7 +33,9 @@
 
 static void LerpChannels(uint8_t a[3], uint8_t b[3], uint8_t out[3], int num, int div) {
   for (int i = 0; i < 3; ++i) {
-    out[i] = (static_cast<int>(a[i]) * (div - num) + static_cast<int>(b[i]) * num) / div;
+    out[i] =
+      (static_cast<int>(a[i]) * (div - num) + static_cast<int>(b[i]) * num)
+      / div;
   }
   out[3] = 0xFF;
 }
@@ -63,9 +62,9 @@ static void Decode565(uint16_t x, uint8_t out[4]) {
 
 static uint16_t Pack565(const uint8_t in[3]) {
   uint16_t result = 0;
-  result |= static_cast<uint16_t>(in[0] & 0xF1) << 11;
-  result |= static_cast<uint16_t>(in[1] & 0xF3) << 3;
-  result |= static_cast<uint16_t>(in[2] & 0xF1) >> 3;
+  result |= static_cast<uint16_t>(in[0] & 0xF8) << 8;
+  result |= static_cast<uint16_t>(in[1] & 0xFC) << 3;
+  result |= static_cast<uint16_t>(in[2] & 0xF8) >> 3;
   return result;
 }
 
@@ -96,6 +95,13 @@ static uint64_t CompressRGB(const uint8_t *img, int width) {
 
 namespace GenTC {
 
+PhysicalDXTBlock LogicalToPhysical(const LogicalDXTBlock &b);
+LogicalDXTBlock PhysicalToLogical(const PhysicalDXTBlock &b);
+
+static bool operator==(const LogicalDXTBlock &a, const LogicalDXTBlock &b) {
+  return memcmp(&a, &b, sizeof(a)) == 0;
+}
+  
 LogicalDXTBlock PhysicalToLogical(const PhysicalDXTBlock &b) {
   LogicalDXTBlock out;
 
@@ -138,6 +144,7 @@ PhysicalDXTBlock LogicalToPhysical(const LogicalDXTBlock &b) {
     std::swap(result.ep1, result.ep2);
   }
 
+  result.interpolation = 0;
   uint8_t *bytes = reinterpret_cast<uint8_t *>(&result.interpolation);
   for (int k = 0; k < 4; ++k) {
     assert(b.indices[0 + 4 * k] < 4);
@@ -153,6 +160,7 @@ PhysicalDXTBlock LogicalToPhysical(const LogicalDXTBlock &b) {
     bytes[k] |= b.indices[3 + 4 * k] << 6;
   }
 
+  assert(PhysicalToLogical(result) == b);
   return result;
 }
 
@@ -525,8 +533,8 @@ void predict_color(const uint8_t diag[], const uint8_t upper[],
 
 int distance(uint8_t *colorA, const uint8_t *colorB) {
   // abs of gray values
-  int gray_a = get_gray(colorA);
-  int gray_b = get_gray(colorB);
+  // int gray_a = get_gray(colorA);
+  // int gray_b = get_gray(colorB);
   int distance;
 
   // choose one of the following distances:
@@ -575,10 +583,6 @@ uint8_t compute_prediction_delta(uint8_t idx, uint8_t orig_idx) {
 }
 
 #ifdef PREDICT_VPTREE
-
-static bool operator==(const LogicalDXTBlock &p1, const LogicalDXTBlock &p2) {
-  return memcmp(&p1, &p2, sizeof(p1)) == 0;
-}
 
 static double BlockDist(const LogicalDXTBlock &p1, const LogicalDXTBlock &p2) {
   // The indices are ordered like 0, 3, 1, 2
@@ -697,9 +701,11 @@ static std::vector<LogicalDXTBlock> KMeansBlocks(const std::vector<PhysicalDXTBl
   }
 
   // Allocate data for k-means
-  std::vector<std::vector<double> > old_clusters(clusters.size(), std::vector<double>(16, 0.0));
+  std::vector<std::vector<double> > old_clusters
+    (clusters.size(), std::vector<double>(16, 0.0));
+  std::vector<std::vector<double> > new_clusters
+    (clusters.size(), std::vector<double>(16, 0.0));
   std::vector<size_t> cluster_idx(blocks.size(), 0);
-  std::vector<std::vector<double> > new_clusters(clusters.size(), std::vector<double>(16, 0.0));
   std::vector<double> tmp(16, 0.0);
 
   // Get old clusters from initial clusters...

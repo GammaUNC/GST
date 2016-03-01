@@ -25,8 +25,10 @@ public:
   {
     assert((b & (_b - 1)) == 0 || "rANS encoder may only emit powers-of-two for renormalization!");
     assert((k & (_k - 1)) == 0 || "rANS encoder must have power-of-two multiple of precision!");
-    assert(_k * _M < (1ULL << 32));
-    assert((b * _k * _M) < (1ULL << 32));
+    assert(static_cast<uint64_t>(_k) * static_cast<uint64_t>(_M) < (1ULL << 32));
+    assert((static_cast<uint64_t>(b) *
+            static_cast<uint64_t>(_k) *
+            static_cast<uint64_t>(_M)) < (1ULL << 32));
   }
 
   virtual uint32_t Decode(BitReader *r) override {
@@ -47,7 +49,7 @@ public:
     return symbol;
   }
 
-  uint32_t GetState() const { return _state; }
+  uint32_t GetState() const override { return _state; }
 
 private:
   const std::vector<uint32_t> _F;
@@ -173,8 +175,10 @@ tANS_Decoder::tANS_Decoder(uint32_t state, const std::vector<uint32_t> &Fs, uint
 {
   assert((b & (_b - 1)) == 0 || "rANS encoder may only emit powers-of-two for renormalization!");
   assert((k & (_k - 1)) == 0 || "rANS encoder must have power-of-two multiple of precision!");
-  assert(_k * _M < (1ULL << 32));
-  assert((b * _k * _M) < (1ULL << 32));
+  assert(static_cast<uint64_t>(_k) * static_cast<uint64_t>(_M) < (1ULL << 32));
+  assert((static_cast<uint64_t>(b) *
+          static_cast<uint64_t>(_k) *
+          static_cast<uint64_t>(_M)) < (1ULL << 32));
 }
 
 uint32_t tANS_Decoder::Decode(BitReader *r) {
