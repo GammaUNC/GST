@@ -3580,15 +3580,25 @@ namespace crnd
 } // namespace crnd
 
 // File: crnd_decode.cpp
-#define CRND_CREATE_BYTE_STREAMS 0
+#define CRND_CREATE_BYTE_STREAMS 1
+#ifdef _MSC_VER
+#define CRND_STRING_LITERAL_PREFIX L
+#else
+#define CRND_STRING_LITERAL_PREFIX ""
+#endif
 
 namespace crnd
 {
 #if CRND_CREATE_BYTE_STREAMS
-   static void write_array_to_file(const char* pFilename, const vector<uint8>& buf)
-   {
+  template<typename T>
+  static void write_array_to_file(const char* pFilename, const vector<T>& buf)
+  {
       FILE* pFile = fopen(pFilename, "wb");
-      fwrite(&buf[0], buf.size(), 1, pFile);
+      uint64 num_vals = static_cast<uint64>(buf.size());
+      fwrite(&num_vals, sizeof(num_vals), 1, pFile);
+      uint8 num_bytes = static_cast<uint8>(sizeof(T));
+      fwrite(&num_bytes, 1, 1, pFile);
+      fwrite(&buf[0], sizeof(T), buf.size(), pFile);
       fclose(pFile);
    }
 #endif
@@ -3893,7 +3903,7 @@ namespace crnd
          m_codec.stop_decoding();
 
 #if CRND_CREATE_BYTE_STREAMS
-         write_array_to_file(L"colorendpoints.bin", byte_stream);
+         write_array_to_file(CRND_STRING_LITERAL_PREFIX"colorendpoints.bin", byte_stream);
          crnd_trace("color endpoints: %u\n", (uint)m_pHeader->m_color_endpoints.m_size);
 #endif
 
@@ -3983,7 +3993,7 @@ namespace crnd
          m_codec.stop_decoding();
 
 #if CRND_CREATE_BYTE_STREAMS
-         write_array_to_file(L"colorselectors.bin", byte_stream);
+         write_array_to_file(CRND_STRING_LITERAL_PREFIX"colorselectors.bin", byte_stream);
          crnd_trace("color selectors: %u\n", (uint)m_pHeader->m_color_selectors.m_size);
 #endif
 
@@ -4161,7 +4171,7 @@ namespace crnd
 #if CRND_CREATE_BYTE_STREAMS
          vector<uint8> tile_encoding_stream;
          vector<uint8> endpoint_indices_stream;
-         vector<uint8> selector_indices_stream;
+         vector<uint32> selector_indices_stream;
 #endif
 
          for (uint32 f = 0; f < num_faces; f++)
@@ -4316,9 +4326,9 @@ namespace crnd
          CRND_HUFF_DECODE_END(m_codec);
 
 #if CRND_CREATE_BYTE_STREAMS
-         write_array_to_file(L"tile_encodings.bin", tile_encoding_stream);
-         write_array_to_file(L"endpoint_indices.bin", endpoint_indices_stream);
-         write_array_to_file(L"selector_indices.bin", selector_indices_stream);
+         write_array_to_file(CRND_STRING_LITERAL_PREFIX"tile_encodings.bin", tile_encoding_stream);
+         write_array_to_file(CRND_STRING_LITERAL_PREFIX"endpoint_indices.bin", endpoint_indices_stream);
+         write_array_to_file(CRND_STRING_LITERAL_PREFIX"selector_indices.bin", selector_indices_stream);
 #endif
 
          return true;

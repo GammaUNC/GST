@@ -265,8 +265,8 @@ void DXTImage::LoadDXTFromFile(const char *fn) {
       return;
     }
 
-    assert(tinfo.m_width == _width);
-    assert(_height == tinfo.m_height);
+    assert(tinfo.m_width == static_cast<uint32_t>(_width));
+    assert(tinfo.m_height == static_cast<uint32_t>(_height));
 
     crnd::crnd_unpack_context ctx = crnd::crnd_unpack_begin(crn.data(), crn.size());
     if (!ctx) {
