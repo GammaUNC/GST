@@ -3582,9 +3582,10 @@ namespace crnd
 // File: crnd_decode.cpp
 #define CRND_CREATE_BYTE_STREAMS 1
 #ifdef _MSC_VER
-#define CRND_STRING_LITERAL_PREFIX L
+// #define CRND_STRING_LITERAL(x) L##x
+#define CRND_STRING_LITERAL(x) x
 #else
-#define CRND_STRING_LITERAL_PREFIX ""
+#define CRND_STRING_LITERAL(x) x
 #endif
 
 namespace crnd
@@ -3903,7 +3904,7 @@ namespace crnd
          m_codec.stop_decoding();
 
 #if CRND_CREATE_BYTE_STREAMS
-         write_array_to_file(CRND_STRING_LITERAL_PREFIX"colorendpoints.bin", byte_stream);
+         write_array_to_file(CRND_STRING_LITERAL("colorendpoints.bin"), byte_stream);
          crnd_trace("color endpoints: %u\n", (uint)m_pHeader->m_color_endpoints.m_size);
 #endif
 
@@ -3993,7 +3994,7 @@ namespace crnd
          m_codec.stop_decoding();
 
 #if CRND_CREATE_BYTE_STREAMS
-         write_array_to_file(CRND_STRING_LITERAL_PREFIX"colorselectors.bin", byte_stream);
+         write_array_to_file(CRND_STRING_LITERAL("colorselectors.bin"), byte_stream);
          crnd_trace("color selectors: %u\n", (uint)m_pHeader->m_color_selectors.m_size);
 #endif
 
@@ -4326,9 +4327,9 @@ namespace crnd
          CRND_HUFF_DECODE_END(m_codec);
 
 #if CRND_CREATE_BYTE_STREAMS
-         write_array_to_file(CRND_STRING_LITERAL_PREFIX"tile_encodings.bin", tile_encoding_stream);
-         write_array_to_file(CRND_STRING_LITERAL_PREFIX"endpoint_indices.bin", endpoint_indices_stream);
-         write_array_to_file(CRND_STRING_LITERAL_PREFIX"selector_indices.bin", selector_indices_stream);
+         write_array_to_file(CRND_STRING_LITERAL("tile_encodings.bin"), tile_encoding_stream);
+         write_array_to_file(CRND_STRING_LITERAL("endpoint_indices.bin"), endpoint_indices_stream);
+         write_array_to_file(CRND_STRING_LITERAL("selector_indices.bin"), selector_indices_stream);
 #endif
 
          return true;
