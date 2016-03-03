@@ -343,21 +343,16 @@ void ClusterFit::Compress4( void* block )
 	for( int iterationIndex = 0;; )
 	{
 		// first cluster [0,i) is at the start
-		Vec4 part0 = VEC4_CONST( 0.0f );
 		for( int i = 0; i < count; ++i )
 		{
 			// second cluster [i,j) is one third along
-			Vec4 part1 = VEC4_CONST( 0.0f );
 			for( int j = i;; )
 			{
 				// third cluster [j,k) is two thirds along
-				Vec4 part2 = ( j == 0 ) ? m_points_weights[0] : VEC4_CONST( 0.0f );
 				int kmin = ( j == 0 ) ? 1 : j;
 				for( int k = kmin;; )
 				{
 					// last cluster [k,count) is at the end
-					Vec4 part3 = m_xsum_wsum - part2 - part1 - part0;
-
                     Vec4 a, b;
                     Vec4 error = ComputeErrorForTriple(i, j, k, &a, &b);
 
@@ -376,19 +371,14 @@ void ClusterFit::Compress4( void* block )
 					// advance
 					if( k == count )
 						break;
-					part2 += m_points_weights[k];
 					++k;
 				}
 
 				// advance
 				if( j == count )
 					break;
-				part1 += m_points_weights[j];
 				++j;
 			}
-
-			// advance
-			part0 += m_points_weights[i];
 		}
 		
 		// stop if we didn't improve in this iteration
