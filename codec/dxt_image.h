@@ -24,12 +24,21 @@ namespace GenTC {
     uint8_t ep2[4];
     uint8_t palette[4][4];
     uint8_t indices[16];
+
+    LogicalDXTBlock &operator=(const LogicalDXTBlock &other) {
+      memcpy(this, &other, sizeof(*this));
+      return *this;
+    }
+
+    bool operator==(const LogicalDXTBlock &other) const {
+      return memcmp(this, &other, sizeof(*this)) == 0;
+    }
   };
 
   class DXTImage {
    public:
     DXTImage(const uint8_t *dxt_image, int width, int height);
-    DXTImage(int width, int height, const char *filename);
+    DXTImage(int width, int height, const char *orig_fn, const char *cmp_fn);
 
     int Width() const { return _width;  }
     int Height() const { return _height;  }
@@ -85,7 +94,8 @@ namespace GenTC {
       return (y / 4) * _blocks_width + (x / 4);
     }
 
-    void LoadDXTFromFile(const char *filename);
+    void LoadDXTFromFile(const char *filename, const char *cmp_fn);
+    double PSNR() const;
 
     const int _width;
     const int _height;

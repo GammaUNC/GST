@@ -31,6 +31,11 @@
 #include "vptree/vptree.hh"
 #define PREDICT_VPTREE
 
+template <typename T>
+static inline T AbsDiff(T a, T b) {
+  return a > b ? a - b : b - a;
+}
+
 static void LerpChannels(uint8_t a[3], uint8_t b[3], uint8_t out[3], int num, int div) {
   for (int i = 0; i < 3; ++i) {
     out[i] =
@@ -68,47 +73,56 @@ static uint16_t Pack565(const uint8_t in[3]) {
   return result;
 }
 
-static uint64_t CompressRGB(const uint8_t *img, int width) {
-  unsigned char block[64];
-  memset(block, 0, sizeof(block));
+// Snap to closest 5-bit value
+static uint8_t ToFiveBits(const uint8_t x) {
+  uint8_t base = x & 0xF8;
+  uint8_t high = base == 255 ? base : base + 0x4;
+  uint8_t low = base == 0 ? base : base - 0x4;
 
-  for (int j = 0; j < 4; ++j) {
-    for (int i = 0; i < 4; ++i) {
-      int src_idx = (j * width + i) * 3;
-      int dst_idx = (j * 4 + i) * 4;
+  base = base | (base >> 5);
+  high = high | (high >> 5);
+  low = low | (low >> 5);
 
-      unsigned char *block_pixel = block + dst_idx;
-      const unsigned char *img_pixel = img + src_idx;
+  uint8_t diff_base = AbsDiff(x, base);
+  uint8_t diff_high = AbsDiff(x, high);
+  uint8_t diff_low = AbsDiff(x, low);
 
-      block_pixel[0] = img_pixel[0];
-      block_pixel[1] = img_pixel[1];
-      block_pixel[2] = img_pixel[2];
-      block_pixel[3] = 0xFF;
+  if (diff_base <= diff_high) {
+    if (diff_base < diff_low) {
+      return base;
+    } else {
+      return low;
+    }
+  } 
+
+  assert(diff_high < diff_low);
+  return high;
+}
+
+// Snap to closest 6-bit value
+static uint8_t ToSixBits(const uint8_t x) {
+  uint8_t base = x & 0xFC;
+  uint8_t high = base == 255 ? base : base + 0x2;
+  uint8_t low = base == 0 ? base : base - 0x2;
+
+  base = base | (base >> 6);
+  high = high | (high >> 6);
+  low = low | (low >> 6);
+
+  uint8_t diff_base = AbsDiff(x, base);
+  uint8_t diff_high = AbsDiff(x, high);
+  uint8_t diff_low = AbsDiff(x, low);
+
+  if (diff_base <= diff_high) {
+    if (diff_base < diff_low) {
+      return base;
+    } else {
+      return low;
     }
   }
 
-  uint64_t result;
-  stb_compress_dxt_block(reinterpret_cast<unsigned char *>(&result),
-    block, 0, STB_DXT_HIGHQUAL);
-  return result;
-}
-
-static uint8_t ToFiveBits(const uint8_t x) {
-  int result = static_cast<int>(x);
-  result = std::max(255, result + (1 << 2));
-  result &= 0xF8;
-  result |= (result >> 5);
-  assert(0 <= result && result < 256);
-  return result;
-}
-
-static uint8_t ToSixBits(const uint8_t x) {
-  int result = static_cast<int>(x);
-  result = std::max(255, result + (1 << 1));
-  result &= 0xFC;
-  result |= (result >> 6);
-  assert(0 <= result && result < 256);
-  return static_cast<uint8_t>(result);
+  assert(diff_high < diff_low);
+  return high;
 }
 
 namespace GenTC {
@@ -117,15 +131,11 @@ PhysicalDXTBlock LogicalToPhysical(const LogicalDXTBlock &b);
 LogicalDXTBlock PhysicalToLogical(const PhysicalDXTBlock &b);
 
 #ifndef NDEBUG
-static bool operator==(const LogicalDXTBlock &a, const LogicalDXTBlock &b) {
-  return memcmp(&a, &b, sizeof(a)) == 0;
-}
-
 static bool operator==(const PhysicalDXTBlock &a, const PhysicalDXTBlock &b) {
   return a.dxt_block == b.dxt_block;
 }
 #endif
-  
+
 LogicalDXTBlock PhysicalToLogical(const PhysicalDXTBlock &b) {
   LogicalDXTBlock out;
 
@@ -138,7 +148,8 @@ LogicalDXTBlock PhysicalToLogical(const PhysicalDXTBlock &b) {
   if (b.ep1 <= b.ep2) {
     LerpChannels(out.ep1, out.ep2, out.palette[2], 1, 2);
     memset(out.palette[3], 0, 4);
-  } else {
+  }
+  else {
     LerpChannels(out.ep1, out.ep2, out.palette[2], 1, 3);
     LerpChannels(out.ep1, out.ep2, out.palette[3], 2, 3);
   }
@@ -166,6 +177,9 @@ PhysicalDXTBlock LogicalToPhysical(const LogicalDXTBlock &b) {
     // Swap it all 
     std::swap(result.ep1, result.ep2);
     swap = true;
+  } else if (result.ep1 <= result.ep2 && b.palette[3][3] == 255) {
+    std::swap(result.ep1, result.ep2);
+    swap = true;
   }
 
   result.interpolation = 0;
@@ -191,8 +205,18 @@ PhysicalDXTBlock LogicalToPhysical(const LogicalDXTBlock &b) {
   return result;
 }
 
+static void Deinterleave(uint32_t x, uint16_t *i, uint16_t *j) {
+  uint64_t w = (static_cast<uint64_t>(x & 0xAAAAAAAA) << 31) | (x & 0x55555555);
+  w = (w | (w >> 1)) & 0x3333333333333333ULL;
+  w = (w | (w >> 2)) & 0x0F0F0F0F0F0F0F0FULL;
+  w = (w | (w >> 4)) & 0x00FF00FF00FF00FFULL;
+  w = (w | (w >> 8)) & 0x0000FFFF0000FFFFULL;
+  *i = static_cast<uint16_t>(w & 0xFFFF);
+  *j = static_cast<uint16_t>((w >> 32) & 0xFFFF);
+}
+
 static void ChunkBy(int chunk_sz_x, int chunk_sz_y, int sz_x, int sz_y,
-                    std::function<void (int x, int y)> func) {
+  std::function<void(int x, int y)> func) {
   for (int y = 0; y < sz_y; y += chunk_sz_y) {
     for (int x = 0; x < sz_x; x += chunk_sz_x) {
       func(x, y);
@@ -201,11 +225,11 @@ static void ChunkBy(int chunk_sz_x, int chunk_sz_y, int sz_x, int sz_y,
 }
 
 static std::vector<LogicalDXTBlock>
-PhysicalToLogicalBlocks(const std::vector<PhysicalDXTBlock> &blocks) {
+  PhysicalToLogicalBlocks(const std::vector<PhysicalDXTBlock> &blocks) {
   std::vector<LogicalDXTBlock> out;
   out.reserve(blocks.size());
 
-  for (const auto &b : blocks) {
+  for (const PhysicalDXTBlock &b : blocks) {
     LogicalDXTBlock lb = PhysicalToLogical(b);
     assert(LogicalToPhysical(lb) == b);
     out.push_back(lb);
@@ -215,11 +239,11 @@ PhysicalToLogicalBlocks(const std::vector<PhysicalDXTBlock> &blocks) {
 }
 
 static std::vector<PhysicalDXTBlock>
-LogicalToPhysicalBlocks(const std::vector<LogicalDXTBlock> &blocks) {
+  LogicalToPhysicalBlocks(const std::vector<LogicalDXTBlock> &blocks) {
   std::vector<PhysicalDXTBlock> out;
   out.reserve(blocks.size());
 
-  for (const auto &b : blocks) {
+  for (const LogicalDXTBlock &b : blocks) {
     PhysicalDXTBlock pb = LogicalToPhysical(b);
     assert(PhysicalToLogical(pb) == b);
     out.push_back(pb);
@@ -228,30 +252,169 @@ LogicalToPhysicalBlocks(const std::vector<LogicalDXTBlock> &blocks) {
   return std::move(out);
 }
 
-DXTImage::DXTImage(int width, int height, const char *filename)
+struct CompressedBlock {
+  std::vector<uint8_t> _uncompressed;
+  LogicalDXTBlock _logical;
+
+  size_t Error() const {
+    size_t err = 0;
+    for (size_t idx = 0; idx < 16; idx++) {
+      uint8_t i = _logical.indices[idx];
+
+      uint8_t pixel[3];
+      pixel[0] = _logical.palette[i][0];
+      pixel[1] = _logical.palette[i][1];
+      pixel[2] = _logical.palette[i][2];
+
+      size_t diff_r = AbsDiff(_uncompressed[idx * 3 + 0], pixel[0]);
+      size_t diff_g = AbsDiff(_uncompressed[idx * 3 + 1], pixel[1]);
+      size_t diff_b = AbsDiff(_uncompressed[idx * 3 + 2], pixel[2]);
+
+      err += diff_r * diff_r + diff_g * diff_g + diff_b * diff_b;
+    }
+
+    return err / (16 * 3);
+  }
+
+  size_t CompareAgainst(const LogicalDXTBlock &other) const {
+    CompressedBlock dup = *this;
+    dup._logical = other;
+    dup.RecalculateEndpoints();
+    return dup.Error();
+  }
+
+  void AssignIndices(const uint32_t idx) {
+    PhysicalDXTBlock pblk = LogicalToPhysical(_logical);
+    pblk.interpolation = idx;
+    _logical = PhysicalToLogical(pblk);
+  }
+
+  void RecalculateEndpoints() {
+    // Now that we know the index of each pixel, we can assign the endpoints based
+    // on a least squares fit of the clusters. For more information, take a look
+    // at this article by NVidia: http://developer.download.nvidia.com/compute/
+    // cuda/1.1-Beta/x86_website/projects/dxtc/doc/cuda_dxtc.pdf
+    float asq = 0.0, bsq = 0.0, ab = 0.0;
+    float ax[3] = { 0.0f, 0.0f, 0.0f };
+    float bx[3] = { 0.0f, 0.0f, 0.0f };
+    for (size_t i = 0; i < 16; i++) {
+      const uint8_t *orig_pixel = _uncompressed.data() + i * 3;
+
+      static const float idx_to_order[4] = { 0.f, 3.f, 1.f, 2.f };
+      const float order = idx_to_order[_logical.indices[i]];
+      const float fbi = 3.0f - order;
+      const float fb = 3.0f;
+      const float fi = order;
+
+      const float a = fbi / fb;
+      const float b = fi / fb;
+
+      asq += a * a;
+      bsq += b * b;
+      ab += a * b;
+
+      for (size_t j = 0; j < 3; ++j) {
+        ax[j] += static_cast<float>(orig_pixel[j]) * a;
+        bx[j] += static_cast<float>(orig_pixel[j]) * b;
+      }
+    }
+
+    float f = 1.0f / (asq * bsq - ab * ab);
+
+    float p1[3], p2[3];
+    for (int i = 0; i < 3; ++i) {
+      p1[i] = f * (ax[i] * bsq - bx[i] * ab);
+      p2[i] = f * (bx[i] * asq - ax[i] * ab);
+    }
+
+    // Quantize the endpoints...
+    for (int i = 0; i < 3; ++i) {
+      _logical.ep1[i] = std::max(0, std::min(255, static_cast<int32_t>(p1[i] + 0.5f)));
+      _logical.ep2[i] = std::max(0, std::min(255, static_cast<int32_t>(p2[i] + 0.5f)));
+    }
+
+    _logical.ep1[0] = ToFiveBits(_logical.ep1[0]);
+    _logical.ep2[0] = ToFiveBits(_logical.ep2[0]);
+
+    _logical.ep1[1] = ToSixBits(_logical.ep1[1]);
+    _logical.ep2[1] = ToSixBits(_logical.ep2[1]);
+
+    _logical.ep1[2] = ToFiveBits(_logical.ep1[2]);
+    _logical.ep2[2] = ToFiveBits(_logical.ep2[2]);
+
+    memcpy(_logical.palette[0], _logical.ep1, 4);
+    memcpy(_logical.palette[1], _logical.ep2, 4);
+
+    LerpChannels(_logical.ep1, _logical.ep2, _logical.palette[2], 1, 3);
+    LerpChannels(_logical.ep1, _logical.ep2, _logical.palette[3], 2, 3);
+  }
+};
+
+static uint64_t CompressRGB(const uint8_t *img, int width) {
+  unsigned char block[64];
+  memset(block, 0, sizeof(block));
+
+  for (int j = 0; j < 4; ++j) {
+    for (int i = 0; i < 4; ++i) {
+      int src_idx = (j * width + i) * 3;
+      int dst_idx = (j * 4 + i) * 4;
+
+      unsigned char *block_pixel = block + dst_idx;
+      const unsigned char *img_pixel = img + src_idx;
+
+      block_pixel[0] = img_pixel[0];
+      block_pixel[1] = img_pixel[1];
+      block_pixel[2] = img_pixel[2];
+      block_pixel[3] = 0xFF;
+    }
+  }
+
+  PhysicalDXTBlock result;
+  //squish::Compress(block, reinterpret_cast<unsigned char *>(&result.dxt_block), squish::kDxt1);
+
+  stb_compress_dxt_block(reinterpret_cast<unsigned char *>(&result.dxt_block),
+    block, 0, STB_DXT_HIGHQUAL);
+
+  return result.dxt_block;
+}
+
+DXTImage::DXTImage(int width, int height, const char *orig_fn, const char *cmp_fn)
   : _width(width)
   , _height(height)
   , _blocks_width((width + 3) / 4)
   , _blocks_height((height + 3) / 4)
 {
-  LoadDXTFromFile(filename);
+  LoadDXTFromFile(orig_fn, cmp_fn);
 }
 
-DXTImage::DXTImage(const uint8_t *dxt_image, int width, int height)
-  : _width(width)
-  , _height(height)
-  , _blocks_width((width + 3) / 4)
-  , _blocks_height((height + 3) / 4)
-  , _physical_blocks(
-    reinterpret_cast<const PhysicalDXTBlock *>(dxt_image),
-    reinterpret_cast<const PhysicalDXTBlock *>(dxt_image)+(_blocks_width * _blocks_height))
-  , _logical_blocks(PhysicalToLogicalBlocks(_physical_blocks))
-{ }
+double DXTImage::PSNR() const {
+  // Compute DXT PSNR...
+  double orig_mse = 0.0;
+  for (int j = 0; j < Height(); ++j) {
+    for (int i = 0; i < Width(); ++i) {
+      uint8_t pixel[4];
+      GetColorAt(i, j, pixel);
 
-void DXTImage::LoadDXTFromFile(const char *fn) {
-  std::string fname(fn);
-  if (fname.substr(fname.find_last_of(".") + 1) == "crn") {
-    std::ifstream ifs(fname.c_str(), std::ifstream::binary | std::ifstream::ate);
+      const size_t src_idx = (j * Width() + i) * 3;
+      for (int c = 0; c < 3; ++c) {
+        double orig = static_cast<double>(_src_img[src_idx + c]);
+        double cmp = static_cast<double>(pixel[c]);
+        double diff = orig - cmp;
+        orig_mse += diff * diff;
+      }
+    }
+  }
+
+  orig_mse /= static_cast<double>(Width() * Height());
+  return 10.0 * log10((3.0 * 255.0 * 255.0) / orig_mse);
+}
+
+static const size_t kErrThreshold = 35;
+static const size_t kNumPrevLookup = 256;
+void DXTImage::LoadDXTFromFile(const char *fn, const char *cmp_fn) {
+  std::string cmp_fname(cmp_fn ? cmp_fn : "");
+  if (cmp_fname.substr(cmp_fname.find_last_of(".") + 1) == "crn") {
+    std::ifstream ifs(cmp_fname.c_str(), std::ifstream::binary | std::ifstream::ate);
     std::ifstream::pos_type pos = ifs.tellg();
 
     std::vector<uint8_t> crn(pos);
@@ -286,39 +449,104 @@ void DXTImage::LoadDXTFromFile(const char *fn) {
     }
 
     crnd::crnd_unpack_end(ctx);
+  } 
+  
+  // Otherwise, load the file
+  int width, height;
+  stbi_uc *data = stbi_load(fn, &width, &height, NULL, 3);
+  if (!data) {
+    assert(!"Error loading image");
+    std::cout << "Error loading image" << fn << std::endl;
+    return;
   }
-  else {
-    // Otherwise, load the file
-    int width, height;
-    stbi_uc *data = stbi_load(fn, &width, &height, NULL, 3);
-    if (!data) {
-      assert(!"Error loading image");
-      std::cout << "Error loading image" << fn << std::endl;
-      return;
-    }
 
-    assert((width & 0x3) == 0);
-    assert((height & 0x3) == 0);
+  _src_img.resize(width * height * 3);
+  memcpy(_src_img.data(), data, width * height * 3);
 
-    const int num_blocks_x = (width + 3) / 4;
-    const int num_blocks_y = (height + 3) / 4;
-    const int num_blocks = num_blocks_x * num_blocks_y;
+  const int num_blocks_x = (width + 3) / 4;
+  const int num_blocks_y = (height + 3) / 4;
+  const int num_blocks = num_blocks_x * num_blocks_y;
 
-    // Now do the dxt compression...
+  if (_physical_blocks.size() == 0) {
+    // Compress the DXT data
     _physical_blocks.resize(num_blocks);
-    for (int j = 0; j < height; j += 4) {
-      for (int i = 0; i < width; i += 4) {
-        int block_idx = (j / 4) * num_blocks_x + (i / 4);
-        const unsigned char *offset_data = data + (j * width + i) * 3;
-        _physical_blocks[block_idx].dxt_block = CompressRGB(offset_data, width);
-      }
-    }
+    for (int physical_idx = 0; physical_idx < num_blocks; ++physical_idx) {
+      uint16_t i, j;
+      i = static_cast<uint16_t>(physical_idx % num_blocks_x);
+      j = static_cast<uint16_t>(physical_idx / num_blocks_x);
 
-    _src_img.resize(width * height * 3);
-    memcpy(_src_img.data(), data, width * height * 3);
+      int block_idx = j * num_blocks_x + i;
+      const unsigned char *offset_data = data + (j * 4 * width + i * 4) * 3;
+      _physical_blocks[block_idx].dxt_block = CompressRGB(offset_data, width);
+    }
   }
 
   _logical_blocks = std::move(PhysicalToLogicalBlocks(_physical_blocks));
+  std::cout << "DXT Compressed PSNR: " << PSNR() << std::endl;
+
+  assert((width & 0x3) == 0);
+  assert((height & 0x3) == 0);
+
+  // Now do the dxt compression...
+  std::vector<uint32_t> index_history;
+
+  for (int physical_idx = 0; physical_idx < num_blocks; ++physical_idx) {
+    uint16_t i, j;
+    Deinterleave(static_cast<uint32_t>(physical_idx), &i, &j);
+    i = static_cast<uint16_t>(physical_idx % num_blocks_x);
+    j = static_cast<uint16_t>(physical_idx / num_blocks_x);
+
+    int block_idx = j * num_blocks_x + i;
+    const unsigned char *offset_data = data + (j * 4 * width + i * 4) * 3;
+
+    CompressedBlock blk;
+    blk._logical = _logical_blocks[block_idx];
+    blk._uncompressed = std::vector<uint8_t>(48, 0);
+
+    for (int row = 0; row < 4; ++row) {
+      uint8_t block_row[12];
+      for (int p = 0; p < 4; ++p) {
+        block_row[3 * p + 0] = offset_data[(row * width + p) * 3 + 0];
+        block_row[3 * p + 1] = offset_data[(row * width + p) * 3 + 1];
+        block_row[3 * p + 2] = offset_data[(row * width + p) * 3 + 2];
+      }
+
+      memcpy(blk._uncompressed.data() + 12 * row, block_row, sizeof(block_row));
+    }
+
+    const int orig_err = static_cast<int>(blk.Error());
+    int min_err = std::numeric_limits<int>::max();
+    size_t min_err_idx = 0;
+
+    for (size_t idx = 0; idx < std::min<size_t>(kNumPrevLookup - 1, index_history.size()); ++idx) {
+      CompressedBlock blk2 = blk;
+      blk2.AssignIndices(*(index_history.crbegin() + idx));
+      blk2.RecalculateEndpoints();
+      int err = static_cast<int>(blk2.Error());
+      int err_diff = err - orig_err;
+      if (err_diff < min_err) {
+        min_err = err_diff;
+        min_err_idx = idx + 1;
+        if (err_diff == 0) {
+          break;
+        }
+      }
+    }
+
+    if (min_err < kErrThreshold) {
+      blk.AssignIndices(*(index_history.crbegin() + min_err_idx - 1));
+      blk.RecalculateEndpoints();
+      assert(blk.Error() - orig_err == min_err);
+      _logical_blocks[block_idx] = blk._logical;
+      _physical_blocks[block_idx] = LogicalToPhysical(blk._logical);
+    }
+    else {
+      index_history.push_back(_physical_blocks[block_idx].interpolation);
+    }
+  }
+
+  std::cout << "Unique index blocks: " << index_history.size() << std::endl;
+  std::cout << "DXT Optimized PSNR: " << PSNR() << std::endl;
 }
 
 std::unique_ptr<RGBAImage> DXTImage::EndpointOneImage() const {
@@ -476,11 +704,6 @@ uint8_t get_gray(const uint8_t color[]) {
 
   uint8_t  eight_bit_gray = gray;
   return eight_bit_gray;
-}
-
-template <typename T>
-static inline T AbsDiff(T a, T b) {
-  return a > b ? a - b : b - a;
 }
 
 void predict_color_wennersten(const uint8_t diag[], const uint8_t upper[],
@@ -922,95 +1145,6 @@ DXTImage::PredictIndicesLinearize(int chunk_width, int chunk_height) const {
   assert(symbols.size() == predicted.size());
   return std::move(symbols);
 }
-
-struct CompressedBlock {
-  std::vector<uint8_t> _uncompressed;
-  LogicalDXTBlock _logical;
-
-  size_t CompareAgainst(const LogicalDXTBlock &other) const {
-    CompressedBlock dup = *this;
-    dup._logical = other;
-    dup.RecalculateEndpoints();
-
-    size_t err = 0;
-    for (size_t idx = 0; idx < 16; idx++) {
-      uint8_t i = dup._logical.indices[idx];
-
-      uint8_t pixel[3];
-      pixel[0] = dup._logical.palette[i][0];
-      pixel[1] = dup._logical.palette[i][1];
-      pixel[2] = dup._logical.palette[i][2];
-
-      size_t diff_r = AbsDiff(_uncompressed[idx * 3 + 0], pixel[0]);
-      size_t diff_g = AbsDiff(_uncompressed[idx * 3 + 1], pixel[1]);
-      size_t diff_b = AbsDiff(_uncompressed[idx * 3 + 2], pixel[2]);
-
-      err += diff_r * diff_r + diff_g * diff_g + diff_b * diff_b;
-    }
-
-    return err / 48;
-  }
-
-  void RecalculateEndpoints() {
-    // Now that we know the index of each pixel, we can assign the endpoints based
-    // on a least squares fit of the clusters. For more information, take a look
-    // at this article by NVidia: http://developer.download.nvidia.com/compute/
-    // cuda/1.1-Beta/x86_website/projects/dxtc/doc/cuda_dxtc.pdf
-    float asq = 0.0, bsq = 0.0, ab = 0.0;
-    float ax[3] = { 0.0f, 0.0f, 0.0f };
-    float bx[3] = { 0.0f, 0.0f, 0.0f };
-    for (size_t i = 0; i < 16; i++) {
-      const uint8_t *orig_pixel = _uncompressed.data() + i*3;
-
-      static const uint8_t idx_to_order[4] = { 0, 3, 1, 2 };
-      const float order = static_cast<float>(idx_to_order[_logical.indices[i]]);
-      const float fbi = 3.0f - order;
-      const float fb = 3.0f;
-      const float fi = order;
-
-      const float a = fbi / fb;
-      const float b = fi / fb;
-
-      asq += a * a;
-      bsq += b * b;
-      ab += a * b;
-
-      for (size_t j = 0; j < 3; ++j) {
-        ax[j] += static_cast<float>(orig_pixel[j]) * a;
-        bx[j] += static_cast<float>(orig_pixel[j]) * b;
-      }
-    }
-
-    float f = 1.0f / (asq * bsq - ab * ab);
-
-    float p1[3], p2[3];
-    for (int i = 0; i < 3; ++i) {
-      p1[i] = f * (ax[i] * bsq - bx[i] * ab);
-      p2[i] = f * (bx[i] * asq - ax[i] * ab);
-    }
-
-    // Quantize the endpoints...
-    for (int i = 0; i < 3; ++i) {
-      _logical.ep1[i] = std::max(0, std::min(255, static_cast<int32_t>(p1[i] + 0.5f)));
-      _logical.ep2[i] = std::max(0, std::min(255, static_cast<int32_t>(p2[i] + 0.5f)));
-    }
-
-    _logical.ep1[0] = ToFiveBits(_logical.ep1[0]);
-    _logical.ep2[0] = ToFiveBits(_logical.ep2[0]);
-
-    _logical.ep1[1] = ToSixBits(_logical.ep1[1]);
-    _logical.ep2[1] = ToSixBits(_logical.ep2[1]);
-
-    _logical.ep1[2] = ToFiveBits(_logical.ep1[2]);
-    _logical.ep2[2] = ToFiveBits(_logical.ep2[2]);
-
-    memcpy(_logical.palette[0], _logical.ep1, 4);
-    memcpy(_logical.palette[1], _logical.ep2, 4);
-
-    LerpChannels(_logical.ep1, _logical.ep2, _logical.palette[2], 1, 3);
-    LerpChannels(_logical.ep1, _logical.ep2, _logical.palette[3], 2, 3);
-  }
-};
 
 void DXTImage::ReassignIndices(int mse_threshold) {
   if (_src_img.size() == 0) {

@@ -8,7 +8,7 @@ namespace GenTC {
 
   // Compresses the DXT texture with the given width and height into a
   // GPU decompressible stream.
-  std::vector<uint8_t> CompressDXT(const char *filename, int width, int height);
+  std::vector<uint8_t> CompressDXT(const char *filename, const char *cmp_fn, int width, int height);
 
 }  // namespace GenTC
 

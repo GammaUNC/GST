@@ -657,10 +657,13 @@ std::vector<uint8_t> compress_indices(const GenTC::DXTImage &dxt) {
 cv::Mat dft_opencv(const cv::Mat I) {
   using namespace cv; // !YUCK!
   
+  Mat padded_flts;
+  I.convertTo(padded_flts, CV_32FC1);
+
   Mat padded;                            //expand input image to optimal size
   int m = getOptimalDFTSize( I.rows );
   int n = getOptimalDFTSize( I.cols ); // on the border add zero values
-  copyMakeBorder(I, padded, 0, m - I.rows, 0, n - I.cols, BORDER_CONSTANT, Scalar::all(0));
+  copyMakeBorder(I, padded_flts, 0, m - I.rows, 0, n - I.cols, BORDER_CONSTANT, Scalar::all(0));
 
   Mat planes[] = {Mat_<float>(padded), Mat::zeros(padded.size(), CV_32F)};
   Mat complexI;
@@ -708,8 +711,8 @@ cv::Mat dft_opencv(const cv::Mat I) {
 
 int main(int argc, char **argv) {
   // Make sure that we have the proper number of arguments...
-  if (argc != 2) {
-    std::cerr << "Usage: " << argv[0] << " <filename>" << std::endl;
+  if (argc != 2 && argc != 3) {
+    std::cerr << "Usage: " << argv[0] << "<original> [compressed]" << std::endl;
     return 1;
   }
 
@@ -717,96 +720,35 @@ int main(int argc, char **argv) {
   size_t width, height;
   std::vector<GenTC::PhysicalDXTBlock> dxt_blocks;
   std::string fname(argv[1]);
-  if (fname.substr(fname.find_last_of(".") + 1) == "crn") {
-    std::ifstream ifs(fname.c_str(), std::ifstream::binary|std::ifstream::ate);
-    std::ifstream::pos_type pos = ifs.tellg();
 
-    std::vector<uint8_t> crn(pos);
-
-    ifs.seekg(0, std::ifstream::beg);
-    ifs.read(reinterpret_cast<char *>(crn.data()), pos);
-
-    crnd::crn_texture_info tinfo;
-    if (!crnd::crnd_get_texture_info(crn.data(), crn.size(), &tinfo)) {
-      assert(!"Invalid texture?");
-      return 1;
-    }
-
-    width = tinfo.m_width;
-    height = tinfo.m_height;
-
-    crnd::crnd_unpack_context ctx = crnd::crnd_unpack_begin(crn.data(), crn.size());
-    if (!ctx) {
-      assert(!"Error beginning crn decoding!");
-      return 1;
-    }
-
-    const int num_blocks_x = (width + 3) / 4;
-    const int num_blocks_y = (height + 3) / 4;
-    const int num_blocks = num_blocks_x * num_blocks_y;
-    dxt_blocks.resize(num_blocks);
-
-    void *dst = dxt_blocks.data();
-    if (!crnd::crnd_unpack_level(ctx, &dst, dxt_blocks.size() * 8, num_blocks_x * 8, 0)) {
-      assert(!"Error decoding crunch texture!");
-      return 1;
-    }
-
-    crnd::crnd_unpack_end(ctx);
-
-  } else {
-    // Otherwise, load the file
-    const cv::Mat img = cv::imread(argv[1], -1);
-    if (!img.data) {
-      std::cerr << "Error loading image: " << argv[1] << std::endl;
-      return 1;
-    }
-    width = img.cols;
-    height = img.rows;
-
-    assert((img.cols & 0x3) == 0);
-    assert((img.rows & 0x3) == 0);
-
-    const int num_blocks_x = (img.cols + 3) / 4;
-    const int num_blocks_y = (img.rows + 3) / 4;
-    const int num_blocks = num_blocks_x * num_blocks_y;
-
-    // Now do the dxt compression...
-    dxt_blocks.resize(num_blocks);
-    for (int j = 0; j < img.rows; j += 4) {
-      for (int i = 0; i < img.cols; i += 4) {
-        int block_idx = (j / 4) * num_blocks_x + (i / 4);
-        const unsigned char *offset_data = img.ptr(j) + i * img.channels();
-        if (3 == img.channels()) {
-          dxt_blocks[block_idx].dxt_block = CompressRGB(offset_data, img.cols);
-        } else if (4 == img.channels()) {
-          dxt_blocks[block_idx].dxt_block = CompressRGBA(offset_data, img.cols);
-        } else {
-          std::cerr << "Error! Only accepts RGB or RGBA images!" << std::endl;
-        }
-      }
-    }
-
-    cv::Mat planes[3];
-    cv::split(img, planes);
-    cv::imwrite("img_red.png", planes[0]);
-    cv::imwrite("img_red_dft.png", dft_opencv(planes[0]));
+  // Otherwise, load the file
+  const cv::Mat img = cv::imread(argv[1], -1);
+  if (!img.data) {
+    std::cerr << "Error loading image: " << argv[1] << std::endl;
+    return 1;
   }
+  width = img.cols;
+  height = img.rows;
 
-  const uint8_t *dxt_data = reinterpret_cast<const uint8_t *>(dxt_blocks.data());
-  GenTC::DXTImage dxt_img(dxt_data, width, height);
-  GenTC::CompressDXT(argv[1], width, height);
+  const char *orig_fn = argv[1];
+  const char *cmp_fn = (argc == 2) ? NULL : argv[2];
+
+  GenTC::DXTImage dxt_img(width, height, orig_fn, cmp_fn);
+  // GenTC::CompressDXT(orig_fn, cmp_fn, width, height);
 
   // Decompress into image...
-  cv::imwrite("img_dxt.png", cv::Mat(height, width, CV_8UC4,
-    const_cast<uint8_t*>(dxt_img.DecompressedImage()->Pack().data())));
+  std::vector<uint8_t> decomp_rgba = std::move(dxt_img.DecompressedImage()->Pack());
+  cv::Mat decomp_img(height, width, CV_8UC4, decomp_rgba.data());
+  cv::Mat decomp_output;
+  cv::cvtColor(decomp_img, decomp_output, cv::COLOR_BGRA2RGBA);
+  cv::imwrite("img_dxt.png", decomp_output);
 
   // Visualize interpolation data...
   cv::Mat interp_img = cv::Mat(height, width, CV_8UC1,
                                dxt_img.InterpolationImage().data());
   cv::imwrite("img_dxt_interp.png", interp_img);
 
-  cv::imwrite("img_dxt_interp_dft.png", dft_opencv(interp_img));
+  // cv::imwrite("img_dxt_interp_dft.png", dft_opencv(interp_img));
 
   return 0;
 }

@@ -34,12 +34,10 @@ std::unique_ptr<std::vector<uint8_t> > RunDXTEndpointPipeline(const std::unique_
   return std::move(pipeline->Run(img));
 }
 
-std::vector<uint8_t> CompressDXT(const char *fn, int width, int height) {
+std::vector<uint8_t> CompressDXT(const char *orig_fn, const char *cmp_fn, int width, int height) {
   std::cout << "Original DXT size: " << (width * height / 2) << std::endl;
 
-  DXTImage dxt_img(width, height, fn);
-
-  dxt_img.ReassignIndices(10);
+  DXTImage dxt_img(width, height, orig_fn, cmp_fn);
 
   auto endpoint_one = dxt_img.EndpointOneValues();
   auto endpoint_two = dxt_img.EndpointTwoValues();
@@ -57,33 +55,49 @@ std::vector<uint8_t> CompressDXT(const char *fn, int width, int height) {
 
   DataStream out;
 
+  std::cout << "Compressing Y plane for EP 1... ";
   auto ep1_y_cmp = RunDXTEndpointPipeline(std::get<0>(*ep1_planes));
   out.WriteInt(static_cast<uint32_t>(ep1_y_cmp->size()));
+  std::cout << "Done." << std::endl;
 
+  std::cout << "Compressing Co plane for EP 1... ";
   auto ep1_co_cmp = RunDXTEndpointPipeline(std::get<1>(*ep1_planes));
   out.WriteInt(static_cast<uint32_t>(ep1_co_cmp->size()));
+  std::cout << "Done." << std::endl;
 
+  std::cout << "Compressing Cg plane for EP 1... ";
   auto ep1_cg_cmp = RunDXTEndpointPipeline(std::get<2>(*ep1_planes));
   out.WriteInt(static_cast<uint32_t>(ep1_cg_cmp->size()));
+  std::cout << "Done." << std::endl;
 
+  std::cout << "Compressing Y plane for EP 2... ";
   auto ep2_y_cmp = RunDXTEndpointPipeline(std::get<0>(*ep2_planes));
   out.WriteInt(static_cast<uint32_t>(ep2_y_cmp->size()));
+  std::cout << "Done." << std::endl;
 
+  std::cout << "Compressing Co plane for EP 2... ";
   auto ep2_co_cmp = RunDXTEndpointPipeline(std::get<1>(*ep2_planes));
   out.WriteInt(static_cast<uint32_t>(ep2_co_cmp->size()));
+  std::cout << "Done." << std::endl;
 
+  std::cout << "Compressing Cg plane for EP 2... ";
   auto ep2_cg_cmp = RunDXTEndpointPipeline(std::get<2>(*ep2_planes));
   out.WriteInt(static_cast<uint32_t>(ep2_cg_cmp->size()));
+  std::cout << "Done." << std::endl;
 
   // !FIXME! Do something with the index data...
   auto index_pipeline =
     Pipeline<std::vector<uint8_t>, std::vector<uint8_t> >
     ::Create(ByteEncoder::Encoder(ans::ocl::kNumEncodedSymbols));
 
+  //std::unique_ptr<std::vector<uint8_t> > idx_img(
+  //  new std::vector<uint8_t>(dxt_img.PredictIndicesLinearize(16, 16)));
   std::unique_ptr<std::vector<uint8_t> > idx_img(
-    new std::vector<uint8_t>(dxt_img.PredictIndicesLinearize(16, 16)));
+    new std::vector<uint8_t>(dxt_img.InterpolationValues()));
+  std::cout << "Compressing symbols... ";
   auto idx_cmp = index_pipeline->Run(idx_img);
   out.WriteInt(static_cast<uint32_t>(idx_cmp->size()));
+  std::cout << "Done." << std::endl;
 
   std::vector<uint8_t> result = out.GetData();
   result.insert(result.end(), ep1_y_cmp->begin(), ep1_y_cmp->end());
