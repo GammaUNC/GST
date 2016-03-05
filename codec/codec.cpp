@@ -35,7 +35,8 @@ std::unique_ptr<std::vector<uint8_t> > RunDXTEndpointPipeline(const std::unique_
 }
 
 std::vector<uint8_t> CompressDXT(const char *orig_fn, const char *cmp_fn, int width, int height) {
-  std::cout << "Original DXT size: " << (width * height / 2) << std::endl;
+  std::cout << "Original DXT size: " << (width * height) / 2 << std::endl;
+  std::cout << "Half original DXT size: " << (width * height) / 4 << std::endl;
 
   DXTImage dxt_img(width, height, orig_fn, cmp_fn);
 
@@ -90,15 +91,31 @@ std::vector<uint8_t> CompressDXT(const char *orig_fn, const char *cmp_fn, int wi
     Pipeline<std::vector<uint8_t>, std::vector<uint8_t> >
     ::Create(ByteEncoder::Encoder(ans::ocl::kNumEncodedSymbols));
 
-  //std::unique_ptr<std::vector<uint8_t> > idx_img(
-  //  new std::vector<uint8_t>(dxt_img.PredictIndicesLinearize(16, 16)));
-  std::unique_ptr<std::vector<uint8_t> > idx_img(
-    new std::vector<uint8_t>(dxt_img.InterpolationValues()));
-  std::cout << "Compressing symbols... ";
-  auto idx_cmp = index_pipeline->Run(idx_img);
+  std::unique_ptr<std::vector<uint8_t> > palette_data(
+    new std::vector<uint8_t>(std::move(dxt_img.PaletteData())));
+  size_t palette_data_size = palette_data->size();
+  std::cout << "Original palette data size: " << palette_data_size << std::endl;
+  static const size_t ans_ocl_data_factor = ans::ocl::kNumEncodedSymbols * ans::ocl::kThreadsPerEncodingGroup;
+  size_t padding = ((palette_data_size + (ans_ocl_data_factor - 1)) / ans_ocl_data_factor) * ans_ocl_data_factor;
+  std::cout << "Padded palette data size: " << padding << std::endl;
+  palette_data->resize(padding);
+
+  std::unique_ptr<std::vector<uint8_t> > idx_data(
+    new std::vector<uint8_t>(dxt_img.IndexDiffs()));
+
+  std::cout << "Compressing index palette... ";
+  auto palette_cmp = index_pipeline->Run(palette_data);
+  out.WriteInt(static_cast<uint32_t>(palette_cmp->size()));
+  std::cout << "Done." << std::endl;
+  std::cout << "Compressed palette data size: " << palette_cmp->size() << std::endl;
+
+  std::cout << "Original index differences size: " << idx_data->size() << std::endl;
+  std::cout << "Compressing index differences... ";
+  auto idx_cmp = index_pipeline->Run(idx_data);
   out.WriteInt(static_cast<uint32_t>(idx_cmp->size()));
   std::cout << "Done." << std::endl;
-
+  std::cout << "Compressed index differences size: " << idx_cmp->size() << std::endl;
+  
   std::vector<uint8_t> result = out.GetData();
   result.insert(result.end(), ep1_y_cmp->begin(), ep1_y_cmp->end());
   result.insert(result.end(), ep1_co_cmp->begin(), ep1_co_cmp->end());
@@ -107,8 +124,10 @@ std::vector<uint8_t> CompressDXT(const char *orig_fn, const char *cmp_fn, int wi
   result.insert(result.end(), ep2_co_cmp->begin(), ep2_co_cmp->end());
   result.insert(result.end(), ep2_cg_cmp->begin(), ep2_cg_cmp->end());
 
+  result.insert(result.end(), palette_cmp->begin(), palette_cmp->end());
   result.insert(result.end(), idx_cmp->begin(), idx_cmp->end());
 
+#if 0
   std::cout << "Interpolation value stats:" << std::endl;
   std::cout << "Uncompressed Size of 2-bit symbols: " << (idx_img->size() * 2) / 8 << std::endl;
 
@@ -131,6 +150,7 @@ std::vector<uint8_t> CompressDXT(const char *orig_fn, const char *cmp_fn, int wi
   std::cout << "H: " << H << std::endl;
   std::cout << "Expected num bytes: " << H*(idx_img->size() / 8) << std::endl;
   std::cout << "Actual num bytes: " << idx_cmp->size() << std::endl;
+#endif
 
   double bpp = static_cast<double>(result.size() * 8) / static_cast<double>(width * height);
   std::cout << "Compressed DXT size: " << result.size()

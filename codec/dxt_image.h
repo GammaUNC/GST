@@ -37,7 +37,6 @@ namespace GenTC {
 
   class DXTImage {
    public:
-    DXTImage(const uint8_t *dxt_image, int width, int height);
     DXTImage(int width, int height, const char *orig_fn, const char *cmp_fn);
 
     int Width() const { return _width;  }
@@ -89,6 +88,9 @@ namespace GenTC {
 
     void ReassignIndices(int mse_threshold);
 
+    std::vector<uint8_t> PaletteData() const;
+    const std::vector<uint8_t> &IndexDiffs() const { return _indices; }
+
   private:
     uint32_t BlockAt(int x, int y) const {
       return (y / 4) * _blocks_width + (x / 4);
@@ -104,6 +106,9 @@ namespace GenTC {
 
     std::vector<PhysicalDXTBlock> _physical_blocks;
     std::vector<LogicalDXTBlock> _logical_blocks;
+
+    std::vector<uint32_t> _index_palette;
+    std::vector<uint8_t> _indices;
 
     std::vector<uint8_t> _src_img;
   };

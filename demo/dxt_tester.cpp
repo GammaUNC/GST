@@ -734,7 +734,7 @@ int main(int argc, char **argv) {
   const char *cmp_fn = (argc == 2) ? NULL : argv[2];
 
   GenTC::DXTImage dxt_img(width, height, orig_fn, cmp_fn);
-  // GenTC::CompressDXT(orig_fn, cmp_fn, width, height);
+  GenTC::CompressDXT(orig_fn, cmp_fn, width, height);
 
   // Decompress into image...
   std::vector<uint8_t> decomp_rgba = std::move(dxt_img.DecompressedImage()->Pack());

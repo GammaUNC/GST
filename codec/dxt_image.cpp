@@ -410,7 +410,7 @@ double DXTImage::PSNR() const {
 }
 
 static const size_t kErrThreshold = 35;
-static const size_t kNumPrevLookup = 256;
+static const size_t kNumPrevLookup = 128;
 void DXTImage::LoadDXTFromFile(const char *fn, const char *cmp_fn) {
   std::string cmp_fname(cmp_fn ? cmp_fn : "");
   if (cmp_fname.substr(cmp_fname.find_last_of(".") + 1) == "crn") {
@@ -488,7 +488,7 @@ void DXTImage::LoadDXTFromFile(const char *fn, const char *cmp_fn) {
   assert((height & 0x3) == 0);
 
   // Now do the dxt compression...
-  std::vector<uint32_t> index_history;
+  int last_index = 0;
 
   for (int physical_idx = 0; physical_idx < num_blocks; ++physical_idx) {
     uint16_t i, j;
@@ -518,35 +518,48 @@ void DXTImage::LoadDXTFromFile(const char *fn, const char *cmp_fn) {
     int min_err = std::numeric_limits<int>::max();
     size_t min_err_idx = 0;
 
-    for (size_t idx = 0; idx < std::min<size_t>(kNumPrevLookup - 1, index_history.size()); ++idx) {
+    for (size_t idx = 0; idx < std::min<size_t>(kNumPrevLookup - 1, _index_palette.size()); ++idx) {
       CompressedBlock blk2 = blk;
-      blk2.AssignIndices(*(index_history.crbegin() + idx));
+      blk2.AssignIndices(*(_index_palette.crbegin() + idx));
       blk2.RecalculateEndpoints();
       int err = static_cast<int>(blk2.Error());
       int err_diff = err - orig_err;
       if (err_diff < min_err) {
         min_err = err_diff;
-        min_err_idx = idx + 1;
+        min_err_idx = idx;
         if (err_diff == 0) {
           break;
         }
       }
     }
 
+    int this_index = -1;
     if (min_err < kErrThreshold) {
-      blk.AssignIndices(*(index_history.crbegin() + min_err_idx - 1));
+      blk.AssignIndices(*(_index_palette.crbegin() + min_err_idx));
       blk.RecalculateEndpoints();
       assert(blk.Error() - orig_err == min_err);
       _logical_blocks[block_idx] = blk._logical;
       _physical_blocks[block_idx] = LogicalToPhysical(blk._logical);
+      this_index = static_cast<int>(_index_palette.size() - min_err_idx - 1);
+    } else {
+      this_index = _index_palette.size();
+      _index_palette.push_back(_physical_blocks[block_idx].interpolation);
     }
-    else {
-      index_history.push_back(_physical_blocks[block_idx].interpolation);
-    }
+
+    int idx_diff = this_index - last_index;
+    assert(-128 <= idx_diff && idx_diff < 128);
+    _indices.push_back(idx_diff + 128);
+    last_index = this_index;
   }
 
-  std::cout << "Unique index blocks: " << index_history.size() << std::endl;
+  std::cout << "Unique index blocks: " << _index_palette.size() << std::endl;
   std::cout << "DXT Optimized PSNR: " << PSNR() << std::endl;
+}
+
+std::vector<uint8_t> DXTImage::PaletteData() const {
+  std::vector<uint8_t> ret(_index_palette.size() * 4, 0);
+  memcpy(ret.data(), _index_palette.data(), ret.size());
+  return std::move(ret);
 }
 
 std::unique_ptr<RGBAImage> DXTImage::EndpointOneImage() const {
