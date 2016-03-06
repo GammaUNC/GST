@@ -744,8 +744,8 @@ int main(int argc, char **argv) {
   cv::imwrite("img_dxt.png", decomp_output);
 
   // Visualize interpolation data...
-  cv::Mat interp_img = cv::Mat(height, width, CV_8UC1,
-                               dxt_img.InterpolationImage().data());
+  std::vector<uint8_t> interp_img_data = std::move(dxt_img.InterpolationImage());
+  cv::Mat interp_img = cv::Mat(height, width, CV_8UC1, interp_img_data.data());
   cv::imwrite("img_dxt_interp.png", interp_img);
 
   // cv::imwrite("img_dxt_interp_dft.png", dft_opencv(interp_img));
