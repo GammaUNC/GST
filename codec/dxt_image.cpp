@@ -409,7 +409,7 @@ double DXTImage::PSNR() const {
   return 10.0 * log10((3.0 * 255.0 * 255.0) / orig_mse);
 }
 
-static const size_t kErrThreshold = 35;
+static const int kErrThreshold = 35;
 static const size_t kNumPrevLookup = 128;
 void DXTImage::LoadDXTFromFile(const char *fn, const char *cmp_fn) {
   std::string cmp_fname(cmp_fn ? cmp_fn : "");
@@ -527,7 +527,7 @@ void DXTImage::LoadDXTFromFile(const char *fn, const char *cmp_fn) {
       if (err_diff < min_err) {
         min_err = err_diff;
         min_err_idx = idx;
-        if (err_diff == 0) {
+        if (err_diff <= 0) {
           break;
         }
       }

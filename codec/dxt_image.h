@@ -2,6 +2,7 @@
 #define __TCAR_DXT_IMAGE_H__
 
 #include <array>
+#include <cstring>
 #include <cstdint>
 #include <memory>
 #include <vector>
