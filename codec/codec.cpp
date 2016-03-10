@@ -98,7 +98,7 @@ std::vector<uint8_t> CompressDXT(const char *orig_fn, const char *cmp_fn, int wi
   static const size_t ans_ocl_data_factor = ans::ocl::kNumEncodedSymbols * ans::ocl::kThreadsPerEncodingGroup;
   size_t padding = ((palette_data_size + (ans_ocl_data_factor - 1)) / ans_ocl_data_factor) * ans_ocl_data_factor;
   std::cout << "Padded palette data size: " << padding << std::endl;
-  palette_data->resize(padding);
+  palette_data->resize(padding, 0);
 
   std::unique_ptr<std::vector<uint8_t> > idx_data(
     new std::vector<uint8_t>(dxt_img.IndexDiffs()));
@@ -106,15 +106,13 @@ std::vector<uint8_t> CompressDXT(const char *orig_fn, const char *cmp_fn, int wi
   std::cout << "Compressing index palette... ";
   auto palette_cmp = index_pipeline->Run(palette_data);
   out.WriteInt(static_cast<uint32_t>(palette_cmp->size()));
-  std::cout << "Done." << std::endl;
-  std::cout << "Compressed palette data size: " << palette_cmp->size() << std::endl;
+  std::cout << "Done: " << palette_cmp->size() << " bytes" << std::endl;
 
   std::cout << "Original index differences size: " << idx_data->size() << std::endl;
   std::cout << "Compressing index differences... ";
   auto idx_cmp = index_pipeline->Run(idx_data);
   out.WriteInt(static_cast<uint32_t>(idx_cmp->size()));
-  std::cout << "Done." << std::endl;
-  std::cout << "Compressed index differences size: " << idx_cmp->size() << std::endl;
+  std::cout << "Done: " << idx_cmp->size()<< " bytes" << std::endl;
   
   std::vector<uint8_t> result = out.GetData();
   result.insert(result.end(), ep1_y_cmp->begin(), ep1_y_cmp->end());
