@@ -387,6 +387,18 @@ DXTImage::DXTImage(int width, int height, const char *orig_fn, const char *cmp_f
   LoadDXTFromFile(orig_fn, cmp_fn);
 }
 
+DXTImage::DXTImage(int width, int height, const std::vector<uint8_t> &dxt_data)
+  : _width(width)
+  , _height(height)
+  , _blocks_width((width + 3) / 4)
+  , _blocks_height((height + 3) / 4)
+  , _physical_blocks(
+    reinterpret_cast<const PhysicalDXTBlock *>(dxt_data.data()),
+    reinterpret_cast<const PhysicalDXTBlock *>(dxt_data.data())
+    + (_blocks_width * _blocks_height))
+  , _logical_blocks(PhysicalToLogicalBlocks(_physical_blocks))
+{ }
+
 double DXTImage::PSNR() const {
   // Compute DXT PSNR...
   double orig_mse = 0.0;

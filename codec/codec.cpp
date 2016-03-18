@@ -14,14 +14,16 @@
 
 namespace GenTC {
 
-template <typename T>
-std::unique_ptr<std::vector<uint8_t> > RunDXTEndpointPipeline(const std::unique_ptr<Image<T> > &img) {
+template <typename T> std::unique_ptr<std::vector<uint8_t> >
+RunDXTEndpointPipeline(const std::unique_ptr<Image<T> > &img) {
   static_assert(PixelTraits::NumChannels<T>::value,
     "This should operate on each DXT endpoing channel separately");
 
   static const size_t kNumBits = PixelTraits::BitsUsed<T>::value;
-  typedef typename PixelTraits::SignedTypeForBits<kNumBits+2>::Ty WaveletSignedTy;
-  typedef typename PixelTraits::UnsignedForSigned<WaveletSignedTy>::Ty WaveletUnsignedTy;
+  typedef typename PixelTraits::SignedTypeForBits<kNumBits+2>::Ty
+    WaveletSignedTy;
+  typedef typename PixelTraits::UnsignedForSigned<WaveletSignedTy>::Ty
+    WaveletUnsignedTy;
 
   auto pipeline = Pipeline<Image<T>, Image<WaveletSignedTy> >
     ::Create(FWavelet2D<T, 32>::New())
@@ -34,11 +36,32 @@ std::unique_ptr<std::vector<uint8_t> > RunDXTEndpointPipeline(const std::unique_
   return std::move(pipeline->Run(img));
 }
 
-std::vector<uint8_t> CompressDXT(const char *orig_fn, const char *cmp_fn, int width, int height) {
-  std::cout << "Original DXT size: " << (width * height) / 2 << std::endl;
-  std::cout << "Half original DXT size: " << (width * height) / 4 << std::endl;
+template <typename T> std::unique_ptr<Image<T> >
+RunEndpointDecompressionPipeline(const std::unique_ptr<std::vector<uint8_t> > &img) {
+  static_assert(PixelTraits::NumChannels<T>::value,
+    "This should operate on each DXT endpoing channel separately");
+  return std::unique_ptr<Image<T> >(nullptr);
+}
 
-  DXTImage dxt_img(width, height, orig_fn, cmp_fn);
+static DXTImage DecompressDXTImage(const std::vector<uint8_t> &dxt_img) {
+  std::cout << std::endl;
+  std::cout << "Decompressing DXT Image..." << std::endl;
+
+  DataStream in(dxt_img);
+  uint32_t width = in.ReadInt();
+  uint32_t height = in.ReadInt();
+
+  std::cout << "Width: " << width << std::endl;
+  std::cout << "Height: " << height << std::endl;
+
+  return DXTImage(width, height, std::vector<uint8_t>());
+}
+
+static std::vector<uint8_t> CompressDXTImage(const DXTImage &dxt_img) {
+  std::cout << "Original DXT size: " <<
+    (dxt_img.Width() * dxt_img.Height()) / 2 << std::endl;
+  std::cout << "Half original DXT size: " <<
+    (dxt_img.Width() * dxt_img.Height()) / 4 << std::endl;
 
   auto endpoint_one = dxt_img.EndpointOneValues();
   auto endpoint_two = dxt_img.EndpointTwoValues();
@@ -55,38 +78,39 @@ std::vector<uint8_t> CompressDXT(const char *orig_fn, const char *cmp_fn, int wi
   auto ep2_planes = initial_endpoint_pipeline->Run(endpoint_two);
 
   DataStream out;
+  out.WriteInt(dxt_img.Width());
+  out.WriteInt(dxt_img.Height());
 
   std::cout << "Compressing Y plane for EP 1... ";
   auto ep1_y_cmp = RunDXTEndpointPipeline(std::get<0>(*ep1_planes));
   out.WriteInt(static_cast<uint32_t>(ep1_y_cmp->size()));
-  std::cout << "Done." << std::endl;
+  std::cout << "Done: " << ep1_y_cmp->size() << " bytes" << std::endl;
 
   std::cout << "Compressing Co plane for EP 1... ";
   auto ep1_co_cmp = RunDXTEndpointPipeline(std::get<1>(*ep1_planes));
   out.WriteInt(static_cast<uint32_t>(ep1_co_cmp->size()));
-  std::cout << "Done." << std::endl;
+  std::cout << "Done: " << ep1_co_cmp->size() << " bytes" << std::endl;
 
   std::cout << "Compressing Cg plane for EP 1... ";
   auto ep1_cg_cmp = RunDXTEndpointPipeline(std::get<2>(*ep1_planes));
   out.WriteInt(static_cast<uint32_t>(ep1_cg_cmp->size()));
-  std::cout << "Done." << std::endl;
+  std::cout << "Done: " << ep1_cg_cmp->size() << " bytes" << std::endl;
 
   std::cout << "Compressing Y plane for EP 2... ";
   auto ep2_y_cmp = RunDXTEndpointPipeline(std::get<0>(*ep2_planes));
   out.WriteInt(static_cast<uint32_t>(ep2_y_cmp->size()));
-  std::cout << "Done." << std::endl;
+  std::cout << "Done: " << ep2_y_cmp->size() << " bytes" << std::endl;
 
   std::cout << "Compressing Co plane for EP 2... ";
   auto ep2_co_cmp = RunDXTEndpointPipeline(std::get<1>(*ep2_planes));
   out.WriteInt(static_cast<uint32_t>(ep2_co_cmp->size()));
-  std::cout << "Done." << std::endl;
+  std::cout << "Done: " << ep2_co_cmp->size() << " bytes" << std::endl;
 
   std::cout << "Compressing Cg plane for EP 2... ";
   auto ep2_cg_cmp = RunDXTEndpointPipeline(std::get<2>(*ep2_planes));
   out.WriteInt(static_cast<uint32_t>(ep2_cg_cmp->size()));
-  std::cout << "Done." << std::endl;
+  std::cout << "Done: " << ep2_cg_cmp->size() << " bytes" << std::endl;
 
-  // !FIXME! Do something with the index data...
   auto index_pipeline =
     Pipeline<std::vector<uint8_t>, std::vector<uint8_t> >
     ::Create(ByteEncoder::Encoder(ans::ocl::kNumEncodedSymbols));
@@ -95,8 +119,9 @@ std::vector<uint8_t> CompressDXT(const char *orig_fn, const char *cmp_fn, int wi
     new std::vector<uint8_t>(std::move(dxt_img.PaletteData())));
   size_t palette_data_size = palette_data->size();
   std::cout << "Original palette data size: " << palette_data_size << std::endl;
-  static const size_t ans_ocl_data_factor = ans::ocl::kNumEncodedSymbols * ans::ocl::kThreadsPerEncodingGroup;
-  size_t padding = ((palette_data_size + (ans_ocl_data_factor - 1)) / ans_ocl_data_factor) * ans_ocl_data_factor;
+  static const size_t f =
+    ans::ocl::kNumEncodedSymbols * ans::ocl::kThreadsPerEncodingGroup;
+  size_t padding = ((palette_data_size + (f - 1)) / f) * f;
   std::cout << "Padded palette data size: " << padding << std::endl;
   palette_data->resize(padding, 0);
 
@@ -127,7 +152,8 @@ std::vector<uint8_t> CompressDXT(const char *orig_fn, const char *cmp_fn, int wi
 
 #if 0
   std::cout << "Interpolation value stats:" << std::endl;
-  std::cout << "Uncompressed Size of 2-bit symbols: " << (idx_img->size() * 2) / 8 << std::endl;
+  std::cout << "Uncompressed Size of 2-bit symbols: " <<
+    (idx_img->size() * 2) / 8 << std::endl;
 
   std::vector<size_t> F(256, 0);
   for (auto it = idx_img->begin(); it != idx_img->end(); ++it) {
@@ -150,11 +176,27 @@ std::vector<uint8_t> CompressDXT(const char *orig_fn, const char *cmp_fn, int wi
   std::cout << "Actual num bytes: " << idx_cmp->size() << std::endl;
 #endif
 
-  double bpp = static_cast<double>(result.size() * 8) / static_cast<double>(width * height);
+  double bpp = static_cast<double>(result.size() * 8) /
+    static_cast<double>(dxt_img.Width() * dxt_img.Height());
   std::cout << "Compressed DXT size: " << result.size()
             << " (" << bpp << " bpp)" << std::endl;
 
   return std::move(result);
+}
+
+std::vector<uint8_t> CompressDXT(const char *filename, const char *cmp_fn,
+                                 int width, int height) {
+  DXTImage dxt_img(width, height, filename, cmp_fn);
+  return std::move(CompressDXTImage(dxt_img));
+}
+
+void TestDXT(const char *filename, const char *cmp_fn, int width, int height) {
+  DXTImage dxt_img(width, height, filename, cmp_fn);
+  std::vector<uint8_t> cmp_img(std::move(CompressDXTImage(dxt_img)));
+
+  DXTImage decmp_img = DecompressDXTImage(cmp_img);
+
+  // Check that both dxt_img and decomp_img match...
 }
 
 }
