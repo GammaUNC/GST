@@ -1,7 +1,6 @@
 #include "fast_dct.h"
 #include "codec.h"
 #include "data_stream.h"
-#include "dxt_image.h"
 #include "image.h"
 #include "image_processing.h"
 #include "image_utils.h"
@@ -36,24 +35,39 @@ RunDXTEndpointPipeline(const std::unique_ptr<Image<T> > &img) {
   return std::move(pipeline->Run(img));
 }
 
-template <typename T> std::unique_ptr<Image<T> >
-RunEndpointDecompressionPipeline(const std::unique_ptr<std::vector<uint8_t> > &img) {
-  static_assert(PixelTraits::NumChannels<T>::value,
-    "This should operate on each DXT endpoing channel separately");
-  return std::unique_ptr<Image<T> >(nullptr);
-}
-
 static DXTImage DecompressDXTImage(const std::vector<uint8_t> &dxt_img) {
   std::cout << std::endl;
   std::cout << "Decompressing DXT Image..." << std::endl;
 
   DataStream in(dxt_img);
   uint32_t width = in.ReadInt();
-  uint32_t height = in.ReadInt();
-
   std::cout << "Width: " << width << std::endl;
+
+  uint32_t height = in.ReadInt();
   std::cout << "Height: " << height << std::endl;
 
+  uint32_t ep1_y_cmp_sz = in.ReadInt();
+  std::cout << "Endpoint One Y compressed size: " << ep1_y_cmp_sz << std::endl;
+  uint32_t ep1_co_cmp_sz = in.ReadInt();
+  std::cout << "Endpoint One Co compressed size: " << ep1_co_cmp_sz << std::endl;
+  uint32_t ep1_cg_cmp_sz = in.ReadInt();
+  std::cout << "Endpoint One Cg compressed size: " << ep1_cg_cmp_sz << std::endl;
+
+  uint32_t ep2_y_cmp_sz = in.ReadInt();
+  std::cout << "Endpoint Two Y compressed size: " << ep2_y_cmp_sz << std::endl;
+  uint32_t ep2_co_cmp_sz = in.ReadInt();
+  std::cout << "Endpoint Two Co compressed size: " << ep2_co_cmp_sz << std::endl;
+  uint32_t ep2_cg_cmp_sz = in.ReadInt();
+  std::cout << "Endpoint Two Cg compressed size: " << ep2_cg_cmp_sz << std::endl;
+
+  uint32_t palette_sz = in.ReadInt();
+  std::cout << "Palette size: " << palette_sz << std::endl;
+  uint32_t palette_cmp_sz = in.ReadInt();
+  std::cout << "Palette size compressed: " << palette_cmp_sz << std::endl;
+  uint32_t indices_cmp_sz = in.ReadInt();
+  std::cout << "Palette index deltas compressed: " << indices_cmp_sz << std::endl;
+
+  exit(0);
   return DXTImage(width, height, std::vector<uint8_t>());
 }
 
@@ -130,6 +144,7 @@ static std::vector<uint8_t> CompressDXTImage(const DXTImage &dxt_img) {
 
   std::cout << "Compressing index palette... ";
   auto palette_cmp = index_pipeline->Run(palette_data);
+  out.WriteInt(static_cast<uint32_t>(padding));
   out.WriteInt(static_cast<uint32_t>(palette_cmp->size()));
   std::cout << "Done: " << palette_cmp->size() << " bytes" << std::endl;
 
@@ -188,6 +203,10 @@ std::vector<uint8_t> CompressDXT(const char *filename, const char *cmp_fn,
                                  int width, int height) {
   DXTImage dxt_img(width, height, filename, cmp_fn);
   return std::move(CompressDXTImage(dxt_img));
+}
+
+DXTImage DecompressDXT(const std::vector<uint8_t> &cmp_data) {
+  return std::move(DecompressDXTImage(cmp_data));
 }
 
 void TestDXT(const char *filename, const char *cmp_fn, int width, int height) {

@@ -51,6 +51,8 @@ namespace ocl {
       const std::vector<cl_uint> &states,
       const std::vector<std::vector<cl_uchar> > &data) const;
 
+    cl_mem DecodeMultiple(const cl_uchar *data, const size_t num_symbols) const;
+
     void RebuildTable(const std::vector<uint32_t> &F) const;
 
     std::vector<cl_uchar> GetSymbols() const;

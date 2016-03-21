@@ -58,7 +58,8 @@ OpenCLDecoder::OpenCLDecoder(
   , _gpu_ctx(ctx)
 {
   cl_int errCreateBuffer;
-  _table = clCreateBuffer(_gpu_ctx->GetOpenCLContext(), CL_MEM_READ_WRITE, _M * sizeof(AnsTableEntry), NULL, &errCreateBuffer);
+  _table = clCreateBuffer(_gpu_ctx->GetOpenCLContext(),
+                          CL_MEM_READ_WRITE, _M * sizeof(AnsTableEntry), NULL, &errCreateBuffer);
   CHECK_CL((cl_int), errCreateBuffer);
 
   RebuildTable(F);
@@ -137,11 +138,13 @@ void OpenCLDecoder::RebuildTable(const std::vector<uint32_t> &F) const {
   cl_uint *cum_freqs_ptr = cum_freqs.data();
 
   cl_int errCreateBuffer;
-  cl_mem freqs_buffer = clCreateBuffer(_gpu_ctx->GetOpenCLContext(), flags, freqs.size() * sizeof(freqs_ptr[0]), freqs_ptr, &errCreateBuffer);
+  cl_mem freqs_buffer = clCreateBuffer(_gpu_ctx->GetOpenCLContext(), flags,
+                                       freqs.size() * sizeof(freqs_ptr[0]), freqs_ptr, &errCreateBuffer);
   CHECK_CL((cl_int), errCreateBuffer);
 
   const size_t cum_freqs_buf_size = cum_freqs.size() * sizeof(cum_freqs_ptr[0]);
-  cl_mem cum_freqs_buffer = clCreateBuffer(_gpu_ctx->GetOpenCLContext(), flags, cum_freqs_buf_size, cum_freqs_ptr, &errCreateBuffer);
+  cl_mem cum_freqs_buffer = clCreateBuffer(_gpu_ctx->GetOpenCLContext(), flags, cum_freqs_buf_size,
+                                           cum_freqs_ptr, &errCreateBuffer);
   CHECK_CL((cl_int), errCreateBuffer);
 
   CHECK_CL(clSetKernelArg, build_table_kernel, 0, sizeof(freqs_buffer), &freqs_buffer);
@@ -149,7 +152,8 @@ void OpenCLDecoder::RebuildTable(const std::vector<uint32_t> &F) const {
   CHECK_CL(clSetKernelArg, build_table_kernel, 2, sizeof(cl_uint), &num_freqs);
   CHECK_CL(clSetKernelArg, build_table_kernel, 3, sizeof(_table), &_table);
 
-  CHECK_CL(clEnqueueNDRangeKernel, _gpu_ctx->GetCommandQueue(), build_table_kernel, 1, NULL, &_M, NULL, 0, NULL, NULL);
+  CHECK_CL(clEnqueueNDRangeKernel, _gpu_ctx->GetCommandQueue(), build_table_kernel,
+           1, NULL, &_M, NULL, 0, NULL, NULL);
 
   CHECK_CL(clReleaseMemObject, freqs_buffer);
   CHECK_CL(clReleaseMemObject, cum_freqs_buffer);
@@ -420,6 +424,99 @@ std::vector<std::vector<cl_uchar> > OpenCLDecoder::Decode(
   CHECK_CL(clReleaseMemObject, out_buf);
 
   return std::move(out);
+}
+
+cl_mem OpenCLDecoder::DecodeMultiple(const cl_uchar *data, const size_t num_symbols) const {
+  cl_kernel build_table_kernel = _gpu_ctx->GetOpenCLKernel(
+    kANSOpenCLKernels[eANSOpenCLKernel_BuildTable], "build_table");
+
+  cl_context ctx = _gpu_ctx->GetOpenCLContext();
+
+  // First get the number of frequencies...
+  cl_uint num_freqs = static_cast<cl_uint>(data[0]);
+  data++;
+
+  // Load all of the frequencies
+  cl_uint freqs[256];
+  for (cl_uint i = 0; i < num_freqs; ++i) {
+    memcpy(freqs + i, data, sizeof(*freqs));
+    data += sizeof(*freqs);
+  }
+
+  cl_mem_flags flags = GetHostReadOnlyFlags();
+
+  // Note: we could do this on the GPU as well, but the array size here is almost never more than
+  // about 256, so the CPU is actually much better at doing it. We can also stick it in constant
+  // memory, which makes the upload not that bad...
+  cl_uint cum_freqs[256];
+  std::partial_sum(freqs, freqs + num_freqs - 1, cum_freqs + 1);
+
+  cl_int errCreateBuffer;
+  cl_mem freqs_buffer = clCreateBuffer(ctx, flags, num_freqs * sizeof(freqs[0]), freqs, &errCreateBuffer);
+  CHECK_CL((cl_int), errCreateBuffer);
+
+  const size_t cum_freqs_buf_size = num_freqs * sizeof(cum_freqs[0]);
+  cl_mem cum_freqs_buffer = clCreateBuffer(ctx, flags, cum_freqs_buf_size, cum_freqs, &errCreateBuffer);
+  CHECK_CL((cl_int), errCreateBuffer);
+
+  CHECK_CL(clSetKernelArg, build_table_kernel, 0, sizeof(freqs_buffer), &freqs_buffer);
+  CHECK_CL(clSetKernelArg, build_table_kernel, 1, sizeof(cum_freqs_buffer), &cum_freqs_buffer);
+  CHECK_CL(clSetKernelArg, build_table_kernel, 2, sizeof(cl_uint), &num_freqs);
+  CHECK_CL(clSetKernelArg, build_table_kernel, 3, sizeof(_table), &_table);
+
+  CHECK_CL(clEnqueueNDRangeKernel, _gpu_ctx->GetCommandQueue(), build_table_kernel,
+                                   1, NULL, &_M, NULL, 0, NULL, NULL);
+
+  CHECK_CL(clReleaseMemObject, freqs_buffer);
+  CHECK_CL(clReleaseMemObject, cum_freqs_buffer);
+
+  // !SPEED! Enqueue barrier with no wait list... Actually we can do better
+  // here, since we know that the kernel invocation will need to finish, we
+  // can pass an event to the barrier when the CL version is greater than 1.2...
+#ifdef CL_VERSION_1_2
+  CHECK_CL(clEnqueueBarrierWithWaitList, _gpu_ctx->GetCommandQueue(), 0, NULL, NULL);
+#else
+  CHECK_CL(clEnqueueBarrier, queue);
+#endif
+
+  cl_kernel decode_kernel = _gpu_ctx->GetOpenCLKernel(
+    kANSOpenCLKernels[eANSOpenCLKernel_ANSDecode], "ans_decode");
+
+  // First, just set our table buffers...
+  CHECK_CL(clSetKernelArg, decode_kernel, 0, sizeof(_table), &_table);
+
+  // Load all of the offsets to the different data streams...
+  cl_uint num_offsets = static_cast<cl_uint>(data[0]);
+  data++;
+
+  cl_uint data_sz = reinterpret_cast<const cl_uint *>(data)[num_offsets - 1];
+  cl_mem data_buf = clCreateBuffer(ctx, GetHostReadOnlyFlags(), data_sz,
+                                   const_cast<cl_uchar *>(data), &errCreateBuffer);
+  CHECK_CL((cl_int), errCreateBuffer);
+  CHECK_CL(clSetKernelArg, decode_kernel, 1, sizeof(data_buf), &data_buf);
+
+#ifdef CL_VERSION_1_2
+  cl_mem_flags out_flags = CL_MEM_WRITE_ONLY | CL_MEM_HOST_READ_ONLY;
+#else
+  cl_mem_flags out_flags = CL_MEM_WRITE_ONLY;
+#endif
+
+  // Allocate 256 * num interleaved slots for result
+  size_t total_encoded = num_offsets * kThreadsPerEncodingGroup * kNumEncodedSymbols;
+  const size_t total_streams = total_encoded / kNumEncodedSymbols;
+  const size_t streams_per_work_group = kThreadsPerEncodingGroup;
+
+  cl_mem out_buf = clCreateBuffer(ctx, out_flags, total_encoded, NULL, &errCreateBuffer);
+  CHECK_CL((cl_int), errCreateBuffer);
+  CHECK_CL(clSetKernelArg, decode_kernel, 2, sizeof(out_buf), &out_buf);
+
+  CHECK_CL(clEnqueueNDRangeKernel, _gpu_ctx->GetCommandQueue(), decode_kernel,
+                                   1, NULL, &total_streams, &streams_per_work_group,
+                                   0, NULL, NULL);
+
+  CHECK_CL(clReleaseMemObject, data_buf);
+
+  return out_buf;
 }
 
 }  // namespace ocl

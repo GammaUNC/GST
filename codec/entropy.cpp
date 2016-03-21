@@ -188,6 +188,7 @@ ByteEncoder::EncodeBytes::Run(const ByteEncoder::Base::ArgType &in) const {
   }
 
   counts.resize(non_zero_counts);
+  counts = std::move(ans::ocl::NormalizeFrequencies(counts));
 
   std::vector<size_t> offsets;
 
@@ -196,20 +197,23 @@ ByteEncoder::EncodeBytes::Run(const ByteEncoder::Base::ArgType &in) const {
 
   std::vector<uint8_t> encoded_stream;
   size_t num_encoded_symbols = 0;
+  const size_t num_symbols_to_encode_per_group = 
+    ans::ocl::kThreadsPerEncodingGroup * _symbols_per_thread;
+  size_t cum_offset = num_symbols / num_symbols_to_encode_per_group;
+  assert(cum_offset * num_symbols_to_encode_per_group == num_symbols);
+  cum_offset *= 4;
+
   while (num_encoded_symbols < num_symbols) {
-    size_t num_symbols_to_encode = 
-      ans::ocl::kThreadsPerEncodingGroup * _symbols_per_thread;
-
-    std::vector<uint8_t> symbols_to_encode(in->begin() + num_encoded_symbols,
-                                           in->begin() + num_encoded_symbols + num_symbols_to_encode);
-
+    auto symbol_it = in->begin() + num_encoded_symbols;
+    std::vector<uint8_t> symbols_to_encode(symbol_it, symbol_it + num_symbols_to_encode_per_group);
     std::vector<uint8_t> encoded_symbols = 
       ans::EncodeInterleaved(symbols_to_encode, opts,
                              ans::ocl::kThreadsPerEncodingGroup);
 
-    offsets.push_back(encoded_symbols.size());
+    cum_offset += encoded_symbols.size();
+    offsets.push_back(cum_offset);
     encoded_stream.insert(encoded_stream.end(), encoded_symbols.begin(), encoded_symbols.end());
-    num_encoded_symbols += num_symbols_to_encode;
+    num_encoded_symbols += num_symbols_to_encode_per_group;
   }
 
   DataStream hdr;
@@ -219,10 +223,11 @@ ByteEncoder::EncodeBytes::Run(const ByteEncoder::Base::ArgType &in) const {
     hdr.WriteInt(c);
   }
 
+  assert(offsets.size() < 256);
   hdr.WriteByte(static_cast<uint8_t>(offsets.size()));
   for (auto off : offsets) {
-    assert(off < (1 << 16));
-    hdr.WriteShort(static_cast<uint16_t>(off));
+    assert(static_cast<uint64_t>(off) < (1ULL << 32));
+    hdr.WriteInt(static_cast<uint32_t>(off));
   }
 
   std::vector<uint8_t> *result = new std::vector<uint8_t>;
@@ -250,7 +255,7 @@ ByteEncoder::DecodeBytes::Run(const ByteEncoder::Base::ArgType &in) const {
   offsets.reserve(num_offsets);
 
   for (size_t i = 0; i < num_offsets; ++i) {
-    offsets.push_back(hdr.ReadShort());
+    offsets.push_back(hdr.ReadInt());
   }
 
   ans::Options opts = ans::ocl::GetOpenCLOptions(counts);
@@ -259,9 +264,9 @@ ByteEncoder::DecodeBytes::Run(const ByteEncoder::Base::ArgType &in) const {
   const size_t num_symbols = num_offsets * ans::ocl::kThreadsPerEncodingGroup * _symbols_per_thread;
   size_t symbols_decoded = 0;
   size_t group_idx = 0;
-  size_t last_offset = hdr.BytesRead();
+  size_t last_offset = num_offsets * 4;
   while (symbols_decoded < num_symbols) {
-    size_t offset = last_offset + offsets[group_idx++];
+    size_t offset = offsets[group_idx++];
     auto start = in->begin() + last_offset;
     auto end = in->begin() + offset;
     std::vector<uint8_t> data(start, end);
