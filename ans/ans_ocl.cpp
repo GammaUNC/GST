@@ -176,22 +176,18 @@ std::vector<cl_uchar> OpenCLDecoder::Decode(
   // First, just set our table buffers...
   CHECK_CL(clSetKernelArg, decode_kernel, 0, sizeof(_table), &_table);
 
-  // Offsets: sizeof the singular data stream
-  cl_uint offset = static_cast<cl_uint>(data.size() / 2);
-  cl_mem offset_buffer = clCreateBuffer(ctx, GetHostReadOnlyFlags(), sizeof(cl_uint), &offset, &errCreateBuffer);
-  CHECK_CL((cl_int), errCreateBuffer);
-  CHECK_CL(clSetKernelArg, decode_kernel, 1, sizeof(offset_buffer), &offset_buffer);
+  // Create a data pointer
+  uint32_t offset = data.size() + 8;
+  std::vector<cl_uchar> ocl_data(offset, 0);
+  memcpy(ocl_data.data(), &offset, sizeof(offset));
+  memcpy(ocl_data.data() + 4, data.data(), data.size());
+  memcpy(ocl_data.data() + ocl_data.size() - 4, &state, sizeof(state));
 
   // Data: just send the data pointer...
-  cl_uchar *data_ptr = const_cast<cl_uchar *>(data.data());
-  cl_mem data_buffer = clCreateBuffer(ctx, GetHostReadOnlyFlags(), data.size() * sizeof(data_ptr[0]), data_ptr, &errCreateBuffer);
+  cl_mem data_buffer = clCreateBuffer(ctx, GetHostReadOnlyFlags(), ocl_data.size(),
+                                      ocl_data.data(), &errCreateBuffer);
   CHECK_CL((cl_int), errCreateBuffer);
-  CHECK_CL(clSetKernelArg, decode_kernel, 2, sizeof(data_buffer), &data_buffer);
-
-  // State: single state...
-  cl_mem state_buffer = clCreateBuffer(ctx, GetHostReadOnlyFlags(), sizeof(cl_uint), &state, &errCreateBuffer);
-  CHECK_CL((cl_int), errCreateBuffer);
-  CHECK_CL(clSetKernelArg, decode_kernel, 3, sizeof(state_buffer), &state_buffer);
+  CHECK_CL(clSetKernelArg, decode_kernel, 1, sizeof(data_buffer), &data_buffer);
 
 #ifdef CL_VERSION_1_2
   cl_mem_flags out_flags = CL_MEM_WRITE_ONLY | CL_MEM_HOST_READ_ONLY;
@@ -202,19 +198,18 @@ std::vector<cl_uchar> OpenCLDecoder::Decode(
   // Allocate 256 slots for result
   cl_mem out_buffer = clCreateBuffer(ctx, out_flags, kNumEncodedSymbols, NULL, &errCreateBuffer);
   CHECK_CL((cl_int), errCreateBuffer);
-  CHECK_CL(clSetKernelArg, decode_kernel, 4, sizeof(out_buffer), &out_buffer);
+  CHECK_CL(clSetKernelArg, decode_kernel, 2, sizeof(out_buffer), &out_buffer);
 
   // Run the kernel...
   const size_t num_streams = 1;
-  CHECK_CL(clEnqueueNDRangeKernel, _gpu_ctx->GetCommandQueue(), decode_kernel, 1, NULL, &num_streams, NULL, 0, NULL, NULL);
+  CHECK_CL(clEnqueueNDRangeKernel, _gpu_ctx->GetCommandQueue(), decode_kernel, 1, NULL,
+                                   &num_streams, NULL, 0, NULL, NULL);
 
   std::vector<cl_uchar> out = std::move(
     ReadBuffer<cl_uchar>(_gpu_ctx->GetCommandQueue(), out_buffer, kNumEncodedSymbols));
 
   // Release buffer objects...
-  CHECK_CL(clReleaseMemObject, offset_buffer);
   CHECK_CL(clReleaseMemObject, data_buffer);
-  CHECK_CL(clReleaseMemObject, state_buffer);
   CHECK_CL(clReleaseMemObject, out_buffer);
 
   return std::move(out);
@@ -232,32 +227,18 @@ std::vector<std::vector<cl_uchar> > OpenCLDecoder::Decode(
   // First, just set our table buffers...
   CHECK_CL(clSetKernelArg, decode_kernel, 0, sizeof(_table), &_table);
 
-  // Offsets: sizeof the singular data stream -- we're only launching a
-  // single work group
-  cl_uint offset = static_cast<cl_uint>(data.size() / 2);
-  cl_mem offset_buf =
-    clCreateBuffer(ctx, GetHostReadOnlyFlags(), sizeof(cl_uint), &offset,
-                   &errCreateBuffer);
-  CHECK_CL((cl_int), errCreateBuffer);
-  CHECK_CL(clSetKernelArg, decode_kernel, 1, sizeof(offset_buf), &offset_buf);
+  // Create a data pointer
+  uint32_t offset = data.size() + 4 + states.size() * 4;
+  std::vector<cl_uchar> ocl_data(offset, 0);
+  memcpy(ocl_data.data(), &offset, sizeof(offset));
+  memcpy(ocl_data.data() + 4, data.data(), data.size());
+  memcpy(ocl_data.data() + 4 + data.size(), states.data(), 4 * states.size());
 
   // Data: just send the data pointer...
-  cl_uchar *data_ptr = const_cast<cl_uchar *>(data.data());
-  cl_mem data_buf =
-    clCreateBuffer(ctx, GetHostReadOnlyFlags(),
-                   data.size() * sizeof(data_ptr[0]), data_ptr,
-                   &errCreateBuffer);
+  cl_mem data_buf = clCreateBuffer(ctx, GetHostReadOnlyFlags(),
+                                   ocl_data.size(), ocl_data.data(), &errCreateBuffer);
   CHECK_CL((cl_int), errCreateBuffer);
-  CHECK_CL(clSetKernelArg, decode_kernel, 2, sizeof(data_buf), &data_buf);
-
-  // States -- we have multiple here, so deal with it properly...
-  cl_uint *states_ptr = const_cast<cl_uint *>(states.data());
-  cl_mem state_buf =
-    clCreateBuffer(ctx, GetHostReadOnlyFlags(),
-                   states.size() * sizeof(states_ptr[0]), states_ptr,
-                   &errCreateBuffer);
-  CHECK_CL((cl_int), errCreateBuffer);
-  CHECK_CL(clSetKernelArg, decode_kernel, 3, sizeof(state_buf), &state_buf);
+  CHECK_CL(clSetKernelArg, decode_kernel, 1, sizeof(data_buf), &data_buf);
 
 #ifdef CL_VERSION_1_2
   cl_mem_flags out_flags = CL_MEM_WRITE_ONLY | CL_MEM_HOST_READ_ONLY;
@@ -270,7 +251,7 @@ std::vector<std::vector<cl_uchar> > OpenCLDecoder::Decode(
   cl_mem out_buf = clCreateBuffer(ctx, out_flags, total_encoded, NULL,
                                   &errCreateBuffer);
   CHECK_CL((cl_int), errCreateBuffer);
-  CHECK_CL(clSetKernelArg, decode_kernel, 4, sizeof(out_buf), &out_buf);
+  CHECK_CL(clSetKernelArg, decode_kernel, 2, sizeof(out_buf), &out_buf);
 
   // Run the kernel...
   const size_t num_streams = states.size();
@@ -295,9 +276,7 @@ std::vector<std::vector<cl_uchar> > OpenCLDecoder::Decode(
   assert(streams_per_work_group < wgsz.sizes[0] );
 
   size_t total_constant_memory = 0;
-  total_constant_memory += sizeof(cl_uint);
-  total_constant_memory += data.size() * sizeof(data_ptr[0]);
-  total_constant_memory += states.size() * sizeof(states_ptr[0]);
+  total_constant_memory += ocl_data.size();
   total_constant_memory += _M * sizeof(AnsTableEntry);
 
   assert(total_constant_memory <
@@ -324,9 +303,7 @@ std::vector<std::vector<cl_uchar> > OpenCLDecoder::Decode(
   }
 
   // Release buffer objects...
-  CHECK_CL(clReleaseMemObject, offset_buf);
   CHECK_CL(clReleaseMemObject, data_buf);
-  CHECK_CL(clReleaseMemObject, state_buf);
   CHECK_CL(clReleaseMemObject, out_buf);
 
   return std::move(out);
@@ -338,7 +315,9 @@ std::vector<std::vector<cl_uchar> > OpenCLDecoder::Decode(
 
   const size_t total_streams = states.size();
   const size_t streams_per_work_group = _num_interleaved;
-  assert(total_streams % streams_per_work_group == 0); // Evenly distribute...
+  const size_t total_work_groups = total_streams / streams_per_work_group;
+  assert(total_work_groups * streams_per_work_group == total_streams); // Evenly distribute...
+  assert(total_work_groups == data.size());
 
   cl_int errCreateBuffer;
   cl_kernel decode_kernel = _gpu_ctx->GetOpenCLKernel(
@@ -348,23 +327,28 @@ std::vector<std::vector<cl_uchar> > OpenCLDecoder::Decode(
   // First, just set our table buffers...
   CHECK_CL(clSetKernelArg, decode_kernel, 0, sizeof(_table), &_table);
 
-  // Offsets: This is a prefix sum of all of the data sizes...
-  std::vector<cl_uint> offsets(data.size(), 0);
-  cl_uint offset = 0;
-  for (size_t i = 0; i < data.size(); ++i) {
-    offset += static_cast<cl_uint>(data[i].size() / 2);
-    offsets[i] = offset;
+  // Data: Coalesce all the data into one large ptr...
+  std::vector<cl_uchar> all_the_data(4 * total_work_groups, 0);
+
+  // One offset per work group.
+  uint32_t offset = total_work_groups * 4;
+  for (size_t i = 0; i < total_work_groups; ++i) {
+    offset += data[i].size() + 4 * streams_per_work_group;
+    memcpy(all_the_data.data() + i * 4, &offset, sizeof(offset));
   }
 
-  cl_mem offset_buf = clCreateBuffer(ctx, GetHostReadOnlyFlags(),
-    offsets.size() * sizeof(cl_uint), offsets.data(), &errCreateBuffer);
-  CHECK_CL((cl_int), errCreateBuffer);
-  CHECK_CL(clSetKernelArg, decode_kernel, 1, sizeof(offset_buf), &offset_buf);
-
-  // Data: Coalesce all the data into one large ptr...
-  std::vector<cl_uchar> all_the_data;
+  // Put all the data together...
+  size_t states_offset = 0;
   for (const auto &strm : data) {
-    all_the_data.insert(all_the_data.end(), strm.begin(), strm.end());
+    size_t last = all_the_data.size();
+    all_the_data.resize(last + strm.size() + 4 * streams_per_work_group);
+
+    cl_uchar *ptr = all_the_data.data() + last;
+    memcpy(ptr, strm.data(), strm.size());
+    ptr += strm.size();
+
+    memcpy(ptr, &states[states_offset], 4 * streams_per_work_group);
+    states_offset += streams_per_work_group;
   }
 
   cl_mem data_buf =
@@ -372,16 +356,7 @@ std::vector<std::vector<cl_uchar> > OpenCLDecoder::Decode(
       all_the_data.size() * sizeof(cl_uchar), all_the_data.data(),
       &errCreateBuffer);
   CHECK_CL((cl_int), errCreateBuffer);
-  CHECK_CL(clSetKernelArg, decode_kernel, 2, sizeof(data_buf), &data_buf);
-
-  // States -- we have multiple here, so deal with it properly...
-  cl_uint *states_ptr = const_cast<cl_uint *>(states.data());
-  cl_mem state_buf =
-    clCreateBuffer(ctx, GetHostReadOnlyFlags(),
-    states.size() * sizeof(states_ptr[0]), states_ptr,
-    &errCreateBuffer);
-  CHECK_CL((cl_int), errCreateBuffer);
-  CHECK_CL(clSetKernelArg, decode_kernel, 3, sizeof(state_buf), &state_buf);
+  CHECK_CL(clSetKernelArg, decode_kernel, 1, sizeof(data_buf), &data_buf);
 
 #ifdef CL_VERSION_1_2
   cl_mem_flags out_flags = CL_MEM_WRITE_ONLY | CL_MEM_HOST_READ_ONLY;
@@ -394,7 +369,7 @@ std::vector<std::vector<cl_uchar> > OpenCLDecoder::Decode(
   cl_mem out_buf = clCreateBuffer(ctx, out_flags, total_encoded, NULL,
     &errCreateBuffer);
   CHECK_CL((cl_int), errCreateBuffer);
-  CHECK_CL(clSetKernelArg, decode_kernel, 4, sizeof(out_buf), &out_buf);
+  CHECK_CL(clSetKernelArg, decode_kernel, 2, sizeof(out_buf), &out_buf);
 
   // Run the kernel...
 #ifndef NDEBUG
@@ -415,9 +390,7 @@ std::vector<std::vector<cl_uchar> > OpenCLDecoder::Decode(
   assert(streams_per_work_group < wgsz.sizes[0]);
 
   size_t total_constant_memory = 0;
-  total_constant_memory += offsets.size() * sizeof(cl_uint);
   total_constant_memory += all_the_data.size() * sizeof(cl_uchar);
-  total_constant_memory += states.size() * sizeof(states_ptr[0]);
   total_constant_memory += _M * sizeof(AnsTableEntry);
 
   assert(total_constant_memory <
@@ -443,9 +416,7 @@ std::vector<std::vector<cl_uchar> > OpenCLDecoder::Decode(
   }
 
   // Release buffer objects...
-  CHECK_CL(clReleaseMemObject, offset_buf);
   CHECK_CL(clReleaseMemObject, data_buf);
-  CHECK_CL(clReleaseMemObject, state_buf);
   CHECK_CL(clReleaseMemObject, out_buf);
 
   return std::move(out);

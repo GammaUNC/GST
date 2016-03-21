@@ -13,19 +13,19 @@ typedef struct AnsTableEntry_Struct {
 } AnsTableEntry;
 
 __kernel void ans_decode(const __constant AnsTableEntry *table,
-						 const __constant uint          *offsets,
-						 const __constant ushort        *data,
-						 const __constant uint          *states,
+						 const __constant uchar         *data,
 						       __global   uchar         *out_stream)
 {
 	__local uint normalization_mask;
 	normalization_mask = 0;
 
-	uint next_to_read = offsets[get_group_id(0)];
+	uint offset = *((const __constant uint *)data + get_group_id(0));
+	uint state = *((const __constant uint *)(data + offset) - get_local_size(0) + get_local_id(0));
+    uint next_to_read = (offset - (get_local_size(0) * 4)) / 2;
+    const __constant ushort *stream_data = (const __constant ushort *)data;
 
 	barrier(CLK_LOCAL_MEM_FENCE | CLK_GLOBAL_MEM_FENCE);
 
-	uint state = states[get_global_id(0)];
 	for (int i = 0; i < NUM_ENCODED_SYMBOLS; ++i) {
 		const uint symbol = state & (ANS_TABLE_SIZE - 1);
 		const __constant AnsTableEntry *entry = table + symbol;
@@ -46,7 +46,7 @@ __kernel void ans_decode(const __constant AnsTableEntry *table,
 		  uint up_to_me_mask = normalization_bit - 1;
 		  uint num_to_skip =
 			total_to_read - popcount(normalization_mask & up_to_me_mask) - 1;
-		  state = (state << 16) | data[next_to_read - num_to_skip - 1];
+		  state = (state << 16) | stream_data[next_to_read - num_to_skip - 1];
 		}
 
 		// Clear the bit in the normalization mask...
