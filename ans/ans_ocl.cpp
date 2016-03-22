@@ -168,6 +168,11 @@ void OpenCLDecoder::RebuildTable(const std::vector<uint32_t> &F) const {
 #endif
 }
 
+template<typename T>
+static inline T NextMultipleOfFour(T x) {
+  return ((x + 3) >> 2) << 2;
+}
+
 std::vector<cl_uchar> OpenCLDecoder::Decode(
   cl_uint state,
   const std::vector<cl_uchar> &data) const {
@@ -181,10 +186,10 @@ std::vector<cl_uchar> OpenCLDecoder::Decode(
   CHECK_CL(clSetKernelArg, decode_kernel, 0, sizeof(_table), &_table);
 
   // Create a data pointer
-  uint32_t offset = data.size() + 8;
+  uint32_t offset = NextMultipleOfFour(static_cast<uint32_t>(data.size() + 8));
   std::vector<cl_uchar> ocl_data(offset, 0);
   memcpy(ocl_data.data(), &offset, sizeof(offset));
-  memcpy(ocl_data.data() + 4, data.data(), data.size());
+  memcpy(ocl_data.data() + ocl_data.size() - data.size() - 4, data.data(), data.size());
   memcpy(ocl_data.data() + ocl_data.size() - 4, &state, sizeof(state));
 
   // Data: just send the data pointer...
@@ -232,11 +237,12 @@ std::vector<std::vector<cl_uchar> > OpenCLDecoder::Decode(
   CHECK_CL(clSetKernelArg, decode_kernel, 0, sizeof(_table), &_table);
 
   // Create a data pointer
-  uint32_t offset = data.size() + 4 + states.size() * 4;
+  uint32_t offset = NextMultipleOfFour(static_cast<uint32_t>(data.size() + 4 + states.size() * 4));
   std::vector<cl_uchar> ocl_data(offset, 0);
   memcpy(ocl_data.data(), &offset, sizeof(offset));
-  memcpy(ocl_data.data() + 4, data.data(), data.size());
-  memcpy(ocl_data.data() + 4 + data.size(), states.data(), 4 * states.size());
+  memcpy(ocl_data.data() + ocl_data.size() - 4 * states.size() - data.size(),
+    data.data(), data.size());
+  memcpy(ocl_data.data() + ocl_data.size() - 4 * states.size(), states.data(), 4 * states.size());
 
   // Data: just send the data pointer...
   cl_mem data_buf = clCreateBuffer(ctx, GetHostReadOnlyFlags(),
@@ -332,28 +338,34 @@ std::vector<std::vector<cl_uchar> > OpenCLDecoder::Decode(
   CHECK_CL(clSetKernelArg, decode_kernel, 0, sizeof(_table), &_table);
 
   // Data: Coalesce all the data into one large ptr...
-  std::vector<cl_uchar> all_the_data(4 * total_work_groups, 0);
-
-  // One offset per work group.
-  uint32_t offset = total_work_groups * 4;
-  for (size_t i = 0; i < total_work_groups; ++i) {
-    offset += data[i].size() + 4 * streams_per_work_group;
-    memcpy(all_the_data.data() + i * 4, &offset, sizeof(offset));
-  }
+  std::vector<uint32_t> offsets;
+  std::vector<cl_uchar> all_the_data;
 
   // Put all the data together...
   size_t states_offset = 0;
   for (const auto &strm : data) {
     size_t last = all_the_data.size();
-    all_the_data.resize(last + strm.size() + 4 * streams_per_work_group);
+    size_t sz_for_strm = NextMultipleOfFour(strm.size()) + 4 * streams_per_work_group;
+    all_the_data.resize(last + sz_for_strm);
 
-    cl_uchar *ptr = all_the_data.data() + last;
-    memcpy(ptr, strm.data(), strm.size());
-    ptr += strm.size();
-
+    cl_uchar *ptr = all_the_data.data() + last + sz_for_strm;
+    ptr -= 4 * streams_per_work_group;
     memcpy(ptr, &states[states_offset], 4 * streams_per_work_group);
+    ptr -= strm.size();
+    memcpy(ptr, strm.data(), strm.size());
     states_offset += streams_per_work_group;
+
+    offsets.push_back(static_cast<uint32_t>(last + sz_for_strm));
   }
+
+  for (auto &off : offsets) {
+    off += static_cast<uint32_t>(4 * offsets.size());
+  }
+
+  // Add the offsets to the beginning...
+  const cl_uchar *offsets_start = reinterpret_cast<const cl_uchar *>(offsets.data());
+  const cl_uchar *offsets_end = offsets_start + 4 * offsets.size();
+  all_the_data.insert(all_the_data.begin(), offsets_start, offsets_end);
 
   cl_mem data_buf =
     clCreateBuffer(ctx, GetHostReadOnlyFlags(),
@@ -488,6 +500,15 @@ cl_mem OpenCLDecoder::DecodeMultiple(const cl_uchar *data, const size_t num_symb
   // Load all of the offsets to the different data streams...
   cl_uint num_offsets = static_cast<cl_uint>(data[0]);
   data++;
+
+#ifndef NDEBUG
+  // Make sure that each offset is a multiple of four, otherwise we won't be getting
+  // the values we're expecting in our kernel.
+  const cl_uint *debug_offsets = reinterpret_cast<const cl_uint *>(data);
+  for (cl_uint i = 0; i < num_offsets; ++i) {
+    assert((debug_offsets[i] & 0x3) == 0);
+  }
+#endif
 
   cl_uint data_sz = reinterpret_cast<const cl_uint *>(data)[num_offsets - 1];
   cl_mem data_buf = clCreateBuffer(ctx, GetHostReadOnlyFlags(), data_sz,

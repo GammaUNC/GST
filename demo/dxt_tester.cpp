@@ -77,7 +77,7 @@ int main(int argc, char **argv) {
   }
 
   // Is it a crunch img?
-  size_t width, height;
+  int width, height;
   std::string fname(argv[1]);
 
   // Otherwise, load the file

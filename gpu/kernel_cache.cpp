@@ -49,7 +49,11 @@ static cl_kernel LoadKernel(const char *source_filename, const char *kernel_name
   program = clCreateProgramWithSource(ctx, 1, &progCStr, NULL, &errCreateProgram);
   CHECK_CL((cl_int), errCreateProgram);
 
+#ifndef NDEBUG
+  if (clBuildProgram(program, 1, &device, "-g -Werror", NULL, NULL) != CL_SUCCESS) {
+#else
   if (clBuildProgram(program, 1, &device, "-Werror", NULL, NULL) != CL_SUCCESS) {
+#endif
     size_t bufferSz;
     clGetProgramBuildInfo(program, device, CL_PROGRAM_BUILD_LOG,
       sizeof(size_t), NULL, &bufferSz);

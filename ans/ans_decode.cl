@@ -19,8 +19,8 @@ __kernel void ans_decode(const __constant AnsTableEntry *table,
 	__local uint normalization_mask;
 	normalization_mask = 0;
 
-	uint offset = *((const __constant uint *)data + get_group_id(0));
-	uint state = *((const __constant uint *)(data + offset) - get_local_size(0) + get_local_id(0));
+	uint offset = ((const __constant uint *)data)[get_group_id(0)];
+	uint state = ((const __constant uint *)(data + offset) - get_local_size(0))[get_local_id(0)];
     uint next_to_read = (offset - (get_local_size(0) * 4)) / 2;
     const __constant ushort *stream_data = (const __constant ushort *)data;
 
