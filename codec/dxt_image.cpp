@@ -549,7 +549,7 @@ void DXTImage::LoadDXTFromFile(const char *fn, const char *cmp_fn) {
     if (min_err < kErrThreshold) {
       blk.AssignIndices(*(_index_palette.crbegin() + min_err_idx));
       blk.RecalculateEndpoints();
-      assert(blk.Error() - orig_err == min_err);
+      assert(static_cast<int>(blk.Error()) - orig_err == min_err);
       _logical_blocks[block_idx] = blk._logical;
       _physical_blocks[block_idx] = LogicalToPhysical(blk._logical);
       this_index = static_cast<int>(_index_palette.size() - min_err_idx - 1);
