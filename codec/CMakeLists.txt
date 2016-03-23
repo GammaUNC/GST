@@ -9,8 +9,20 @@ include_directories("${GenTC_SOURCE_DIR}/lib/vptree/include")
 include_directories("${GenTC_SOURCE_DIR}/lib")
 INCLUDE_DIRECTORIES( ${OPENCL_INCLUDE_DIRS} )
 
+SET( INVERSE_WAVELET_KERNEL_PATH ${GenTC_SOURCE_DIR}/codec/inverse_wavelet.cl )
+
+CONFIGURE_FILE(
+  "codec_config.h.in"
+  "codec_config.h"
+)
+
+SET( KERNELS
+  ${INVERSE_WAVELET_KERNEL_PATH}
+)
+
 SET( HEADERS
   "codec.h"
+  "codec_config.h.in"
   "data_stream.h"
   "dxt_image.h"
   "entropy.h"
@@ -34,6 +46,7 @@ SET( SOURCES
   "wavelet.cpp"
 )
 
+SOURCE_GROUP(OpenCL FILES ${KERNELS})
 ADD_LIBRARY(gentc_codec ${HEADERS} ${SOURCES})
 TARGET_LINK_LIBRARIES(gentc_codec ans)
 TARGET_LINK_LIBRARIES(gentc_codec gentc_gpu)
