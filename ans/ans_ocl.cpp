@@ -314,9 +314,12 @@ std::vector<std::vector<cl_uchar> > OpenCLDecoder::Decode(
 
   const size_t total_streams = states.size();
   const size_t streams_per_work_group = _num_interleaved;
+
+#ifndef NDEBUG
   const size_t total_work_groups = total_streams / streams_per_work_group;
   assert(total_work_groups * streams_per_work_group == total_streams); // Evenly distribute...
   assert(total_work_groups == data.size());
+#endif
 
   cl_int errCreateBuffer;
   cl_kernel decode_kernel = _gpu_ctx->GetOpenCLKernel(
