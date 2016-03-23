@@ -210,6 +210,23 @@ ByteEncoder::EncodeBytes::Run(const ByteEncoder::Base::ArgType &in) const {
       ans::EncodeInterleaved(symbols_to_encode, opts,
                              ans::ocl::kThreadsPerEncodingGroup);
 
+    // Make sure that it's aligned to a multiple of four...
+    if (encoded_symbols.size() & 0x3) {
+
+      // ANS codec writes 16 bits at a time, so we should definitely be
+      // at least a multiple of two...
+      assert((encoded_symbols.size() & 1) == 0);
+
+      // If we *are* a multiple of two and *aren't* a multiple of four,
+      // then we just need to insert two bytes at the beginning since
+      // decoders read in reverse...
+      const uint8_t padding[2] = { 0, 0 };
+      encoded_symbols.insert(encoded_symbols.begin(), padding, padding + 2);
+    }
+
+    // Should be multiple of four now.
+    assert((encoded_symbols.size() & 0x3) == 0);
+
     cum_offset += encoded_symbols.size();
     offsets.push_back(cum_offset);
     encoded_stream.insert(encoded_stream.end(), encoded_symbols.begin(), encoded_symbols.end());
