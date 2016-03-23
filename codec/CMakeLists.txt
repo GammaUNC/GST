@@ -3,6 +3,7 @@ include_directories("${GenTC_BINARY_DIR}/codec")
 
 include_directories("${GenTC_SOURCE_DIR}/gpu")
 include_directories("${GenTC_SOURCE_DIR}/ans")
+include_directories("${GenTC_BINARY_DIR}/ans")
 include_directories("${GenTC_SOURCE_DIR}/lib/include")
 include_directories("${GenTC_SOURCE_DIR}/lib/vptree/include")
 include_directories("${GenTC_SOURCE_DIR}/lib")
