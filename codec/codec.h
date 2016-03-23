@@ -5,6 +5,7 @@
 #include <vector>
 
 #include "dxt_image.h"
+#include "gpu.h"
 
 namespace GenTC {
 
@@ -12,9 +13,10 @@ namespace GenTC {
   // GPU decompressible stream.
   std::vector<uint8_t> CompressDXT(const char *filename, const char *cmp_fn, int width, int height);
 
-  DXTImage DecompressDXT(const std::vector<uint8_t> &cmp_data);
+  DXTImage DecompressDXT(const std::unique_ptr<gpu::GPUContext> &gpu_ctx, const std::vector<uint8_t> &cmp_data);
 
-  void TestDXT(const char *filename, const char *cmp_fn, int width, int height);
+  void TestDXT(const std::unique_ptr<gpu::GPUContext> &gpu_ctx,
+               const char *filename, const char *cmp_fn, int width, int height);
 
 }  // namespace GenTC
 

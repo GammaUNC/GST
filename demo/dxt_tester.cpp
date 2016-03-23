@@ -11,6 +11,7 @@
 
 // #define VERBOSE
 #include "codec.h"
+#include "gpu.h"
 
 #include <opencv2/opencv.hpp>
 
@@ -76,6 +77,8 @@ int main(int argc, char **argv) {
     return 1;
   }
 
+  std::unique_ptr<gpu::GPUContext> ctx = gpu::GPUContext::InitializeOpenCL(false);
+
   // Is it a crunch img?
   int width, height;
   std::string fname(argv[1]);
@@ -92,10 +95,8 @@ int main(int argc, char **argv) {
   const char *orig_fn = argv[1];
   const char *cmp_fn = (argc == 2) ? NULL : argv[2];
 
-  std::vector<uint8_t> cmp_img = std::move
-    (GenTC::CompressDXT(orig_fn, cmp_fn, width, height));
-
-  GenTC::DXTImage dxt_img = GenTC::DecompressDXT(cmp_img);
+  std::vector<uint8_t> cmp_img = std::move(GenTC::CompressDXT(orig_fn, cmp_fn, width, height));
+  GenTC::DXTImage dxt_img = GenTC::DecompressDXT(ctx, cmp_img);
 
   // Decompress into image...
   std::vector<uint8_t> decomp_rgba = std::move(dxt_img.DecompressedImage()->Pack());

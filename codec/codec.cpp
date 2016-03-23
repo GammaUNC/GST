@@ -1,5 +1,6 @@
 #include "fast_dct.h"
 #include "codec.h"
+#include "codec_config.h"
 #include "data_stream.h"
 #include "image.h"
 #include "image_processing.h"
@@ -11,7 +12,6 @@
 
 #include "ans_config.h"
 #include "ans_ocl.h"
-#include "gpu.h"
 
 using gpu::GPUContext;
 
@@ -36,7 +36,7 @@ struct CLKernelResult {
   cl_event output_event;
 };
 
-static CLKernelResult DecodeANS(GPUContext *gpu_ctx, const cl_uchar *data, const size_t num_symbols) {
+static CLKernelResult DecodeANS(const std::unique_ptr<gpu::GPUContext> &gpu_ctx, const cl_uchar *data) {
   cl_kernel build_table_kernel = gpu_ctx->GetOpenCLKernel(
     ans::kANSOpenCLKernels[ans::eANSOpenCLKernel_BuildTable], "build_table");
 
@@ -61,7 +61,8 @@ static CLKernelResult DecodeANS(GPUContext *gpu_ctx, const cl_uchar *data, const
   cl_uint cum_freqs[256];
   std::partial_sum(freqs, freqs + num_freqs - 1, cum_freqs + 1);
 
-  size_t M = static_cast<size_t>(cum_freqs[num_freqs - 1] + freqs[num_freqs]);
+  size_t M = static_cast<size_t>(cum_freqs[num_freqs - 1] + freqs[num_freqs - 1]);
+  assert(M == ans::ocl::kANSTableSize);
 
   cl_int errCreateBuffer;
   cl_mem table = clCreateBuffer(gpu_ctx->GetOpenCLContext(),
@@ -90,9 +91,6 @@ static CLKernelResult DecodeANS(GPUContext *gpu_ctx, const cl_uchar *data, const
   cl_kernel decode_kernel = gpu_ctx->GetOpenCLKernel(
     ans::kANSOpenCLKernels[ans::eANSOpenCLKernel_ANSDecode], "ans_decode");
 
-  // First, just set our table buffers...
-  CHECK_CL(clSetKernelArg, decode_kernel, 0, sizeof(table), &table);
-
   // Load all of the offsets to the different data streams...
   cl_uint num_offsets = static_cast<cl_uint>(data[0]);
   data++;
@@ -110,13 +108,10 @@ static CLKernelResult DecodeANS(GPUContext *gpu_ctx, const cl_uchar *data, const
   cl_mem data_buf = clCreateBuffer(ctx, GetHostReadOnlyFlags(), data_sz,
     const_cast<cl_uchar *>(data), &errCreateBuffer);
   CHECK_CL((cl_int), errCreateBuffer);
-  CHECK_CL(clSetKernelArg, decode_kernel, 1, sizeof(data_buf), &data_buf);
 
-#ifdef CL_VERSION_1_2
-  cl_mem_flags out_flags = CL_MEM_WRITE_ONLY | CL_MEM_HOST_READ_ONLY;
-#else
-  cl_mem_flags out_flags = CL_MEM_WRITE_ONLY;
-#endif
+  // Make sure that we have enough constant memory to allocate here...
+  assert(data_sz + 8 * num_freqs + M * sizeof(AnsTableEntry) <
+    gpu_ctx->GetDeviceInfo<cl_ulong>(CL_DEVICE_MAX_CONSTANT_BUFFER_SIZE));
 
   // Allocate 256 * num interleaved slots for result
   size_t total_encoded =
@@ -125,8 +120,12 @@ static CLKernelResult DecodeANS(GPUContext *gpu_ctx, const cl_uchar *data, const
   const size_t streams_per_work_group = ans::ocl::kThreadsPerEncodingGroup;
 
   CLKernelResult result;
-  result.output = clCreateBuffer(ctx, out_flags, total_encoded, NULL, &errCreateBuffer);
+  result.output = clCreateBuffer(ctx, CL_MEM_READ_WRITE, total_encoded, NULL, &errCreateBuffer);
   CHECK_CL((cl_int), errCreateBuffer);
+
+  // First, just set our table buffers...
+  CHECK_CL(clSetKernelArg, decode_kernel, 0, sizeof(table), &table);
+  CHECK_CL(clSetKernelArg, decode_kernel, 1, sizeof(data_buf), &data_buf);
   CHECK_CL(clSetKernelArg, decode_kernel, 2, sizeof(result.output), &result.output);
 
   CHECK_CL(clEnqueueNDRangeKernel, gpu_ctx->GetCommandQueue(), decode_kernel,
@@ -139,37 +138,84 @@ static CLKernelResult DecodeANS(GPUContext *gpu_ctx, const cl_uchar *data, const
   return result;
 }
 
-static CLKernelResult InverseWavelet(GPUContext *gpu_ctx, CLKernelResult img, int width, int height) {
+static CLKernelResult InverseWavelet(const std::unique_ptr<gpu::GPUContext> &gpu_ctx,
+                                     CLKernelResult img, cl_int offset, int width, int height) {
+  assert(width % kWaveletBlockDim == 0);
+  assert(height % kWaveletBlockDim == 0);
+
+  cl_int errCreateBuffer;
+  cl_context ctx = gpu_ctx->GetOpenCLContext();
+  size_t out_sz = width * height;
+
+  // One thread per pixel, kWaveletBlockDim * kWaveletBlockDim threads
+  // per group...
+  size_t threads_per_group = kWaveletBlockDim * kWaveletBlockDim;
+
+  cl_kernel wavelet_kernel = gpu_ctx->GetOpenCLKernel(
+    GenTC::kOpenCLKernels[GenTC::eOpenCLKernel_InverseWavelet], "inv_wavelet");
+
+  // First, setup our inputs
+  CHECK_CL(clSetKernelArg, wavelet_kernel, 0, sizeof(img.output), &img.output);
+  CHECK_CL(clSetKernelArg, wavelet_kernel, 1, sizeof(offset), &offset);
+  CHECK_CL(clSetKernelArg, wavelet_kernel, 2, threads_per_group, NULL);
+
+#ifdef CL_VERSION_1_2
+  cl_mem_flags out_flags = CL_MEM_READ_WRITE | CL_MEM_HOST_READ_ONLY;
+#else
+  cl_mem_flags out_flags = CL_MEM_READ_WRITE;
+#endif
 
   CLKernelResult result;
+  result.output = clCreateBuffer(ctx, out_flags, out_sz, NULL, &errCreateBuffer);
+  CHECK_CL((cl_int), errCreateBuffer);
+  CHECK_CL(clSetKernelArg, wavelet_kernel, 3, sizeof(result.output), &result.output);
+
+#ifndef NDEBUG
+  // Make sure that we can launch enough kernels per group
+  assert(threads_per_group <=
+    gpu_ctx->GetDeviceInfo<size_t>(CL_DEVICE_MAX_WORK_GROUP_SIZE));
+
+  // I don't know of a GPU implementation that uses more than 3 dims..
+  assert(3 ==
+    gpu_ctx->GetDeviceInfo<cl_uint>(CL_DEVICE_MAX_WORK_ITEM_DIMENSIONS));
+
+  struct WorkGroupSizes {
+    size_t sizes[3];
+  };
+  WorkGroupSizes wgsz =
+    gpu_ctx->GetDeviceInfo<WorkGroupSizes>(CL_DEVICE_MAX_WORK_ITEM_SIZES);
+  assert(threads_per_group <= wgsz.sizes[0] );
+#endif
+
+  size_t global_work_size[2] = { static_cast<size_t>(width), static_cast<size_t>(height) };
+  size_t local_work_size[2] = { static_cast<size_t>(kWaveletBlockDim), static_cast<size_t>(kWaveletBlockDim) };
+
+  CHECK_CL(clEnqueueNDRangeKernel, gpu_ctx->GetCommandQueue(), wavelet_kernel,
+                                   1, NULL, global_work_size, local_work_size,
+                                   1, &img.output_event, &result.output_event);
+
+  // No longer need image buffer
+  CHECK_CL(clReleaseMemObject, img.output);
+
   return result;
 }
 
 namespace GenTC {
 
-template <typename T> std::unique_ptr<std::vector<uint8_t> >
-RunDXTEndpointPipeline(const std::unique_ptr<Image<T> > &img) {
-  static_assert(PixelTraits::NumChannels<T>::value,
-    "This should operate on each DXT endpoing channel separately");
+static CLKernelResult DecompressEndpoints(const std::unique_ptr<gpu::GPUContext> &gpu_ctx,
+                                          const std::vector<uint8_t> &cmp_data, int32_t data_sz,
+                                          uint32_t *data_offset, cl_int value_offset,
+                                          int width, int height) {
+  const cl_uchar *ep_cmp_data = reinterpret_cast<const cl_uchar *>(cmp_data.data());
+  ep_cmp_data += *data_offset;
+  *data_offset += data_sz;
 
-  static const size_t kNumBits = PixelTraits::BitsUsed<T>::value;
-  typedef typename PixelTraits::SignedTypeForBits<kNumBits+2>::Ty
-    WaveletSignedTy;
-  typedef typename PixelTraits::UnsignedForSigned<WaveletSignedTy>::Ty
-    WaveletUnsignedTy;
-
-  auto pipeline = Pipeline<Image<T>, Image<WaveletSignedTy> >
-    ::Create(FWavelet2D<T, kWaveletBlockDim>::New())
-    ->Chain(MakeUnsigned<WaveletSignedTy>::New())
-    ->Chain(Linearize<WaveletUnsignedTy>::New())
-    ->Chain(RearrangeStream<WaveletUnsignedTy>::New(img->Width(), kWaveletBlockDim))
-    ->Chain(ReducePrecision<WaveletUnsignedTy, uint8_t>::New())
-    ->Chain(ByteEncoder::Encoder(ans::ocl::kNumEncodedSymbols));
-
-  return std::move(pipeline->Run(img));
+  CLKernelResult ep_cmp = DecodeANS(gpu_ctx, ep_cmp_data);
+  return InverseWavelet(gpu_ctx, ep_cmp, value_offset, width, height);
 }
 
-static DXTImage DecompressDXTImage(const std::vector<uint8_t> &dxt_img) {
+static DXTImage DecompressDXTImage(const std::unique_ptr<gpu::GPUContext> &gpu_ctx,
+                                   const std::vector<uint8_t> &dxt_img) {
   std::cout << std::endl;
   std::cout << "Decompressing DXT Image..." << std::endl;
 
@@ -201,8 +247,47 @@ static DXTImage DecompressDXTImage(const std::vector<uint8_t> &dxt_img) {
   uint32_t indices_cmp_sz = in.ReadInt();
   std::cout << "Palette index deltas compressed: " << indices_cmp_sz << std::endl;
 
+  const std::vector<uint8_t> &cmp_data = in.GetData();
+  uint32_t offset = in.BytesRead();
+
+  assert((width & 0x3) == 0);
+  assert((height & 0x3) == 0);
+
+  const int blocks_x = static_cast<int>(width) >> 2;
+  const int blocks_y = static_cast<int>(height) >> 2;
+
+  CLKernelResult ep1_y = DecompressEndpoints(gpu_ctx, cmp_data, ep1_y_cmp_sz, &offset, 0, blocks_x, blocks_y);
+  CLKernelResult ep1_co = DecompressEndpoints(gpu_ctx, cmp_data, ep1_co_cmp_sz, &offset, -32, blocks_x, blocks_y);
+  CLKernelResult ep1_cg = DecompressEndpoints(gpu_ctx, cmp_data, ep1_cg_cmp_sz, &offset, -64, blocks_x, blocks_y);
+
+  CLKernelResult ep2_y = DecompressEndpoints(gpu_ctx, cmp_data, ep2_y_cmp_sz, &offset, 0, blocks_x, blocks_y);
+  CLKernelResult ep2_co = DecompressEndpoints(gpu_ctx, cmp_data, ep2_co_cmp_sz, &offset, -32, blocks_x, blocks_y);
+  CLKernelResult ep2_cg = DecompressEndpoints(gpu_ctx, cmp_data, ep2_cg_cmp_sz, &offset, -64, blocks_x, blocks_y);
+
   exit(0);
   return DXTImage(width, height, std::vector<uint8_t>());
+}
+
+template <typename T> std::unique_ptr<std::vector<uint8_t> >
+RunDXTEndpointPipeline(const std::unique_ptr<Image<T> > &img) {
+  static_assert(PixelTraits::NumChannels<T>::value,
+    "This should operate on each DXT endpoing channel separately");
+
+  static const size_t kNumBits = PixelTraits::BitsUsed<T>::value;
+  typedef typename PixelTraits::SignedTypeForBits<kNumBits+2>::Ty
+    WaveletSignedTy;
+  typedef typename PixelTraits::UnsignedForSigned<WaveletSignedTy>::Ty
+    WaveletUnsignedTy;
+
+  auto pipeline = Pipeline<Image<T>, Image<WaveletSignedTy> >
+    ::Create(FWavelet2D<T, kWaveletBlockDim>::New())
+    ->Chain(MakeUnsigned<WaveletSignedTy>::New())
+    ->Chain(Linearize<WaveletUnsignedTy>::New())
+    ->Chain(RearrangeStream<WaveletUnsignedTy>::New(img->Width(), kWaveletBlockDim))
+    ->Chain(ReducePrecision<WaveletUnsignedTy, uint8_t>::New())
+    ->Chain(ByteEncoder::Encoder(ans::ocl::kNumEncodedSymbols));
+
+  return std::move(pipeline->Run(img));
 }
 
 static std::vector<uint8_t> CompressDXTImage(const DXTImage &dxt_img) {
@@ -339,15 +424,16 @@ std::vector<uint8_t> CompressDXT(const char *filename, const char *cmp_fn,
   return std::move(CompressDXTImage(dxt_img));
 }
 
-DXTImage DecompressDXT(const std::vector<uint8_t> &cmp_data) {
-  return std::move(DecompressDXTImage(cmp_data));
+DXTImage DecompressDXT(const std::unique_ptr<gpu::GPUContext> &gpu_ctx, const std::vector<uint8_t> &cmp_data) {
+  return std::move(DecompressDXTImage(gpu_ctx, cmp_data));
 }
 
-void TestDXT(const char *filename, const char *cmp_fn, int width, int height) {
+void TestDXT(const std::unique_ptr<gpu::GPUContext> &gpu_ctx,
+             const char *filename, const char *cmp_fn, int width, int height) {
   DXTImage dxt_img(width, height, filename, cmp_fn);
   std::vector<uint8_t> cmp_img(std::move(CompressDXTImage(dxt_img)));
 
-  DXTImage decmp_img = DecompressDXTImage(cmp_img);
+  DXTImage decmp_img = DecompressDXTImage(gpu_ctx, cmp_img);
 
   // Check that both dxt_img and decomp_img match...
 }
