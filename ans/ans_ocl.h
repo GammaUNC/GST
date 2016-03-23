@@ -51,9 +51,7 @@ namespace ocl {
       const std::vector<cl_uint> &states,
       const std::vector<std::vector<cl_uchar> > &data) const;
 
-    cl_mem DecodeMultiple(const cl_uchar *data, const size_t num_symbols) const;
-
-    void RebuildTable(const std::vector<uint32_t> &F) const;
+    void RebuildTable(const std::vector<uint32_t> &F);
 
     std::vector<cl_uchar> GetSymbols() const;
     std::vector<cl_ushort> GetFrequencies() const;
@@ -69,6 +67,7 @@ namespace ocl {
     const std::unique_ptr<gpu::GPUContext> &_gpu_ctx;
 
     cl_mem _table;
+    cl_event _build_table_event;
 
     cl_mem_flags GetHostReadOnlyFlags() const {
       #ifdef CL_VERSION_1_2

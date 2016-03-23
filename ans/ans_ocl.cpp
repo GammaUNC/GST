@@ -111,7 +111,7 @@ std::vector<cl_ushort> OpenCLDecoder::GetCumulativeFrequencies() const {
   return std::move(result);
 }
 
-void OpenCLDecoder::RebuildTable(const std::vector<uint32_t> &F) const {
+void OpenCLDecoder::RebuildTable(const std::vector<uint32_t> &F) {
   std::vector<cl_uint> freqs = std::move(NormalizeFrequencies(F));
   assert(_M == std::accumulate(freqs.begin(), freqs.end(), 0U));
 
@@ -153,19 +153,10 @@ void OpenCLDecoder::RebuildTable(const std::vector<uint32_t> &F) const {
   CHECK_CL(clSetKernelArg, build_table_kernel, 3, sizeof(_table), &_table);
 
   CHECK_CL(clEnqueueNDRangeKernel, _gpu_ctx->GetCommandQueue(), build_table_kernel,
-           1, NULL, &_M, NULL, 0, NULL, NULL);
+                                   1, NULL, &_M, NULL, 0, NULL, &_build_table_event);
 
   CHECK_CL(clReleaseMemObject, freqs_buffer);
   CHECK_CL(clReleaseMemObject, cum_freqs_buffer);
-
-  // !SPEED! Enqueue barrier with no wait list... Actually we can do better
-  // here, since we know that the kernel invocation will need to finish, we
-  // can pass an event to the barrier when the CL version is greater than 1.2...
-#ifdef CL_VERSION_1_2
-  CHECK_CL(clEnqueueBarrierWithWaitList, _gpu_ctx->GetCommandQueue(), 0, NULL, NULL);
-#else
-  CHECK_CL(clEnqueueBarrier, queue);
-#endif
 }
 
 template<typename T>
@@ -173,9 +164,7 @@ static inline T NextMultipleOfFour(T x) {
   return ((x + 3) >> 2) << 2;
 }
 
-std::vector<cl_uchar> OpenCLDecoder::Decode(
-  cl_uint state,
-  const std::vector<cl_uchar> &data) const {
+std::vector<cl_uchar> OpenCLDecoder::Decode(cl_uint state, const std::vector<cl_uchar> &data) const {
 
   cl_int errCreateBuffer;
   cl_kernel decode_kernel = _gpu_ctx->GetOpenCLKernel(
@@ -212,7 +201,7 @@ std::vector<cl_uchar> OpenCLDecoder::Decode(
   // Run the kernel...
   const size_t num_streams = 1;
   CHECK_CL(clEnqueueNDRangeKernel, _gpu_ctx->GetCommandQueue(), decode_kernel, 1, NULL,
-                                   &num_streams, NULL, 0, NULL, NULL);
+                                   &num_streams, NULL, 1, &_build_table_event, NULL);
 
   std::vector<cl_uchar> out = std::move(
     ReadBuffer<cl_uchar>(_gpu_ctx->GetCommandQueue(), out_buffer, kNumEncodedSymbols));
@@ -296,7 +285,7 @@ std::vector<std::vector<cl_uchar> > OpenCLDecoder::Decode(
 
   CHECK_CL(clEnqueueNDRangeKernel, _gpu_ctx->GetCommandQueue(), decode_kernel,
                                    1, NULL, &num_streams,
-                                   &streams_per_work_group, 0, NULL, NULL);
+                                   &streams_per_work_group, 1, &_build_table_event, NULL);
 
   // Read back the buffer...
   std::vector<cl_uchar> all_symbols = std::move(
@@ -415,7 +404,7 @@ std::vector<std::vector<cl_uchar> > OpenCLDecoder::Decode(
 #endif
 
   CHECK_CL(clEnqueueNDRangeKernel, _gpu_ctx->GetCommandQueue(), decode_kernel,
-    1, NULL, &total_streams, &streams_per_work_group, 0, NULL, NULL);
+    1, NULL, &total_streams, &streams_per_work_group, 1, &_build_table_event, NULL);
 
   // Read back the buffer...
   std::vector<cl_uchar> all_symbols = std::move(
