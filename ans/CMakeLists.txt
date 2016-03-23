@@ -13,8 +13,8 @@ CONFIGURE_FILE(
 )
 
 SET( KERNELS
-  "${GenTC_SOURCE_DIR}/ans/build_table.cl"
-  "${GenTC_SOURCE_DIR}/ans/ans_decode.cl"
+  ${BUILD_TABLE_KERNEL_PATH}
+  ${ANS_DECODE_KERNEL_PATH}
 )
 
 SET( HEADERS
