@@ -103,30 +103,7 @@ void InverseWavelet1D(const int16_t *src, int16_t *dst, size_t len) {
 void ForwardWavelet2D(const int16_t *src, size_t src_rowbytes,
                       int16_t *dst, size_t dst_rowbytes, size_t dim) {
   // Allocate a bit of scratch memory
-  std::vector<int16_t> scratch(dim * dim);
-  const uint8_t *src_bytes = reinterpret_cast<const uint8_t *>(src);
-  uint8_t *dst_bytes = reinterpret_cast<uint8_t *>(dst);
-
-  // Go through and do all the rows
-  for (size_t row = 0; row < dim; ++row) {
-    const int16_t *img = reinterpret_cast<const int16_t *>(src_bytes + row*src_rowbytes);
-    ForwardWavelet1D(img, scratch.data() + row*dim, dim);
-  }
-
-  // Do all the columns...
-  Transpose(scratch.data(), dim, sizeof(scratch[0]) * dim);
-  for (size_t col = 0; col < dim; ++col) {
-    int16_t *dst_img = reinterpret_cast<int16_t *>(dst_bytes + col*dst_rowbytes);
-    ForwardWavelet1D(scratch.data() + col * dim, dst_img, dim);
-  }
-
-  Transpose(dst, dim, dst_rowbytes);
-}
-
-extern void InverseWavelet2D(const int16_t *src, size_t src_rowbytes,
-                             int16_t *dst, size_t dst_rowbytes, size_t dim) {
-  // Allocate a bit of scratch memory
-  std::vector<int16_t> scratch(dim * dim);
+  std::vector<int16_t> scratch(src, src + dim * dim);
   const uint8_t *src_bytes = reinterpret_cast<const uint8_t *>(src);
   uint8_t *dst_bytes = reinterpret_cast<uint8_t *>(dst);
 
@@ -140,11 +117,9 @@ extern void InverseWavelet2D(const int16_t *src, size_t src_rowbytes,
   Transpose(scratch.data(), dim, sizeof(scratch[0]) * dim);
 
   for (size_t col = 0; col < dim; ++col) {
-    int16_t *dst_img = reinterpret_cast<int16_t *>(dst_bytes + col * dst_rowbytes);
-    InverseWavelet1D(scratch.data() + col * dim, dst_img, dim);
+    int16_t *img = reinterpret_cast<int16_t *>(dst_bytes + col*dst_rowbytes);
+    ForwardWavelet1D(scratch.data() + col*dim, img, dim);
   }
-
-  Transpose(dst, dim, dst_rowbytes);
 
   // Copy dst back into scratch
   for (size_t row = 0; row < dim; ++row) {
@@ -152,11 +127,37 @@ extern void InverseWavelet2D(const int16_t *src, size_t src_rowbytes,
     memcpy(scratch.data() + row*dim, img, sizeof(scratch[0]) * dim);
   }
 
-  // Do all the rows, store into dst
+  Transpose(scratch.data(), dim, sizeof(scratch[0]) * dim);
+
+  // Go through and do all the rows
+  for (size_t row = 0; row < dim; ++row) {
+    int16_t *dst_img = reinterpret_cast<int16_t *>(dst_bytes + row*dst_rowbytes);
+    ForwardWavelet1D(scratch.data() + row * dim, dst_img, dim);
+  }
+}
+
+extern void InverseWavelet2D(const int16_t *src, size_t src_rowbytes,
+                             int16_t *dst, size_t dst_rowbytes, size_t dim) {
+  // Allocate a bit of scratch memory
+  std::vector<int16_t> scratch(dim * dim);
+  const uint8_t *src_bytes = reinterpret_cast<const uint8_t *>(src);
+  uint8_t *dst_bytes = reinterpret_cast<uint8_t *>(dst);
+
+  // Do all the rows, store into scratch
+  for (size_t row = 0; row < dim; ++row) {
+    const int16_t *src_img = reinterpret_cast<const int16_t *>(src_bytes + row * src_rowbytes);
+    InverseWavelet1D(src_img, scratch.data() + row * dim, dim);
+  }
+
+  Transpose(scratch.data(), dim, sizeof(scratch[0]) * dim);
+
+  // Do all the cols, store into dst
   for (size_t col = 0; col < dim; ++col) {
     int16_t *dst_img = reinterpret_cast<int16_t *>(dst_bytes + col * dst_rowbytes);
     InverseWavelet1D(scratch.data() + col * dim, dst_img, dim);
   }
+
+  Transpose(dst, dim, dst_rowbytes);
 }
 
 }
