@@ -16,6 +16,7 @@
 using gpu::GPUContext;
 
 static const size_t kWaveletBlockDim = 32;
+static_assert((kWaveletBlockDim % 2) == 0, "Wavelet dimension must be power of two!");
 
 static inline cl_mem_flags GetHostReadOnlyFlags() {
 #ifdef CL_VERSION_1_2
@@ -147,17 +148,13 @@ static CLKernelResult InverseWavelet(const std::unique_ptr<gpu::GPUContext> &gpu
   cl_context ctx = gpu_ctx->GetOpenCLContext();
   size_t out_sz = width * height;
 
-  // One thread per pixel, kWaveletBlockDim * kWaveletBlockDim threads
-  // per group...
-  size_t threads_per_group = kWaveletBlockDim * kWaveletBlockDim;
-
   cl_kernel wavelet_kernel = gpu_ctx->GetOpenCLKernel(
     GenTC::kOpenCLKernels[GenTC::eOpenCLKernel_InverseWavelet], "inv_wavelet");
 
   // First, setup our inputs
   CHECK_CL(clSetKernelArg, wavelet_kernel, 0, sizeof(img.output), &img.output);
   CHECK_CL(clSetKernelArg, wavelet_kernel, 1, sizeof(offset), &offset);
-  CHECK_CL(clSetKernelArg, wavelet_kernel, 2, threads_per_group, NULL);
+  CHECK_CL(clSetKernelArg, wavelet_kernel, 2, 8 * kWaveletBlockDim * kWaveletBlockDim, NULL);
 
 #ifdef CL_VERSION_1_2
   cl_mem_flags out_flags = CL_MEM_READ_WRITE | CL_MEM_HOST_READ_ONLY;
@@ -171,6 +168,10 @@ static CLKernelResult InverseWavelet(const std::unique_ptr<gpu::GPUContext> &gpu
   CHECK_CL(clSetKernelArg, wavelet_kernel, 3, sizeof(result.output), &result.output);
 
 #ifndef NDEBUG
+  // One thread per pixel, kWaveletBlockDim * kWaveletBlockDim threads
+  // per group...
+  size_t threads_per_group = (kWaveletBlockDim / 2) * kWaveletBlockDim;
+
   // Make sure that we can launch enough kernels per group
   assert(threads_per_group <=
     gpu_ctx->GetDeviceInfo<size_t>(CL_DEVICE_MAX_WORK_GROUP_SIZE));
@@ -184,11 +185,15 @@ static CLKernelResult InverseWavelet(const std::unique_ptr<gpu::GPUContext> &gpu
   };
   WorkGroupSizes wgsz =
     gpu_ctx->GetDeviceInfo<WorkGroupSizes>(CL_DEVICE_MAX_WORK_ITEM_SIZES);
-  assert(threads_per_group <= wgsz.sizes[0] );
+  assert( threads_per_group <= wgsz.sizes[0] );
 #endif
 
-  size_t global_work_size[2] = { static_cast<size_t>(width), static_cast<size_t>(height) };
-  size_t local_work_size[2] = { static_cast<size_t>(kWaveletBlockDim), static_cast<size_t>(kWaveletBlockDim) };
+  size_t global_work_size[2] = {
+    static_cast<size_t>(width / 2),
+    static_cast<size_t>(height) };
+  size_t local_work_size[2] = {
+    static_cast<size_t>(kWaveletBlockDim / 2),
+    static_cast<size_t>(kWaveletBlockDim) };
 
   CHECK_CL(clEnqueueNDRangeKernel, gpu_ctx->GetCommandQueue(), wavelet_kernel,
                                    1, NULL, global_work_size, local_work_size,
