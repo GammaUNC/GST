@@ -251,14 +251,27 @@ public:
   virtual Base::ReturnType Run(const Base::ArgType &in) const override;
 };
 
+// !HACK! We might just need to switch do different wavelets
+template <typename T, bool IsSigned>
+struct WaveletResultTy {
+  typedef typename PixelTraits::SignedTypeForBits<PixelTraits::BitsUsed<T>::value + 2>::Ty DstTy;
+  static const size_t kNumDstBits = PixelTraits::BitsUsed<T>::value + 2;
+};
+
+template <typename T>
+struct WaveletResultTy<T, true> {
+  typedef typename PixelTraits::SignedTypeForBits<PixelTraits::BitsUsed<T>::value + 1>::Ty DstTy;
+  static const size_t kNumDstBits = PixelTraits::BitsUsed<T>::value + 1;
+};
+
 template <typename T, size_t BlockSize>
 class FWavelet2D : public PipelineUnit<Image<T>,
-  Image<
-    typename PixelTraits::SignedTypeForBits<PixelTraits::BitsUsed<T>::value + 2>::Ty
-  > > {
+  Image< typename WaveletResultTy<T, PixelTraits::IsSigned<T>::value >::DstTy > > {
 public:
+  typedef WaveletResultTy<T, PixelTraits::IsSigned<T>::value> ResultTy;
   static const size_t kNumSrcBits = PixelTraits::BitsUsed<T>::value;
-  static const size_t kNumDstBits = kNumSrcBits + 2;
+  static const size_t kNumDstBits = ResultTy::kNumDstBits;
+
   typedef typename PixelTraits::SignedTypeForBits<kNumDstBits>::Ty DstTy;
   typedef Image<T> InputImage;
   typedef Image<DstTy> OutputImage;

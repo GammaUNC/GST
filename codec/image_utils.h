@@ -146,8 +146,9 @@ class MakeUnsigned
      OutputImage *result = new OutputImage(in->Width(), in->Height());
      for (size_t y = 0; y < in->Height(); ++y) {
        for (size_t x = 0; x < in->Width(); ++x) {
-         DstTy p = static_cast<DstTy>(PixelTraits::ToUnsigned<T>::cvt(in->GetAt(x, y)));
-         result->SetAt(x, y, p);
+         const T pixel = in->GetAt(x, y);
+         const DstTy out = static_cast<DstTy>(PixelTraits::ToUnsigned<T>::cvt(pixel));
+         result->SetAt(x, y, out);
        }
      }
 

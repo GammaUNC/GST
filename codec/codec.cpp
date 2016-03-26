@@ -196,7 +196,7 @@ static CLKernelResult InverseWavelet(const std::unique_ptr<gpu::GPUContext> &gpu
     static_cast<size_t>(kWaveletBlockDim) };
 
   CHECK_CL(clEnqueueNDRangeKernel, gpu_ctx->GetCommandQueue(), wavelet_kernel,
-                                   1, NULL, global_work_size, local_work_size,
+                                   2, NULL, global_work_size, local_work_size,
                                    1, &img.output_event, &result.output_event);
 
   // No longer need image buffer
@@ -261,13 +261,13 @@ static DXTImage DecompressDXTImage(const std::unique_ptr<gpu::GPUContext> &gpu_c
   const int blocks_x = static_cast<int>(width) >> 2;
   const int blocks_y = static_cast<int>(height) >> 2;
 
-  CLKernelResult ep1_y = DecompressEndpoints(gpu_ctx, cmp_data, ep1_y_cmp_sz, &offset, 0, blocks_x, blocks_y);
-  CLKernelResult ep1_co = DecompressEndpoints(gpu_ctx, cmp_data, ep1_co_cmp_sz, &offset, -32, blocks_x, blocks_y);
-  CLKernelResult ep1_cg = DecompressEndpoints(gpu_ctx, cmp_data, ep1_cg_cmp_sz, &offset, -64, blocks_x, blocks_y);
+  CLKernelResult ep1_y = DecompressEndpoints(gpu_ctx, cmp_data, ep1_y_cmp_sz, &offset, -128, blocks_x, blocks_y);
+  //  CLKernelResult ep1_co = DecompressEndpoints(gpu_ctx, cmp_data, ep1_co_cmp_sz, &offset, -64, blocks_x, blocks_y);
+  //  CLKernelResult ep1_cg = DecompressEndpoints(gpu_ctx, cmp_data, ep1_cg_cmp_sz, &offset, -128, blocks_x, blocks_y);
 
-  CLKernelResult ep2_y = DecompressEndpoints(gpu_ctx, cmp_data, ep2_y_cmp_sz, &offset, 0, blocks_x, blocks_y);
-  CLKernelResult ep2_co = DecompressEndpoints(gpu_ctx, cmp_data, ep2_co_cmp_sz, &offset, -32, blocks_x, blocks_y);
-  CLKernelResult ep2_cg = DecompressEndpoints(gpu_ctx, cmp_data, ep2_cg_cmp_sz, &offset, -64, blocks_x, blocks_y);
+  //  CLKernelResult ep2_y = DecompressEndpoints(gpu_ctx, cmp_data, ep2_y_cmp_sz, &offset, -128, blocks_x, blocks_y);
+  //  CLKernelResult ep2_co = DecompressEndpoints(gpu_ctx, cmp_data, ep2_co_cmp_sz, &offset, -64, blocks_x, blocks_y);
+  //  CLKernelResult ep2_cg = DecompressEndpoints(gpu_ctx, cmp_data, ep2_cg_cmp_sz, &offset, -128, blocks_x, blocks_y);
 
   exit(0);
   return DXTImage(width, height, std::vector<uint8_t>());
@@ -278,11 +278,9 @@ RunDXTEndpointPipeline(const std::unique_ptr<Image<T> > &img) {
   static_assert(PixelTraits::NumChannels<T>::value,
     "This should operate on each DXT endpoing channel separately");
 
-  static const size_t kNumBits = PixelTraits::BitsUsed<T>::value;
-  typedef typename PixelTraits::SignedTypeForBits<kNumBits+2>::Ty
-    WaveletSignedTy;
-  typedef typename PixelTraits::UnsignedForSigned<WaveletSignedTy>::Ty
-    WaveletUnsignedTy;
+  const bool kIsSigned = PixelTraits::IsSigned<T>::value;
+  typedef typename WaveletResultTy<T, kIsSigned>::DstTy WaveletSignedTy;
+  typedef typename PixelTraits::UnsignedForSigned<WaveletSignedTy>::Ty WaveletUnsignedTy;
 
   auto pipeline = Pipeline<Image<T>, Image<WaveletSignedTy> >
     ::Create(FWavelet2D<T, kWaveletBlockDim>::New())

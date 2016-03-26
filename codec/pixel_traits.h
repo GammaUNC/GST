@@ -252,10 +252,10 @@ struct ToUnsigned {
     if (IsSigned<T>::value) {
       if (x < 0) {
         uint64_t sub_zero = static_cast<uint64_t>(-x);
-        return (static_cast<uint64_t>(Max<T>::value) / 2) - sub_zero;
+        return static_cast<uint64_t>(-(Min<T>::value)) - sub_zero;
       } else {
         uint64_t above_zero = static_cast<uint64_t>(x);
-        return (static_cast<uint64_t>(Max<T>::value) / 2) + above_zero;
+        return static_cast<uint64_t>(-(Min<T>::value)) + above_zero;
       }
     }
     return static_cast<uint64_t>(x);

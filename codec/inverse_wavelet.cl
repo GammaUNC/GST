@@ -37,7 +37,7 @@ void InverseWaveletEven(__local int *src, __local int *scratch,
 
   uint idx = 2 * x;
   int prev = mid + NormalizeIndex((int)(idx) - 1, (int)len) / 2;
-  int next = mid + NormalizeIndex((int)(idx) - 1, (int)len) / 2;
+  int next = mid + NormalizeIndex((int)(idx) + 1, (int)len) / 2;
 
   int src_prev = GetAt(src, (uint)prev, y);
   int src_next = GetAt(src, (uint)next, y);
@@ -72,10 +72,10 @@ void InverseWaveletOdd(__local int *src, __local int *scratch,
 __kernel void inv_wavelet(const __constant uchar *wavelet_data,
 					      const int value_offset,
                           __local int *local_data,
-                          __global uchar *out_data)
+                          __global char *out_data)
 {
-  uint local_dim = get_local_size(1);
-  uint wavelet_block_size = local_dim * local_dim;
+  int local_dim = get_local_size(1);
+  int wavelet_block_size = local_dim * local_dim;
 
   uint local_x = get_local_id(0);
   uint local_y = get_local_id(1);
@@ -110,11 +110,12 @@ __kernel void inv_wavelet(const __constant uchar *wavelet_data,
   __local int *src = local_data;
   __local int *scratch = local_data + wavelet_block_size;
 
-  for (uint i = 0; i < get_local_size(0); ++i) {
-    const int len = 2 * (i + 1);
-    const int mid = i + 1;
+  uint log_dim = 31 - clz(local_dim);
+  for (uint i = 0; i < log_dim; ++i) {
+    const int len = 1 << (i + 1);
+    const int mid = len >> 1;
 
-    const bool use_thread = local_x <= i && local_y < len;
+    const bool use_thread = local_x < mid && local_y < len;
 
     // Do the even and odd values, transposed results will be in scratch.
     if (use_thread) {
@@ -148,12 +149,12 @@ __kernel void inv_wavelet(const __constant uchar *wavelet_data,
   // Write final value back into global memory
   {
     uint local_stride = get_local_size(1);
-    uint global_stride = local_stride * get_num_groups(1);
+    uint global_stride = local_stride * get_num_groups(0);
 
     uint lidx = local_y * local_stride + 2 * local_x;
     uint gidx = get_global_id(1) * global_stride + 2 * get_global_id(0);
 
-    out_data[gidx] = local_data[lidx];
-    out_data[gidx + 1] = local_data[lidx + 1];
+    out_data[gidx] = (char)(local_data[lidx]);
+    out_data[gidx + 1] = (char)(local_data[lidx + 1]);
   }
 }

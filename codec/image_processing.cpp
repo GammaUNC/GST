@@ -21,9 +21,9 @@ static void rgb565_to_ycocg667(const int8_t *in, int8_t *out) {
   out[2] = g - t;
   out[0] = t + (out[2] / 2);
 
-  assert(0 <= out[0] && out[0] < 64);
-  assert(-31 <= out[1] && out[1] < 32);
-  assert(-63 <= out[2] && out[2] < 64);
+  assert(0 <= out[0] && out[0] <= 63);
+  assert(-31 <= out[1] && out[1] <= 31);
+  assert(-63 <= out[2] && out[2] <= 63);
 }
 
 static void ycocg667_to_rgb565(const int8_t *in, int8_t *out) {

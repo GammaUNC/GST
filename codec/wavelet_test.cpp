@@ -126,6 +126,37 @@ TEST(Wavelet, Small2DWavelet) {
   }
 }
 
+TEST(Wavelet, Inverse2DWavelet) {
+  int16_t xs[] = {
+    63,  64,  0, -1,
+    66,  60,  6,  9,
+     0,   2, -2, -2,
+     7, -18, 16, 36
+  };
+
+  int16_t tmp[16];
+  GenTC::InverseWavelet2D(xs, 8, tmp, 8, 4);
+
+  const int16_t expected[] = {
+    63, 63, 63, 63,
+    63, 63, 64, 63,
+    63, 65, 62, 64,
+    62, 65, 31, 69
+  };
+
+  for (size_t i = 0; i < 16; ++i) {
+    EXPECT_EQ(tmp[i], expected[i]) << "At index: " << i;
+  }
+  
+  int16_t out[16];
+  GenTC::ForwardWavelet2D(tmp, 8, out, 8, 4);
+
+  // Forward wavelet should recreate it..
+  for (size_t i = 0; i < 16; ++i) {
+    EXPECT_EQ(out[i], xs[i]) << "At index: " << i;
+  }  
+}
+
 TEST(Wavelet, Recursive2DWavelet) {
   int16_t xs[] = {
     234, 215, 223, 211,
