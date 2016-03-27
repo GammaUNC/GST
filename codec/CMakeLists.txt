@@ -47,7 +47,7 @@ SET( SOURCES
 )
 
 SOURCE_GROUP(OpenCL FILES ${KERNELS})
-ADD_LIBRARY(gentc_codec ${HEADERS} ${SOURCES})
+ADD_LIBRARY(gentc_codec ${HEADERS} ${SOURCES} ${KERNELS})
 TARGET_LINK_LIBRARIES(gentc_codec ans)
 TARGET_LINK_LIBRARIES(gentc_codec gentc_gpu)
 TARGET_LINK_LIBRARIES(gentc_codec vptree)
@@ -63,6 +63,10 @@ INCLUDE_DIRECTORIES(${GenTC_SOURCE_DIR}/googletest/include)
 # VS 2013     12           1800            std::tr1::tuple
 if (MSVC AND MSVC_VERSION EQUAL 1700)
   add_definitions(/D _VARIADIC_MAX=10)
+endif()
+
+if (MSVC AND MSVC_VERSION EQUAL 1900)
+  add_definitions(/D _SCL_SECURE_NO_WARNINGS)
 endif()
 
 FOREACH(TEST image wavelet)
