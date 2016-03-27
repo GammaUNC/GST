@@ -1,21 +1,7 @@
 #pragma OPENCL EXTENSION cl_khr_byte_addressable_store : enable
 
-int AbsInt(int x) {
-  int mask = x >> 31;
-  return (x ^ mask) + (mask & 1);
-}
-
 int NormalizeIndex(int idx, int range) {
-  int r = range - 1;
-  int pidx = AbsInt(idx);
-  int idx_bucket = pidx / r;
-  int next_lowest = idx_bucket * r;
-
-  if ((idx_bucket & 1) == 0) {
-    return pidx - next_lowest;
-  } else {
-    return next_lowest + r - pidx;
-  }
+  return abs(idx - (int)(idx >= range) * (idx - range + 2));
 }
 
 int GetAt(__local int *ptr, uint x, uint y) {
