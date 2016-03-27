@@ -17,7 +17,7 @@
 namespace gpu {
 
 static void ContextErrorCallback(const char *errinfo, const void *, size_t, void *) {
-  fprintf(stderr, "Context error: %s", errinfo);
+  fprintf(stderr, "Context error: %s\n", errinfo);
   assert(false);
   exit(1);
 }
