@@ -27,9 +27,3 @@ ADD_LIBRARY(gentc_gpu ${HEADERS} ${SOURCES})
 
 TARGET_LINK_LIBRARIES( gentc_gpu ${OPENCL_LIBRARIES} )
 TARGET_LINK_LIBRARIES( gentc_gpu ${GLFW_LIBRARIES} )
-
-IF ( MSVC )
-  # Add flag for link time code generation. This was used to build the libpng
-  # libraries, so we should probably also include it for this project as well...
-  SET_TARGET_PROPERTIES(gentc_gpu PROPERTIES LINK_FLAGS "/LTCG")
-ENDIF()

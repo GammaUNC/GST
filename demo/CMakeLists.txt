@@ -42,10 +42,6 @@ TARGET_LINK_LIBRARIES( demo ${OPENGL_gl_LIBRARY} )
 TARGET_LINK_LIBRARIES( demo ${OPENGL_glu_LIBRARY} )
 
 IF ( MSVC )
-  # Add flag for link time code generation. This was used to build the libpng
-  # libraries, so we should probably also include it for this project as well...
-  SET_TARGET_PROPERTIES(demo PROPERTIES LINK_FLAGS "/LTCG")
-
   IF( ${CMAKE_SIZEOF_VOID_P} EQUAL 8 )
     TARGET_LINK_LIBRARIES( demo ${GenTC_SOURCE_DIR}/lib/x64/glew32.lib )
     add_custom_command(TARGET demo POST_BUILD          # Adds a post-build event to MyTest

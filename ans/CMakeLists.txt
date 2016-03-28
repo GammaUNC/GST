@@ -41,12 +41,6 @@ SOURCE_GROUP(OpenCL FILES ${KERNELS})
 ADD_LIBRARY(ans ${HEADERS} ${SOURCES} ${KERNELS})
 TARGET_LINK_LIBRARIES(ans gentc_gpu)
 
-# Add flag for link time code generation. This was used to build the libpng
-# libraries, so we should probably also include it for this project as well...
-IF( MSVC )
-  SET_TARGET_PROPERTIES(ans PROPERTIES LINK_FLAGS "/LTCG")
-ENDIF()
-
 INCLUDE_DIRECTORIES(${GenTC_SOURCE_DIR}/googletest/include)
 
 # Summary of tuple support for Microsoft Visual Studio:
