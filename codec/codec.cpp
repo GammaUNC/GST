@@ -267,6 +267,7 @@ static cl_event DecodeIndices(const std::unique_ptr<GPUContext> &gpu_ctx, cl_mem
                               const std::vector<uint8_t> &cmp_data, size_t offset,
                               uint32_t width, uint32_t height, uint32_t palette_sz,
                               uint32_t palette_cmp_sz, uint32_t indices_cmp_sz) {
+  assert(!"Not implemented!");
   return 0;
 }
 
@@ -277,31 +278,33 @@ static CLKernelResult DecompressDXTImage(const std::unique_ptr<GPUContext> &gpu_
 
   DataStream in(dxt_img);
   uint32_t width = in.ReadInt();
-  std::cout << "Width: " << width << std::endl;
-
   uint32_t height = in.ReadInt();
-  std::cout << "Height: " << height << std::endl;
 
   uint32_t ep1_y_cmp_sz = in.ReadInt();
-  std::cout << "Endpoint One Y compressed size: " << ep1_y_cmp_sz << std::endl;
   uint32_t ep1_co_cmp_sz = in.ReadInt();
-  std::cout << "Endpoint One Co compressed size: " << ep1_co_cmp_sz << std::endl;
   uint32_t ep1_cg_cmp_sz = in.ReadInt();
-  std::cout << "Endpoint One Cg compressed size: " << ep1_cg_cmp_sz << std::endl;
 
   uint32_t ep2_y_cmp_sz = in.ReadInt();
-  std::cout << "Endpoint Two Y compressed size: " << ep2_y_cmp_sz << std::endl;
   uint32_t ep2_co_cmp_sz = in.ReadInt();
-  std::cout << "Endpoint Two Co compressed size: " << ep2_co_cmp_sz << std::endl;
   uint32_t ep2_cg_cmp_sz = in.ReadInt();
-  std::cout << "Endpoint Two Cg compressed size: " << ep2_cg_cmp_sz << std::endl;
 
   uint32_t palette_sz = in.ReadInt();
-  std::cout << "Palette size: " << palette_sz << std::endl;
   uint32_t palette_cmp_sz = in.ReadInt();
-  std::cout << "Palette size compressed: " << palette_cmp_sz << std::endl;
   uint32_t indices_cmp_sz = in.ReadInt();
+
+#ifndef NDEBUG
+  std::cout << "Width: " << width << std::endl;
+  std::cout << "Height: " << height << std::endl;
+  std::cout << "Endpoint One Y compressed size: " << ep1_y_cmp_sz << std::endl;
+  std::cout << "Endpoint One Co compressed size: " << ep1_co_cmp_sz << std::endl;
+  std::cout << "Endpoint One Cg compressed size: " << ep1_cg_cmp_sz << std::endl;
+  std::cout << "Endpoint Two Y compressed size: " << ep2_y_cmp_sz << std::endl;
+  std::cout << "Endpoint Two Co compressed size: " << ep2_co_cmp_sz << std::endl;
+  std::cout << "Endpoint Two Cg compressed size: " << ep2_cg_cmp_sz << std::endl;
+  std::cout << "Palette size: " << palette_sz << std::endl;
+  std::cout << "Palette size compressed: " << palette_cmp_sz << std::endl;
   std::cout << "Palette index deltas compressed: " << indices_cmp_sz << std::endl;
+#endif
 
   const std::vector<uint8_t> &cmp_data = in.GetData();
   size_t offset = in.BytesRead();
