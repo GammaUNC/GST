@@ -1,6 +1,7 @@
 #include "gpu.h"
 
 #include <cassert>
+#include <cstring>
 #include <iostream>
 
 #ifdef __APPLE__
