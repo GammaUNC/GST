@@ -269,6 +269,9 @@ static cl_event CollectEndpoints(const std::unique_ptr<GPUContext> &gpu_ctx,
 static cl_event DecodeIndices(const std::unique_ptr<GPUContext> &gpu_ctx, cl_mem dst,
                               const std::vector<uint8_t> &cmp_data, size_t offset,
                               size_t num_pixels, uint32_t palette_cmp_sz) {
+  // If num_pixels isn't a power of two, our parallel scan will run out of
+  // bounds and crash in the best case...
+  assert((num_pixels & (num_pixels - 1)) == 0);
 
   const cl_uchar *palette_cmp_data = reinterpret_cast<const cl_uchar *>(cmp_data.data());
   palette_cmp_data += offset;
@@ -368,9 +371,9 @@ static CLKernelResult DecompressDXTImage(const std::unique_ptr<GPUContext> &gpu_
                                               &offset, -128, blocks_x, blocks_y);
 
 #ifdef CL_VERSION_1_2
-  cl_mem_flags out_flags = CL_MEM_WRITE_ONLY | CL_MEM_HOST_READ_ONLY;
+  cl_mem_flags out_flags = CL_MEM_READ_WRITE | CL_MEM_HOST_READ_ONLY;
 #else
-  cl_mem_flags out_flags = CL_MEM_WRITE_ONLY;
+  cl_mem_flags out_flags = CL_MEM_READ_WRITE;
 #endif
   
   size_t dxt_size = blocks_x * blocks_y * 8;
@@ -382,7 +385,7 @@ static CLKernelResult DecompressDXTImage(const std::unique_ptr<GPUContext> &gpu_
                                  out_flags, dxt_size, NULL, &errCreateBuffer);
   CHECK_CL((cl_int), errCreateBuffer);
 
-  size_t num_blocks = blocks_x * blocks_y;
+  const size_t num_blocks = blocks_x * blocks_y;
   result.output_events[0] =
     CollectEndpoints(gpu_ctx, result.output, num_blocks, ep1_y, ep1_co, ep1_cg, 0);
   result.output_events[1] =

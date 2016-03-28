@@ -560,9 +560,20 @@ void DXTImage::LoadDXTFromFile(const char *fn, const char *cmp_fn) {
 
     int idx_diff = this_index - last_index;
     assert(-128 <= idx_diff && idx_diff < 128);
-    _indices.push_back(idx_diff + 128);
+
+    // Skip the first index... everyone knows it's zero...
+    if (physical_idx == 0) {
+      assert(0 == this_index);
+      assert(0 == last_index);
+      assert(0 == idx_diff);
+    } else {
+      _indices.push_back(idx_diff + 128);
+    }
     last_index = this_index;
   }
+
+  // Slap another one to the end just so that our data aligns nicely...
+  _indices.push_back(128);
 
   std::cout << "Unique index blocks: " << _index_palette.size() << std::endl;
   std::cout << "DXT Optimized PSNR: " << PSNR() << std::endl;
