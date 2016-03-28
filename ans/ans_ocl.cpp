@@ -14,14 +14,9 @@ struct AnsTableEntry {
 };
 
 template<typename T>
-static std::vector<T> ReadBuffer(cl_command_queue queue, cl_mem buffer, size_t num_elements) {
+static std::vector<T> ReadBuffer(cl_command_queue queue, cl_mem buffer, size_t num_elements, cl_event e) {
   std::vector<T> host_mem(num_elements);
-#ifdef CL_VERSION_1_2
-  CHECK_CL(clEnqueueBarrierWithWaitList, queue, 0, NULL, NULL);
-#else
-  CHECK_CL(clEnqueueBarrier, queue);
-#endif
-  CHECK_CL(clEnqueueReadBuffer, queue, buffer, true, 0, num_elements * sizeof(T), host_mem.data(), 0, NULL, NULL);
+  CHECK_CL(clEnqueueReadBuffer, queue, buffer, true, 0, num_elements * sizeof(T), host_mem.data(), 1, &e, NULL);
   return std::move(host_mem);
 }
 
@@ -71,7 +66,7 @@ OpenCLDecoder::~OpenCLDecoder() {
 
 std::vector<cl_uchar> OpenCLDecoder::GetSymbols() const {
   std::vector<AnsTableEntry> table =
-    std::move(ReadBuffer<AnsTableEntry>(_gpu_ctx->GetCommandQueue(), _table, _M));
+    std::move(ReadBuffer<AnsTableEntry>(_gpu_ctx->GetCommandQueue(), _table, _M, _build_table_event));
 
   std::vector<cl_uchar> result;
   result.reserve(table.size());
@@ -85,7 +80,7 @@ std::vector<cl_uchar> OpenCLDecoder::GetSymbols() const {
 
 std::vector<cl_ushort> OpenCLDecoder::GetFrequencies() const {
   std::vector<AnsTableEntry> table =
-    std::move(ReadBuffer<AnsTableEntry>(_gpu_ctx->GetCommandQueue(), _table, _M));
+    std::move(ReadBuffer<AnsTableEntry>(_gpu_ctx->GetCommandQueue(), _table, _M, _build_table_event));
 
   std::vector<cl_ushort> result;
   result.reserve(table.size());
@@ -99,7 +94,7 @@ std::vector<cl_ushort> OpenCLDecoder::GetFrequencies() const {
 
 std::vector<cl_ushort> OpenCLDecoder::GetCumulativeFrequencies() const {
   std::vector<AnsTableEntry> table =
-    std::move(ReadBuffer<AnsTableEntry>(_gpu_ctx->GetCommandQueue(), _table, _M));
+    std::move(ReadBuffer<AnsTableEntry>(_gpu_ctx->GetCommandQueue(), _table, _M, _build_table_event));
 
   std::vector<cl_ushort> result;
   result.reserve(table.size());
@@ -200,11 +195,12 @@ std::vector<cl_uchar> OpenCLDecoder::Decode(cl_uint state, const std::vector<cl_
 
   // Run the kernel...
   const size_t num_streams = 1;
+  cl_event decode_event;
   CHECK_CL(clEnqueueNDRangeKernel, _gpu_ctx->GetCommandQueue(), decode_kernel, 1, NULL,
-                                   &num_streams, NULL, 1, &_build_table_event, NULL);
+                                   &num_streams, NULL, 1, &_build_table_event, &decode_event);
 
   std::vector<cl_uchar> out = std::move(
-    ReadBuffer<cl_uchar>(_gpu_ctx->GetCommandQueue(), out_buffer, kNumEncodedSymbols));
+    ReadBuffer<cl_uchar>(_gpu_ctx->GetCommandQueue(), out_buffer, kNumEncodedSymbols, decode_event));
 
   // Release buffer objects...
   CHECK_CL(clReleaseMemObject, data_buffer);
@@ -283,13 +279,14 @@ std::vector<std::vector<cl_uchar> > OpenCLDecoder::Decode(
   assert(4 < _gpu_ctx->GetDeviceInfo<cl_uint>(CL_DEVICE_MAX_CONSTANT_ARGS));
 #endif
 
+  cl_event decode_event;
   CHECK_CL(clEnqueueNDRangeKernel, _gpu_ctx->GetCommandQueue(), decode_kernel,
-                                   1, NULL, &num_streams,
-                                   &streams_per_work_group, 1, &_build_table_event, NULL);
+                                   1, NULL, &num_streams, &streams_per_work_group,
+                                   1, &_build_table_event, &decode_event);
 
   // Read back the buffer...
   std::vector<cl_uchar> all_symbols = std::move(
-    ReadBuffer<cl_uchar>(_gpu_ctx->GetCommandQueue(), out_buf, total_encoded));
+    ReadBuffer<cl_uchar>(_gpu_ctx->GetCommandQueue(), out_buf, total_encoded, decode_event));
 
   std::vector<std::vector<cl_uchar> > out;
   out.reserve(num_streams);
@@ -406,12 +403,14 @@ std::vector<std::vector<cl_uchar> > OpenCLDecoder::Decode(
   assert(4 < _gpu_ctx->GetDeviceInfo<cl_uint>(CL_DEVICE_MAX_CONSTANT_ARGS));
 #endif
 
+  cl_event decode_event;
   CHECK_CL(clEnqueueNDRangeKernel, _gpu_ctx->GetCommandQueue(), decode_kernel,
-    1, NULL, &total_streams, &streams_per_work_group, 1, &_build_table_event, NULL);
+                                   1, NULL, &total_streams, &streams_per_work_group,
+                                   1, &_build_table_event, &decode_event);
 
   // Read back the buffer...
   std::vector<cl_uchar> all_symbols = std::move(
-    ReadBuffer<cl_uchar>(_gpu_ctx->GetCommandQueue(), out_buf, total_encoded));
+    ReadBuffer<cl_uchar>(_gpu_ctx->GetCommandQueue(), out_buf, total_encoded, decode_event));
 
   std::vector<std::vector<cl_uchar> > out;
   out.reserve(total_streams);
