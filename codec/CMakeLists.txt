@@ -10,6 +10,7 @@ include_directories("${GenTC_SOURCE_DIR}/lib")
 INCLUDE_DIRECTORIES( ${OPENCL_INCLUDE_DIRS} )
 
 SET( INVERSE_WAVELET_KERNEL_PATH ${GenTC_SOURCE_DIR}/codec/inverse_wavelet.cl )
+SET( ENDPOINT_KERNEL_PATH ${GenTC_SOURCE_DIR}/codec/collect_endpoints.cl )
 
 CONFIGURE_FILE(
   "codec_config.h.in"
@@ -18,6 +19,7 @@ CONFIGURE_FILE(
 
 SET( KERNELS
   ${INVERSE_WAVELET_KERNEL_PATH}
+  ${ENDPOINT_KERNEL_PATH}
 )
 
 SET( HEADERS

@@ -223,7 +223,7 @@ namespace GenTC {
 
 static CLKernelResult DecompressEndpoints(const std::unique_ptr<GPUContext> &gpu_ctx,
                                           const std::vector<uint8_t> &cmp_data,
-                                          int32_t data_sz, uint32_t *data_offset,
+                                          int32_t data_sz, size_t *data_offset,
                                           cl_int val_offset, int width, int height) {
   const cl_uchar *ep_cmp_data = reinterpret_cast<const cl_uchar *>(cmp_data.data());
   ep_cmp_data += *data_offset;
@@ -234,10 +234,33 @@ static CLKernelResult DecompressEndpoints(const std::unique_ptr<GPUContext> &gpu
 }
 
 static cl_event CollectEndpoints(const std::unique_ptr<GPUContext> &gpu_ctx,
-                                 cl_mem dst, const CLKernelResult &y,
+                                 cl_mem dst, size_t num_pixels, const CLKernelResult &y,
                                  const CLKernelResult &co, const CLKernelResult &cg,
-                                 cl_uint endpoint_index) {
-  return 0;
+                                 const cl_uint endpoint_index) {
+
+  cl_context ctx = gpu_ctx->GetOpenCLContext();
+  cl_kernel ep_kernel = gpu_ctx->GetOpenCLKernel(
+    GenTC::kOpenCLKernels[GenTC::eOpenCLKernel_Endpoints], "collect_endpoints");
+
+  // First, setup our inputs
+  cl_uint num_pixels_arg = static_cast<cl_uint>(num_pixels);
+  CHECK_CL(clSetKernelArg, ep_kernel, 0, sizeof(y.output), &y.output);
+  CHECK_CL(clSetKernelArg, ep_kernel, 1, sizeof(co.output), &co.output);
+  CHECK_CL(clSetKernelArg, ep_kernel, 2, sizeof(cg.output), &cg.output);
+  CHECK_CL(clSetKernelArg, ep_kernel, 3, sizeof(dst), &dst);
+  CHECK_CL(clSetKernelArg, ep_kernel, 4, sizeof(endpoint_index), &endpoint_index);
+  CHECK_CL(clSetKernelArg, ep_kernel, 5, sizeof(num_pixels_arg), &num_pixels_arg);
+
+  cl_event wait_events[] = {
+    y.output_events[0], co.output_events[0], cg.output_events[0]
+  };
+  const size_t num_wait_events = sizeof(wait_events) / sizeof(wait_events[0]);
+
+  cl_event e;
+  CHECK_CL(clEnqueueNDRangeKernel, gpu_ctx->GetCommandQueue(), ep_kernel,
+                                   1, NULL, &num_pixels, NULL,
+                                   num_wait_events, wait_events, &e);
+  return e;
 }
 
 static cl_event DecodeIndices(const std::unique_ptr<GPUContext> &gpu_ctx, cl_mem dst,
@@ -281,7 +304,7 @@ static CLKernelResult DecompressDXTImage(const std::unique_ptr<GPUContext> &gpu_
   std::cout << "Palette index deltas compressed: " << indices_cmp_sz << std::endl;
 
   const std::vector<uint8_t> &cmp_data = in.GetData();
-  uint32_t offset = in.BytesRead();
+  size_t offset = in.BytesRead();
 
   assert((width & 0x3) == 0);
   assert((height & 0x3) == 0);
@@ -318,10 +341,11 @@ static CLKernelResult DecompressDXTImage(const std::unique_ptr<GPUContext> &gpu_
                                  out_flags, dxt_size, NULL, &errCreateBuffer);
   CHECK_CL((cl_int), errCreateBuffer);
 
+  size_t num_blocks = blocks_x * blocks_y;
   result.output_events[0] =
-    CollectEndpoints(gpu_ctx, result.output, ep1_y, ep1_co, ep1_cg, 0);
+    CollectEndpoints(gpu_ctx, result.output, num_blocks, ep1_y, ep1_co, ep1_cg, 0);
   result.output_events[1] =
-    CollectEndpoints(gpu_ctx, result.output, ep2_y, ep2_co, ep2_cg, 1);
+    CollectEndpoints(gpu_ctx, result.output, num_blocks, ep2_y, ep2_co, ep2_cg, 1);
 
   result.output_events[2] = DecodeIndices(gpu_ctx, result.output, cmp_data,
                                           offset, width, height,

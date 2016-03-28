@@ -2,19 +2,22 @@
 #define __GENTC_CODEC_CONFIG_H__
 
 #cmakedefine INVERSE_WAVELET_KERNEL_PATH "${INVERSE_WAVELET_KERNEL_PATH}"
+#cmakedefine ENDPOINT_KERNEL_PATH "${ENDPOINT_KERNEL_PATH}"
 
 namespace GenTC {
 
 enum EOpenCLKernel {
   eOpenCLKernel_InverseWavelet,
+  eOpenCLKernel_Endpoints,
 
   kNumOpenCLKernels
 };
 
 static const char *kOpenCLKernels[kNumOpenCLKernels] = {
 	INVERSE_WAVELET_KERNEL_PATH,
+	ENDPOINT_KERNEL_PATH,
 };
 
-}  // namespace ans
+}  // namespace GenTC
 
-#endif  // __GENTC_ANS_CONFIG_H__
+#endif  // __GENTC_CODEC_CONFIG_H__
