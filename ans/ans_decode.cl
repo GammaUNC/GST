@@ -24,7 +24,7 @@ __kernel void ans_decode(const __constant AnsTableEntry *table,
     uint next_to_read = (offset - (get_local_size(0) * 4)) / 2;
     const __constant ushort *stream_data = (const __constant ushort *)data;
 
-	barrier(CLK_LOCAL_MEM_FENCE | CLK_GLOBAL_MEM_FENCE);
+	barrier(CLK_LOCAL_MEM_FENCE);
 
 	for (int i = 0; i < NUM_ENCODED_SYMBOLS; ++i) {
 		const uint symbol = state & (ANS_TABLE_SIZE - 1);
@@ -37,17 +37,18 @@ __kernel void ans_decode(const __constant AnsTableEntry *table,
 		  ((uint)(state < ANS_DECODER_L)) << get_local_id(0);
 		atomic_or(&normalization_mask, normalization_bit);
 
-		// I'm not totally sure I need this
 		barrier(CLK_LOCAL_MEM_FENCE);
 
 		// If we need to renormalize, then do so...
 		const uint total_to_read = popcount(normalization_mask);
 		if (normalization_bit != 0) {
-		  uint up_to_me_mask = normalization_bit - 1;
-		  uint num_to_skip =
-			total_to_read - popcount(normalization_mask & up_to_me_mask) - 1;
+		  const uint up_to_me_mask = normalization_bit - 1;
+		  uint num_to_skip = total_to_read;
+		  num_to_skip -= popcount(normalization_mask & up_to_me_mask) + 1;
 		  state = (state << 16) | stream_data[next_to_read - num_to_skip - 1];
 		}
+
+		barrier(CLK_LOCAL_MEM_FENCE);
 
 		// Clear the bit in the normalization mask...
 		atomic_and(&normalization_mask, ~normalization_bit);
@@ -56,7 +57,7 @@ __kernel void ans_decode(const __constant AnsTableEntry *table,
 		next_to_read -= total_to_read;
 
 		// Write the result
-		const int offset = get_global_id(0) * NUM_ENCODED_SYMBOLS + (255 - i);
-		out_stream[offset] = entry->symbol;
+		const int gidx = get_global_id(0) * NUM_ENCODED_SYMBOLS + (255 - i);
+		out_stream[gidx] = entry->symbol;
 	}
 }
