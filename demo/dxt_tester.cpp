@@ -95,6 +95,11 @@ int main(int argc, char **argv) {
   const char *orig_fn = argv[1];
   const char *cmp_fn = (argc == 2) ? NULL : argv[2];
 
+  if (!GenTC::TestDXT(ctx, orig_fn, cmp_fn, width, height)) {
+    std::cout << "ERROR: DXT GPU Decompression failed!" << std::endl;
+    return -1;
+  }
+
   std::vector<uint8_t> cmp_img = std::move(GenTC::CompressDXT(orig_fn, cmp_fn, width, height));
   GenTC::DXTImage dxt_img = GenTC::DecompressDXT(ctx, cmp_img);
 

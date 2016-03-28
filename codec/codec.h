@@ -17,7 +17,7 @@ namespace GenTC {
   DXTImage DecompressDXT(const std::unique_ptr<gpu::GPUContext> &gpu_ctx,
                          const std::vector<uint8_t> &cmp_data);
 
-  void TestDXT(const std::unique_ptr<gpu::GPUContext> &gpu_ctx,
+  bool TestDXT(const std::unique_ptr<gpu::GPUContext> &gpu_ctx,
                const char *filename, const char *cmp_fn, int width, int height);
 
 }  // namespace GenTC

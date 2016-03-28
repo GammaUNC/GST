@@ -47,6 +47,13 @@ static CLKernelResult DecodeANS(const std::unique_ptr<GPUContext> &gpu_ctx,
 
   // First get the number of frequencies...
   cl_uint num_freqs = static_cast<cl_uint>(data[0]);
+
+  // Check for overflowed (i.e. the max number of symbols)
+  if (num_freqs == 0) {
+    num_freqs = 256;
+  }
+
+  // Advance the pointer
   data++;
 
   // Load all of the frequencies
@@ -237,19 +244,15 @@ static cl_event CollectEndpoints(const std::unique_ptr<GPUContext> &gpu_ctx,
                                  cl_mem dst, size_t num_pixels, const CLKernelResult &y,
                                  const CLKernelResult &co, const CLKernelResult &cg,
                                  const cl_uint endpoint_index) {
-
-  cl_context ctx = gpu_ctx->GetOpenCLContext();
   cl_kernel ep_kernel = gpu_ctx->GetOpenCLKernel(
     GenTC::kOpenCLKernels[GenTC::eOpenCLKernel_Endpoints], "collect_endpoints");
 
   // First, setup our inputs
-  cl_uint num_pixels_arg = static_cast<cl_uint>(num_pixels);
   CHECK_CL(clSetKernelArg, ep_kernel, 0, sizeof(y.output), &y.output);
   CHECK_CL(clSetKernelArg, ep_kernel, 1, sizeof(co.output), &co.output);
   CHECK_CL(clSetKernelArg, ep_kernel, 2, sizeof(cg.output), &cg.output);
   CHECK_CL(clSetKernelArg, ep_kernel, 3, sizeof(dst), &dst);
   CHECK_CL(clSetKernelArg, ep_kernel, 4, sizeof(endpoint_index), &endpoint_index);
-  CHECK_CL(clSetKernelArg, ep_kernel, 5, sizeof(num_pixels_arg), &num_pixels_arg);
 
   cl_event wait_events[] = {
     y.output_events[0], co.output_events[0], cg.output_events[0]
@@ -265,10 +268,35 @@ static cl_event CollectEndpoints(const std::unique_ptr<GPUContext> &gpu_ctx,
 
 static cl_event DecodeIndices(const std::unique_ptr<GPUContext> &gpu_ctx, cl_mem dst,
                               const std::vector<uint8_t> &cmp_data, size_t offset,
-                              uint32_t width, uint32_t height, uint32_t palette_sz,
-                              uint32_t palette_cmp_sz, uint32_t indices_cmp_sz) {
-  assert(!"Not implemented!");
-  return 0;
+                              size_t num_pixels, uint32_t palette_cmp_sz) {
+
+  const cl_uchar *palette_cmp_data = reinterpret_cast<const cl_uchar *>(cmp_data.data());
+  palette_cmp_data += offset;
+
+  const cl_uchar *indices_cmp_data = palette_cmp_data + palette_cmp_sz;
+
+  CLKernelResult palette_cmp = DecodeANS(gpu_ctx, palette_cmp_data);
+  CLKernelResult indices_cmp = DecodeANS(gpu_ctx, indices_cmp_data);
+
+  cl_kernel idx_kernel = gpu_ctx->GetOpenCLKernel(
+    GenTC::kOpenCLKernels[GenTC::eOpenCLKernel_DecodeIndices], "decode_indices");
+
+  CHECK_CL(clSetKernelArg, idx_kernel, 0, sizeof(palette_cmp.output), &palette_cmp.output);
+  CHECK_CL(clSetKernelArg, idx_kernel, 1, sizeof(indices_cmp.output), &indices_cmp.output);
+  CHECK_CL(clSetKernelArg, idx_kernel, 2, sizeof(dst), &dst);
+
+  cl_event wait_events[] = {
+    palette_cmp.output_events[0],
+    indices_cmp.output_events[0],
+  };
+
+  const size_t num_wait_events = sizeof(wait_events) / sizeof(wait_events[0]);
+
+  cl_event e;
+  CHECK_CL(clEnqueueNDRangeKernel, gpu_ctx->GetCommandQueue(), idx_kernel,
+                                   1, NULL, &num_pixels, NULL,
+                                   num_wait_events, wait_events, &e);
+  return e;
 }
 
 static CLKernelResult DecompressDXTImage(const std::unique_ptr<GPUContext> &gpu_ctx,
@@ -288,9 +316,19 @@ static CLKernelResult DecompressDXTImage(const std::unique_ptr<GPUContext> &gpu_
   uint32_t ep2_co_cmp_sz = in.ReadInt();
   uint32_t ep2_cg_cmp_sz = in.ReadInt();
 
+#ifndef NDEBUG
   uint32_t palette_sz = in.ReadInt();
+#else
+  in.ReadInt();
+#endif
+
   uint32_t palette_cmp_sz = in.ReadInt();
+
+#ifndef NDEBUG
   uint32_t indices_cmp_sz = in.ReadInt();
+#else
+  in.ReadInt();
+#endif
 
 #ifndef NDEBUG
   std::cout << "Width: " << width << std::endl;
@@ -351,8 +389,7 @@ static CLKernelResult DecompressDXTImage(const std::unique_ptr<GPUContext> &gpu_
     CollectEndpoints(gpu_ctx, result.output, num_blocks, ep2_y, ep2_co, ep2_cg, 1);
 
   result.output_events[2] = DecodeIndices(gpu_ctx, result.output, cmp_data,
-                                          offset, width, height,
-                                          palette_sz, palette_cmp_sz, indices_cmp_sz);
+                                          offset, num_blocks, palette_cmp_sz);
 
   return result;
 }
@@ -540,7 +577,7 @@ DXTImage DecompressDXT(const std::unique_ptr<GPUContext> &gpu_ctx,
   return DXTImage(width, height, decmp_data);
 }
 
-void TestDXT(const std::unique_ptr<gpu::GPUContext> &gpu_ctx,
+bool TestDXT(const std::unique_ptr<gpu::GPUContext> &gpu_ctx,
              const char *filename, const char *cmp_fn, int width, int height) {
   DXTImage dxt_img(width, height, filename, cmp_fn);
   
@@ -549,14 +586,8 @@ void TestDXT(const std::unique_ptr<gpu::GPUContext> &gpu_ctx,
     std::move(DecompressDXTBuffer(gpu_ctx, cmp_img, width, height));
   
   // Check that both dxt_img and decomp_img match...
-  bool match = 0 == memcmp(dxt_img.PhysicalBlocks().data(),
-                           decmp_data.data(), decmp_data.size());
-
-  if (match) {
-    std::cout << "DXT GPU decompression OK!" << std::endl;
-  } else {
-    std::cout << "ERROR: DXT GPU Decompression failed!" << std::endl;
-  }
+  return 0 == memcmp(dxt_img.PhysicalBlocks().data(),
+                     decmp_data.data(), decmp_data.size());
 }
 
 }

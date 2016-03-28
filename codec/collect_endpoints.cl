@@ -4,6 +4,5 @@ __kernel void collect_endpoints(const __global char *y,
 								const __global char *co,
 								const __global char *cg,
 								__global uchar *out,
-								uint endpoint_index, uint num_pixels)
-{
+								uint endpoint_index) {
 }

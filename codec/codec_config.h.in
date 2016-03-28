@@ -3,12 +3,14 @@
 
 #cmakedefine INVERSE_WAVELET_KERNEL_PATH "${INVERSE_WAVELET_KERNEL_PATH}"
 #cmakedefine ENDPOINT_KERNEL_PATH "${ENDPOINT_KERNEL_PATH}"
+#cmakedefine DECODE_INDICES_KERNEL_PATH "${DECODE_INDICES_KERNEL_PATH}"
 
 namespace GenTC {
 
 enum EOpenCLKernel {
   eOpenCLKernel_InverseWavelet,
   eOpenCLKernel_Endpoints,
+  eOpenCLKernel_DecodeIndices,
 
   kNumOpenCLKernels
 };
@@ -16,6 +18,7 @@ enum EOpenCLKernel {
 static const char *kOpenCLKernels[kNumOpenCLKernels] = {
 	INVERSE_WAVELET_KERNEL_PATH,
 	ENDPOINT_KERNEL_PATH,
+    DECODE_INDICES_KERNEL_PATH,
 };
 
 }  // namespace GenTC
