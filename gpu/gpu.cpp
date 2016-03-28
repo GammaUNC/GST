@@ -212,7 +212,7 @@ static std::vector<cl_device_id> GetAllDevicesForContext(cl_context ctx) {
 
 
 GPUContext::~GPUContext() {
-  GPUKernelCache::Instance(_ctx, _device)->Clear();
+  GPUKernelCache::Instance(_ctx, _type, _device)->Clear();
   CHECK_CL(clReleaseCommandQueue, _command_queue);
   CHECK_CL(clReleaseContext, _ctx);
 }
@@ -221,6 +221,7 @@ std::unique_ptr<GPUContext> GPUContext::InitializeOpenCL(bool share_opengl) {
   const cl_uint kMaxPlatforms = 8;
   cl_platform_id platforms[kMaxPlatforms];
   cl_uint nPlatforms;
+  int platform_idx = -1;
 
 #ifdef NDEBUG
   CHECK_CL(clGetPlatformIDs, kMaxPlatforms, platforms, &nPlatforms);
@@ -232,39 +233,67 @@ std::unique_ptr<GPUContext> GPUContext::InitializeOpenCL(bool share_opengl) {
   CHECK_CL(clGetPlatformIDs, nPlatforms, platforms, &nPlatforms);
 
   size_t strLen;
-  fprintf(stdout, "\n");
-  fprintf(stdout, "Found %d OpenCL platform%s.\n", nPlatforms, nPlatforms == 1 ? "" : "s");
-
   for (cl_uint i = 0; i < nPlatforms; i++) {
     char strBuf[256];
 
-    fprintf(stdout, "\n");
-    fprintf(stdout, "Platform %d info:\n", i);
+    std::cout << std::endl;
+    std::cout << "Platform " << i << " info:" << std::endl;
 
     CHECK_CL(clGetPlatformInfo, platforms[i], CL_PLATFORM_PROFILE, 256, strBuf, &strLen);
-    fprintf(stdout, "Platform profile: %s\n", strBuf);
+    std::cout << "Platform profile: " << strBuf << std::endl;
 
     CHECK_CL(clGetPlatformInfo, platforms[i], CL_PLATFORM_VERSION, 256, strBuf, &strLen);
-    fprintf(stdout, "Platform version: %s\n", strBuf);
+    std::cout << "Platform version: " << strBuf << std::endl;
 
     CHECK_CL(clGetPlatformInfo, platforms[i], CL_PLATFORM_NAME, 256, strBuf, &strLen);
-    fprintf(stdout, "Platform name: %s\n", strBuf);
+    std::cout << "Platform name: " << strBuf << std::endl;
+
+    bool isCPUOnly = false;
+    if (strstr(strBuf, "CPU Only")) {
+      isCPUOnly = true;
+    }
 
     CHECK_CL(clGetPlatformInfo, platforms[i], CL_PLATFORM_VENDOR, 256, strBuf, &strLen);
-    fprintf(stdout, "Platform vendor: %s\n", strBuf);
+    std::cout << "Platform vendor: " << strBuf << std::endl;
+
+    bool isIntel = false;
+    if (strstr(strBuf, "Intel")) {
+      isIntel = true;
+    }
+
+    if (isCPUOnly && isIntel) {
+      platform_idx = i;
+    }
   }
 #endif
-
-  cl_platform_id platform = platforms[0];
 
   const cl_uint kMaxDevices = 8;
   cl_device_id devices[kMaxDevices];
   cl_uint nDevices;
-  CHECK_CL(clGetDeviceIDs, platform, CL_DEVICE_TYPE_GPU, kMaxDevices, devices, &nDevices);
+
+  cl_device_type device_type = CL_DEVICE_TYPE_GPU;
+  if (platform_idx >= 0) {
+    std::cout << "========================================";
+    std::cout << "========================================" << std::endl;
+    std::cout << "========================================";
+    std::cout << "========================================" << std::endl;
+    std::cout << "WARNING: Running on the CPU" << std::endl;
+    std::cout << "========================================";
+    std::cout << "========================================" << std::endl;
+    std::cout << "========================================";
+    std::cout << "========================================" << std::endl;
+    device_type = CL_DEVICE_TYPE_CPU;
+  } else {
+    platform_idx = 0;
+  }
+
+  cl_platform_id platform = platforms[platform_idx];
+  CHECK_CL(clGetDeviceIDs, platform, device_type, kMaxDevices, devices, &nDevices);
 
 #ifndef NDEBUG
-  fprintf(stdout, "\n");
-  fprintf(stdout, "Found %d device%s on platform 0.\n", nDevices, nDevices == 1 ? "" : "s");
+  std::cout << std::endl;
+  std::cout << "Found " << nDevices << " device" << (nDevices == 1 ? "" : "s")
+    << " on platform " << platform_idx << std::endl;
 
   for (cl_uint i = 0; i < nDevices; i++) {
     gpu::PrintDeviceInfo(devices[i]);
@@ -294,13 +323,20 @@ std::unique_ptr<GPUContext> GPUContext::InitializeOpenCL(bool share_opengl) {
     std::unique_ptr<GPUContext>(new GPUContext);
   gpu_ctx->_ctx = ctx;
 
+  if (device_type == CL_DEVICE_TYPE_CPU) {
+    gpu_ctx->_type = eContextType_IntelCPU;
+  } else {
+    gpu_ctx->_type = eContextType_GenericGPU;
+  }
+
   // The device...
   if (share_opengl) {
     gpu_ctx->_device = GetDeviceForSharedContext(ctx);
   } else {
-    std::vector<cl_device_id> devices = std::move(GetAllDevicesForContext(ctx));
-    assert(devices.size() > 0);
-    gpu_ctx->_device = devices[0];
+    std::vector<cl_device_id> ds = std::move(GetAllDevicesForContext(ctx));
+    assert(ds.size() > 0);
+    assert(ds[0] == devices[0]);
+    gpu_ctx->_device = ds[0];
   }
 
   // And the command queue...
@@ -320,7 +356,7 @@ void GPUContext::PrintDeviceInfo() const {
 }
 
 cl_kernel GPUContext::GetOpenCLKernel(const std::string &filename, const std::string &kernel) const {
-  GPUKernelCache *cache = GPUKernelCache::Instance(_ctx, _device);
+  GPUKernelCache *cache = GPUKernelCache::Instance(_ctx, _type, _device);
   return cache->GetKernel(filename, kernel);
 }
 

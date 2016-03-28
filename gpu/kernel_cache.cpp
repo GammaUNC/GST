@@ -38,10 +38,15 @@ static cl_platform_id GetPlatformForContext(cl_context ctx) {
 }
 
 static cl_kernel LoadKernel(const char *source_filename, const char *kernel_name,
-                            cl_context ctx, cl_device_id device) {
-  std::ifstream progfs(source_filename);
+                            cl_context ctx, EContextType ctx_ty, cl_device_id device) {
+  std::ifstream progfs(source_filename, std::ifstream::in);
+  if (!progfs) {
+    assert(!"Error opening file!");
+    abort();
+  }
+
   std::string progStr((std::istreambuf_iterator<char>(progfs)),
-    std::istreambuf_iterator<char>());
+                       std::istreambuf_iterator<char>());
 
   // Internal error! We should never call this function without exactly knowing
   // what we're getting ourselves into...
@@ -57,15 +62,23 @@ static cl_kernel LoadKernel(const char *source_filename, const char *kernel_name
   program = clCreateProgramWithSource(ctx, 1, &progCStr, NULL, &errCreateProgram);
   CHECK_CL((cl_int), errCreateProgram);
 
-  if (clBuildProgram(program, 1, &device, "-Werror", NULL, NULL) != CL_SUCCESS) {
+  std::string args("-Werror ");
+
+  if (ctx_ty == eContextType_IntelCPU) {
+    args += std::string("-g -s \"");
+    args += std::string(source_filename);
+    args += std::string("\"");
+  }
+
+  if (clBuildProgram(program, 1, &device, args.c_str(), NULL, NULL) != CL_SUCCESS) {
     size_t bufferSz;
-    clGetProgramBuildInfo(program, device, CL_PROGRAM_BUILD_LOG,
-      sizeof(size_t), NULL, &bufferSz);
+    CHECK_CL(clGetProgramBuildInfo, program, device, CL_PROGRAM_BUILD_LOG,
+                                    sizeof(size_t), NULL, &bufferSz);
 
     char *buffer = new char[bufferSz + 1];
     buffer[bufferSz] = '\0';
-    clGetProgramBuildInfo(program, device, CL_PROGRAM_BUILD_LOG,
-      bufferSz, buffer, NULL);
+    CHECK_CL(clGetProgramBuildInfo, program, device, CL_PROGRAM_BUILD_LOG,
+                                    bufferSz, buffer, NULL);
 
     std::cerr << "CL Compilation failed:" << std::endl;
     std::cerr << buffer + 1 << std::endl;
@@ -87,9 +100,9 @@ static cl_kernel LoadKernel(const char *source_filename, const char *kernel_name
   return kernel;
 }
 
-GPUKernelCache *GPUKernelCache::Instance(cl_context ctx, cl_device_id device) {
+GPUKernelCache *GPUKernelCache::Instance(cl_context ctx, EContextType ctx_ty, cl_device_id device) {
   if (gKernelCache == nullptr) {
-    gKernelCache = new GPUKernelCache(ctx, device);
+    gKernelCache = new GPUKernelCache(ctx, ctx_ty, device);
   }
 
   // !FIXME! This comparison might not be cross-platform...
@@ -98,7 +111,7 @@ GPUKernelCache *GPUKernelCache::Instance(cl_context ctx, cl_device_id device) {
   }
 
   Clear();
-  gKernelCache = new GPUKernelCache(ctx, device);
+  gKernelCache = new GPUKernelCache(ctx, ctx_ty, device);
   return gKernelCache;
 }
 
@@ -119,7 +132,7 @@ cl_kernel GPUKernelCache::GetKernel(const std::string &filename, const std::stri
   std::string kernel_name = filename + ":" + kernel;
 
   if (_kernels.find(kernel_name) == _kernels.end()) {
-    _kernels[kernel_name] = LoadKernel(filename.c_str(), kernel.c_str(), _ctx, _device);
+    _kernels[kernel_name] = LoadKernel(filename.c_str(), kernel.c_str(), _ctx, _ctx_ty, _device);
   }
 
   return _kernels[kernel_name];

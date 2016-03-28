@@ -96,6 +96,11 @@ static inline const char *clErrMsg(cl_int err) {
 
 namespace gpu {
 
+  enum EContextType {
+    eContextType_GenericGPU,
+    eContextType_IntelCPU
+  };
+
   class GPUContext {
   public:
     ~GPUContext();
@@ -107,6 +112,8 @@ namespace gpu {
 
     cl_kernel GetOpenCLKernel(const std::string &filename, const std::string &kernel) const;
     void PrintDeviceInfo() const;
+
+    EContextType Type() const { return _type; }
 
     template<typename T>
     T GetDeviceInfo(cl_device_info param) const {
@@ -121,11 +128,12 @@ namespace gpu {
   private:
     GPUContext() { }
     GPUContext(const GPUContext &);
-    GPUContext &operator=(const GPUContext &);
 
     cl_command_queue _command_queue;
     cl_device_id _device;
     cl_context _ctx;
+
+    EContextType _type;
   };
 
 }  // namespace gpu
