@@ -72,8 +72,8 @@ static cl_kernel LoadKernel(const char *source_filename, const char *kernel_name
 
   if (clBuildProgram(program, 1, &device, args.c_str(), NULL, NULL) != CL_SUCCESS) {
     size_t bufferSz;
-    CHECK_CL(clGetProgramBuildInfo, program, device, CL_PROGRAM_BUILD_LOG,
-                                    sizeof(size_t), NULL, &bufferSz);
+    clGetProgramBuildInfo(program, device, CL_PROGRAM_BUILD_LOG,
+                          sizeof(size_t), NULL, &bufferSz);
 
     char *buffer = new char[bufferSz + 1];
     buffer[bufferSz] = '\0';
