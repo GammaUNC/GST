@@ -284,22 +284,57 @@ static cl_event DecodeIndices(const std::unique_ptr<GPUContext> &gpu_ctx, cl_mem
   cl_kernel idx_kernel = gpu_ctx->GetOpenCLKernel(
     GenTC::kOpenCLKernels[GenTC::eOpenCLKernel_DecodeIndices], "decode_indices");
 
-  CHECK_CL(clSetKernelArg, idx_kernel, 0, sizeof(palette_cmp.output), &palette_cmp.output);
-  CHECK_CL(clSetKernelArg, idx_kernel, 1, sizeof(indices_cmp.output), &indices_cmp.output);
+  CHECK_CL(clSetKernelArg, idx_kernel, 0, sizeof(indices_cmp.output), &indices_cmp.output);
   CHECK_CL(clSetKernelArg, idx_kernel, 2, sizeof(dst), &dst);
 
-  cl_event wait_events[] = {
-    palette_cmp.output_events[0],
-    indices_cmp.output_events[0],
-  };
+  cl_event wait_event = indices_cmp.output_events[0];
+  static const size_t kLocalScanSz = 128;
+  static const size_t kLocalScanSzLog = 7;
 
-  const size_t num_wait_events = sizeof(wait_events) / sizeof(wait_events[0]);
+  cl_event e[16];
+  size_t event_idx = 0;
+  e[event_idx] = indices_cmp.output_events[0];
 
-  cl_event e;
-  CHECK_CL(clEnqueueNDRangeKernel, gpu_ctx->GetCommandQueue(), idx_kernel,
-                                   1, NULL, &num_pixels, NULL,
-                                   num_wait_events, wait_events, &e);
-  return e;
+  cl_int stage = -1;
+  size_t num_vals = num_pixels;
+  while (num_vals > 1) {
+    stage++;
+
+    CHECK_CL(clSetKernelArg, idx_kernel, 1, sizeof(stage), &stage);
+    CHECK_CL(clEnqueueNDRangeKernel, gpu_ctx->GetCommandQueue(), idx_kernel,
+                                     1, NULL, &num_vals, &kLocalScanSz,
+                                     1, e + event_idx, e + event_idx + 1);
+
+    event_idx++;
+    num_vals >>= kLocalScanSzLog;
+  }
+
+  cl_kernel final_kernel = gpu_ctx->GetOpenCLKernel(
+    GenTC::kOpenCLKernels[GenTC::eOpenCLKernel_DecodeIndices], "collect_indices");
+
+  CHECK_CL(clSetKernelArg, final_kernel, 0, sizeof(palette_cmp.output), &palette_cmp.output);
+  CHECK_CL(clSetKernelArg, final_kernel, 2, sizeof(dst), &dst);
+  wait_event = palette_cmp.output_events[0];
+
+  num_vals = num_pixels;
+  while ((num_vals >> kLocalScanSzLog) > 1) {
+    num_vals >>= kLocalScanSzLog;
+  }
+
+  while (stage >= 0) {
+    if (stage > 0) num_vals <<= kLocalScanSzLog;
+
+    CHECK_CL(clSetKernelArg, final_kernel, 1, sizeof(stage), &stage);
+    CHECK_CL(clEnqueueNDRangeKernel, gpu_ctx->GetCommandQueue(), final_kernel,
+                                     1, NULL, &num_vals, &kLocalScanSz,
+                                     1, e + event_idx, e + event_idx + 1);
+
+    event_idx++;
+    --stage;
+  }
+
+  assert(event_idx <= 16);
+  return e[event_idx - 1];
 }
 
 static CLKernelResult DecompressDXTImage(const std::unique_ptr<GPUContext> &gpu_ctx,
