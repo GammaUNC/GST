@@ -38,6 +38,13 @@ struct CLKernelResult {
   cl_event output_events[8];
 };
 
+template<typename T>
+static std::vector<T> ReadBuffer(cl_command_queue queue, cl_mem buffer, size_t num_elements, cl_event e) {
+  std::vector<T> host_mem(num_elements);
+  CHECK_CL(clEnqueueReadBuffer, queue, buffer, true, 0, num_elements * sizeof(T), host_mem.data(), 1, &e, NULL);
+  return std::move(host_mem);
+}
+
 static CLKernelResult DecodeANS(const std::unique_ptr<GPUContext> &gpu_ctx,
                                 const cl_uchar *data) {
   cl_kernel build_table_kernel = gpu_ctx->GetOpenCLKernel(
@@ -273,67 +280,79 @@ static cl_event DecodeIndices(const std::unique_ptr<GPUContext> &gpu_ctx, cl_mem
   // bounds and crash in the best case...
   assert((num_pixels & (num_pixels - 1)) == 0);
 
-  const cl_uchar *palette_cmp_data = reinterpret_cast<const cl_uchar *>(cmp_data.data());
-  palette_cmp_data += offset;
-
+  const cl_uchar *palette_cmp_data =
+    reinterpret_cast<const cl_uchar *>(cmp_data.data()) + offset;
   const cl_uchar *indices_cmp_data = palette_cmp_data + palette_cmp_sz;
 
-  CLKernelResult palette_cmp = DecodeANS(gpu_ctx, palette_cmp_data);
-  CLKernelResult indices_cmp = DecodeANS(gpu_ctx, indices_cmp_data);
+  CLKernelResult palette = DecodeANS(gpu_ctx, palette_cmp_data);
+  CLKernelResult indices = DecodeANS(gpu_ctx, indices_cmp_data);
 
   cl_kernel idx_kernel = gpu_ctx->GetOpenCLKernel(
     GenTC::kOpenCLKernels[GenTC::eOpenCLKernel_DecodeIndices], "decode_indices");
 
-  CHECK_CL(clSetKernelArg, idx_kernel, 0, sizeof(indices_cmp.output), &indices_cmp.output);
+  CHECK_CL(clSetKernelArg, idx_kernel, 0, sizeof(indices.output), &indices.output);
   CHECK_CL(clSetKernelArg, idx_kernel, 2, sizeof(dst), &dst);
 
-  cl_event wait_event = indices_cmp.output_events[0];
   static const size_t kLocalScanSz = 128;
   static const size_t kLocalScanSzLog = 7;
-
-  cl_event e[16];
+  
+  // !SPEED! We don't really need to allocate here...
+  std::vector<cl_event> e;
   size_t event_idx = 0;
-  e[event_idx] = indices_cmp.output_events[0];
+  for (size_t i = 0; i < indices.num_events; ++i) {
+    e.push_back(indices.output_events[i]);
+  }
 
   cl_int stage = -1;
   size_t num_vals = num_pixels;
   while (num_vals > 1) {
     stage++;
 
+    cl_event next_event;
+    size_t num_events = e.size() - event_idx;
+    size_t local_work_sz = std::min(num_vals, kLocalScanSz);
     CHECK_CL(clSetKernelArg, idx_kernel, 1, sizeof(stage), &stage);
     CHECK_CL(clEnqueueNDRangeKernel, gpu_ctx->GetCommandQueue(), idx_kernel,
-                                     1, NULL, &num_vals, &kLocalScanSz,
-                                     1, e + event_idx, e + event_idx + 1);
+                                     1, NULL, &num_vals, &local_work_sz,
+                                     num_events, e.data() + event_idx,
+                                     &next_event);
 
-    event_idx++;
     num_vals >>= kLocalScanSzLog;
+    event_idx += num_events;
+    e.push_back(next_event);
   }
 
   cl_kernel final_kernel = gpu_ctx->GetOpenCLKernel(
     GenTC::kOpenCLKernels[GenTC::eOpenCLKernel_DecodeIndices], "collect_indices");
 
-  CHECK_CL(clSetKernelArg, final_kernel, 0, sizeof(palette_cmp.output), &palette_cmp.output);
+  CHECK_CL(clSetKernelArg, final_kernel, 0, sizeof(palette.output), &palette.output);
   CHECK_CL(clSetKernelArg, final_kernel, 2, sizeof(dst), &dst);
-  wait_event = palette_cmp.output_events[0];
+  for (size_t i = 0; i < palette.num_events; ++i) {
+    e.push_back(palette.output_events[i]);
+  }
 
   num_vals = num_pixels;
   while ((num_vals >> kLocalScanSzLog) > 1) {
     num_vals >>= kLocalScanSzLog;
   }
 
+  stage--;
   while (stage >= 0) {
-    if (stage > 0) num_vals <<= kLocalScanSzLog;
+    num_vals <<= kLocalScanSzLog;
 
+    cl_event next_event;
+    size_t num_events = e.size() - event_idx;
     CHECK_CL(clSetKernelArg, final_kernel, 1, sizeof(stage), &stage);
     CHECK_CL(clEnqueueNDRangeKernel, gpu_ctx->GetCommandQueue(), final_kernel,
                                      1, NULL, &num_vals, &kLocalScanSz,
-                                     1, e + event_idx, e + event_idx + 1);
-
-    event_idx++;
-    --stage;
+                                     num_events, e.data() + event_idx,
+                                     &next_event);
+    event_idx += num_events;
+    e.push_back(next_event);
+    stage--;
   }
 
-  assert(event_idx <= 16);
+  assert(e.size() - event_idx == 1);
   return e[event_idx - 1];
 }
 
@@ -520,14 +539,14 @@ static std::vector<uint8_t> CompressDXTImage(const DXTImage &dxt_img) {
   std::cout << "Padded palette data size: " << padding << std::endl;
   palette_data->resize(padding, 0);
 
-  std::unique_ptr<std::vector<uint8_t> > idx_data(
-    new std::vector<uint8_t>(dxt_img.IndexDiffs()));
-
   std::cout << "Compressing index palette... ";
   auto palette_cmp = index_pipeline->Run(palette_data);
   out.WriteInt(static_cast<uint32_t>(padding));
   out.WriteInt(static_cast<uint32_t>(palette_cmp->size()));
   std::cout << "Done: " << palette_cmp->size() << " bytes" << std::endl;
+
+  std::unique_ptr<std::vector<uint8_t> > idx_data(
+    new std::vector<uint8_t>(dxt_img.IndexDiffs()));
 
   std::cout << "Original index differences size: " << idx_data->size() << std::endl;
   std::cout << "Compressing index differences... ";
