@@ -37,8 +37,8 @@ static cl_platform_id GetPlatformForContext(cl_context ctx) {
   return (cl_platform_id)(-1);
 }
 
-static cl_kernel LoadKernel(const char *source_filename, const char *kernel_name,
-                            cl_context ctx, EContextType ctx_ty, cl_device_id device) {
+static cl_program CompileProgram(const char *source_filename, cl_context ctx,
+                                 EContextType ctx_ty, cl_device_id device) {
   std::ifstream progfs(source_filename, std::ifstream::in);
   if (!progfs) {
     assert(!"Error opening file!");
@@ -57,9 +57,8 @@ static cl_kernel LoadKernel(const char *source_filename, const char *kernel_name
 
   const char *progCStr = progStr.c_str();
 
-  cl_program program;
   cl_int errCreateProgram;
-  program = clCreateProgramWithSource(ctx, 1, &progCStr, NULL, &errCreateProgram);
+  cl_program program = clCreateProgramWithSource(ctx, 1, &progCStr, NULL, &errCreateProgram);
   CHECK_CL((cl_int), errCreateProgram);
 
   std::string args("-Werror ");
@@ -86,18 +85,12 @@ static cl_kernel LoadKernel(const char *source_filename, const char *kernel_name
   }
 #ifndef NDEBUG
   else {
-    std::cerr << "CL Kernel compiled successfully!" << std::endl;
+    std::cerr << "CL Program " << source_filename << " compiled successfully!" << std::endl;
   }
 #endif
   CHECK_CL(gUnloadCompilerFunc, GetPlatformForContext(ctx));
 
-  cl_int errCreateKernel;
-  cl_kernel kernel = clCreateKernel(program, kernel_name, &errCreateKernel);
-  CHECK_CL((cl_int), errCreateKernel);
-
-  CHECK_CL(clReleaseProgram, program);
-
-  return kernel;
+  return program;
 }
 
 GPUKernelCache *GPUKernelCache::Instance(cl_context ctx, EContextType ctx_ty, cl_device_id device) {
@@ -120,8 +113,12 @@ void GPUKernelCache::Clear() {
     return;
   }
 
-  for (auto kernel_pair : gKernelCache->_kernels) {
-    CHECK_CL(clReleaseKernel, kernel_pair.second);
+  for (auto pgm : gKernelCache->_programs) {
+    GPUProgram *program = &(pgm.second);
+    for (auto krnl : program->_kernels) {
+      CHECK_CL(clReleaseKernel, krnl.second);
+    }
+    CHECK_CL(clReleaseProgram, program->_prog);
   }
 
   delete gKernelCache;
@@ -129,13 +126,23 @@ void GPUKernelCache::Clear() {
 }
 
 cl_kernel GPUKernelCache::GetKernel(const std::string &filename, const std::string &kernel) {
-  std::string kernel_name = filename + ":" + kernel;
-
-  if (_kernels.find(kernel_name) == _kernels.end()) {
-    _kernels[kernel_name] = LoadKernel(filename.c_str(), kernel.c_str(), _ctx, _ctx_ty, _device);
+  if (_programs.find(filename) == _programs.end()) {
+    _programs[filename]._prog =
+      CompileProgram(filename.c_str(), _ctx, _ctx_ty, _device);
   }
 
-  return _kernels[kernel_name];
+  GPUProgram *program = &(_programs[filename]);
+  if (program->_kernels.find(kernel) == program->_kernels.end()) {
+    cl_int errCreateKernel;
+    program->_kernels[kernel] = clCreateKernel(program->_prog, kernel.c_str(), &errCreateKernel);
+    CHECK_CL((cl_int), errCreateKernel);
+
+#ifndef NDEBUG
+    std::cout << "Loaded CL Kernel " << kernel << "..." << std::endl;
+#endif
+  }
+
+  return program->_kernels[kernel];
 }
 
 }  // namespace gpu

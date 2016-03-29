@@ -27,7 +27,11 @@ private:
 
   cl_device_id _device;
 
-  std::unordered_map<std::string, cl_kernel> _kernels;
+  struct GPUProgram {
+    cl_program _prog;
+    std::unordered_map<std::string, cl_kernel> _kernels;
+  };
+  std::unordered_map<std::string, GPUProgram> _programs;
 };
 
 }
