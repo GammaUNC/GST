@@ -49,7 +49,11 @@ __kernel void decode_indices(const __global uchar *index_data,
   }
 
   barrier(CLK_LOCAL_MEM_FENCE);
-  out[2 * gidx + 1] = scratch[get_local_id(0)];
+  if (stage == 0) {
+    out[2 * gidx + 1] = scratch[get_local_id(0)];
+  } else {
+    out[2 * gidx + 1] += scratch[get_local_id(0)];
+  }
 }
 
 __kernel void collect_indices(const __global int *palette,
@@ -63,7 +67,7 @@ __kernel void collect_indices(const __global int *palette,
 
     uint next_offset = 1 << ((stage - 1) * LOCAL_SCAN_SIZE_LOG);
     uint tidx = next_offset * (get_global_id(0) + 1) - 1;
-    if (get_group_id(0) > 0 && tidx != gidx) {
+    if (get_group_id(0) > 0 && gidx + LOCAL_SCAN_SIZE != tidx) {
       out[2 * tidx + 1] += out[2 * gidx + 1];
     }
   }
