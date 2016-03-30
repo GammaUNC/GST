@@ -1,6 +1,7 @@
 include_directories("${GenTC_SOURCE_DIR}/codec")
 include_directories("${GenTC_BINARY_DIR}/codec")
 
+include_directories("${GLFW_SOURCE_DIR}/include")
 include_directories("${GenTC_SOURCE_DIR}/gpu")
 include_directories("${GenTC_SOURCE_DIR}/ans")
 include_directories("${GenTC_BINARY_DIR}/ans")
@@ -8,6 +9,10 @@ include_directories("${GenTC_SOURCE_DIR}/lib/include")
 include_directories("${GenTC_SOURCE_DIR}/lib/vptree/include")
 include_directories("${GenTC_SOURCE_DIR}/lib")
 INCLUDE_DIRECTORIES( ${OPENCL_INCLUDE_DIRS} )
+
+if ("${OPENGL_INCLUDE_DIR}")
+  include_directories("${OPENGL_INCLUDE_DIR}")
+endif()
 
 SET( INVERSE_WAVELET_KERNEL_PATH ${GenTC_SOURCE_DIR}/codec/inverse_wavelet.cl )
 SET( ENDPOINT_KERNEL_PATH ${GenTC_SOURCE_DIR}/codec/collect_endpoints.cl )
@@ -52,10 +57,14 @@ SET( SOURCES
 
 SOURCE_GROUP(OpenCL FILES ${KERNELS})
 ADD_LIBRARY(gentc_codec ${HEADERS} ${SOURCES} ${KERNELS})
-TARGET_LINK_LIBRARIES(gentc_codec ans)
-TARGET_LINK_LIBRARIES(gentc_codec gentc_gpu)
-TARGET_LINK_LIBRARIES(gentc_codec vptree)
-TARGET_LINK_LIBRARIES(gentc_codec squish)
+TARGET_LINK_LIBRARIES( gentc_codec ans)
+TARGET_LINK_LIBRARIES( gentc_codec ${GLFW_LIBRARIES} )
+TARGET_LINK_LIBRARIES( gentc_codec gentc_gpu )
+TARGET_LINK_LIBRARIES( gentc_codec ${OPENCL_LIBRARIES} )
+TARGET_LINK_LIBRARIES( gentc_codec ${OPENGL_gl_LIBRARY} )
+TARGET_LINK_LIBRARIES( gentc_codec ${OPENGL_glu_LIBRARY} )
+TARGET_LINK_LIBRARIES( gentc_codec vptree)
+TARGET_LINK_LIBRARIES( gentc_codec squish)
 
 INCLUDE_DIRECTORIES(${GenTC_SOURCE_DIR}/googletest/include)
 

@@ -46,7 +46,7 @@ static std::vector<T> ReadBuffer(cl_command_queue queue, cl_mem buffer, size_t n
 }
 
 static CLKernelResult DecodeANS(const std::unique_ptr<GPUContext> &gpu_ctx,
-                                const cl_uchar *data) {
+                                cl_event init_event, const cl_uchar *data) {
   cl_kernel build_table_kernel = gpu_ctx->GetOpenCLKernel(
     ans::kANSOpenCLKernels[ans::eANSOpenCLKernel_BuildTable], "build_table");
 
@@ -106,7 +106,7 @@ static CLKernelResult DecodeANS(const std::unique_ptr<GPUContext> &gpu_ctx,
 
   cl_event build_table_event;
   CHECK_CL(clEnqueueNDRangeKernel, gpu_ctx->GetCommandQueue(), build_table_kernel,
-                                   1, NULL, &M, NULL, 0, NULL, &build_table_event);
+                                   1, NULL, &M, NULL, 1, &init_event, &build_table_event);
 
   CHECK_CL(clReleaseMemObject, freqs_buffer);
   CHECK_CL(clReleaseMemObject, cum_freqs_buffer);
@@ -243,12 +243,14 @@ namespace GenTC {
 static CLKernelResult DecompressEndpoints(const std::unique_ptr<GPUContext> &gpu_ctx,
                                           const std::vector<uint8_t> &cmp_data,
                                           int32_t data_sz, size_t *data_offset,
-                                          cl_int val_offset, int width, int height) {
+                                          cl_event init_event, cl_int val_offset,
+                                          int width, int height) {
   const cl_uchar *ep_cmp_data = reinterpret_cast<const cl_uchar *>(cmp_data.data());
   ep_cmp_data += *data_offset;
   *data_offset += data_sz;
 
-  return InverseWavelet(gpu_ctx, DecodeANS(gpu_ctx, ep_cmp_data), val_offset, width, height);
+  return InverseWavelet(gpu_ctx, DecodeANS(gpu_ctx, init_event, ep_cmp_data),
+                        val_offset, width, height);
 }
 
 static cl_event CollectEndpoints(const std::unique_ptr<GPUContext> &gpu_ctx,
@@ -291,6 +293,7 @@ static cl_event CollectEndpoints(const std::unique_ptr<GPUContext> &gpu_ctx,
 }
 
 static cl_event DecodeIndices(const std::unique_ptr<GPUContext> &gpu_ctx, cl_mem dst,
+                              cl_event init_event,
                               const std::vector<uint8_t> &cmp_data, size_t offset,
                               size_t num_pixels, uint32_t palette_cmp_sz) {
   // If num_pixels isn't a power of two, our parallel scan will run out of
@@ -301,8 +304,8 @@ static cl_event DecodeIndices(const std::unique_ptr<GPUContext> &gpu_ctx, cl_mem
     reinterpret_cast<const cl_uchar *>(cmp_data.data()) + offset;
   const cl_uchar *indices_cmp_data = palette_cmp_data + palette_cmp_sz;
 
-  CLKernelResult palette = DecodeANS(gpu_ctx, palette_cmp_data);
-  CLKernelResult indices = DecodeANS(gpu_ctx, indices_cmp_data);
+  CLKernelResult palette = DecodeANS(gpu_ctx, init_event, palette_cmp_data);
+  CLKernelResult indices = DecodeANS(gpu_ctx, init_event, indices_cmp_data);
 
   cl_kernel idx_kernel = gpu_ctx->GetOpenCLKernel(
     GenTC::kOpenCLKernels[GenTC::eOpenCLKernel_DecodeIndices], "decode_indices");
@@ -379,8 +382,9 @@ static cl_event DecodeIndices(const std::unique_ptr<GPUContext> &gpu_ctx, cl_mem
   return e[event_idx];
 }
 
-static CLKernelResult DecompressDXTImage(const std::unique_ptr<GPUContext> &gpu_ctx,
-                                         const std::vector<uint8_t> &dxt_img) {
+static void DecompressDXTImage(const std::unique_ptr<GPUContext> &gpu_ctx,
+                               const std::vector<uint8_t> &dxt_img,
+                               cl_event init_event, CLKernelResult *result) {
   std::cout << std::endl;
   std::cout << "Decompressing DXT Image..." << std::endl;
 
@@ -434,45 +438,28 @@ static CLKernelResult DecompressDXTImage(const std::unique_ptr<GPUContext> &gpu_
   const int blocks_y = static_cast<int>(height) >> 2;
 
   CLKernelResult ep1_y = DecompressEndpoints(gpu_ctx, cmp_data, ep1_y_cmp_sz,
-                                             &offset, -128, blocks_x, blocks_y);
+                                             &offset, init_event, -128, blocks_x, blocks_y);
   CLKernelResult ep1_co = DecompressEndpoints(gpu_ctx, cmp_data, ep1_co_cmp_sz,
-                                              &offset, -64, blocks_x, blocks_y);
+                                              &offset, init_event, -64, blocks_x, blocks_y);
   CLKernelResult ep1_cg = DecompressEndpoints(gpu_ctx, cmp_data, ep1_cg_cmp_sz,
-                                              &offset, -128, blocks_x, blocks_y);
+                                              &offset, init_event, -128, blocks_x, blocks_y);
 
   CLKernelResult ep2_y = DecompressEndpoints(gpu_ctx, cmp_data, ep2_y_cmp_sz,
-                                             &offset, -128, blocks_x, blocks_y);
+                                             &offset, init_event, -128, blocks_x, blocks_y);
   CLKernelResult ep2_co = DecompressEndpoints(gpu_ctx, cmp_data, ep2_co_cmp_sz,
-                                              &offset, -64, blocks_x, blocks_y);
+                                              &offset, init_event, -64, blocks_x, blocks_y);
   CLKernelResult ep2_cg = DecompressEndpoints(gpu_ctx, cmp_data, ep2_cg_cmp_sz,
-                                              &offset, -128, blocks_x, blocks_y);
+                                              &offset, init_event, -128, blocks_x, blocks_y);
 
-// #ifdef CL_VERSION_1_2
-#if 0
-  cl_mem_flags out_flags = CL_MEM_READ_WRITE | CL_MEM_HOST_READ_ONLY;
-#else
-  cl_mem_flags out_flags = CL_MEM_READ_WRITE;
-#endif
-  
-  size_t dxt_size = blocks_x * blocks_y * 8;
-  cl_int errCreateBuffer;
-
-  CLKernelResult result;
-  result.num_events = 3;
-  result.output = clCreateBuffer(gpu_ctx->GetOpenCLContext(),
-                                 out_flags, dxt_size, NULL, &errCreateBuffer);
-  CHECK_CL((cl_int), errCreateBuffer);
-
+  result->num_events = 3;
   const size_t num_blocks = blocks_x * blocks_y;
-  result.output_events[0] =
-    CollectEndpoints(gpu_ctx, result.output, num_blocks, ep1_y, ep1_co, ep1_cg, 0);
-  result.output_events[1] =
-    CollectEndpoints(gpu_ctx, result.output, num_blocks, ep2_y, ep2_co, ep2_cg, 1);
+  result->output_events[0] =
+    CollectEndpoints(gpu_ctx, result->output, num_blocks, ep1_y, ep1_co, ep1_cg, 0);
+  result->output_events[1] =
+    CollectEndpoints(gpu_ctx, result->output, num_blocks, ep2_y, ep2_co, ep2_cg, 1);
 
-  result.output_events[2] = DecodeIndices(gpu_ctx, result.output, cmp_data,
-                                          offset, num_blocks, palette_cmp_sz);
-
-  return result;
+  result->output_events[2] = DecodeIndices(gpu_ctx, result->output, init_event, cmp_data,
+                                           offset, num_blocks, palette_cmp_sz);
 }
 
 template <typename T> std::unique_ptr<std::vector<uint8_t> >
@@ -628,16 +615,35 @@ std::vector<uint8_t> CompressDXT(const char *filename, const char *cmp_fn,
   DXTImage dxt_img(width, height, filename, cmp_fn);
   return std::move(CompressDXTImage(dxt_img));
 }
-
-
   
 std::vector<uint8_t>  DecompressDXTBuffer(const std::unique_ptr<GPUContext> &gpu_ctx,
                                           const std::vector<uint8_t> &cmp_data,
                                           uint32_t width, uint32_t height) {
-  CLKernelResult decmp = DecompressDXTImage(gpu_ctx, cmp_data);
+  cl_int errCreateBuffer;
+  CLKernelResult decmp;
 
-  clFinish(gpu_ctx->GetCommandQueue());
+#ifdef CL_VERSION_1_2
+  cl_mem_flags out_flags = CL_MEM_READ_WRITE | CL_MEM_HOST_READ_ONLY;
+#else
+  cl_mem_flags out_flags = CL_MEM_READ_WRITE;
+#endif
   size_t dxt_size = (width * height) / 2;
+  decmp.output = clCreateBuffer(gpu_ctx->GetOpenCLContext(),
+                                out_flags, dxt_size, NULL, &errCreateBuffer);
+  CHECK_CL((cl_int), errCreateBuffer);
+
+  // Set a dummy event
+  cl_event init_event;
+#ifdef CL_VERSION_1_2
+  CHECK_CL(clEnqueueMarkerWithWaitList, gpu_ctx->GetCommandQueue(), 0, NULL, &init_event);
+#else
+  CHECK_CL(clEnqueueMarker, gpu_ctx->GetCommandQueue(), &init_event);
+#endif
+
+  // Queue the decompression...
+  DecompressDXTImage(gpu_ctx, cmp_data, init_event, &decmp);
+
+  // Block on read
   std::vector<uint8_t> decmp_data(dxt_size, 0xFF);
   CHECK_CL(clEnqueueReadBuffer, gpu_ctx->GetCommandQueue(),
                                 decmp.output, CL_TRUE, 0, dxt_size, decmp_data.data(),
@@ -647,6 +653,7 @@ std::vector<uint8_t>  DecompressDXTBuffer(const std::unique_ptr<GPUContext> &gpu
     CHECK_CL(clReleaseEvent, decmp.output_events[i]);
   }
   CHECK_CL(clReleaseMemObject, decmp.output);
+  CHECK_CL(clReleaseEvent, init_event);
   return std::move(decmp_data);
 }
 
@@ -682,6 +689,80 @@ bool TestDXT(const std::unique_ptr<gpu::GPUContext> &gpu_ctx,
   }
   
   return true;
+}
+
+void LoadCompressedDXT(const std::unique_ptr<gpu::GPUContext> &gpu_ctx,
+                       const std::vector<uint8_t> &cmp_data, cl_event *e,
+                       GLuint texID) {
+  CLKernelResult decmp;
+
+  DataStream in(cmp_data);
+  uint32_t width = in.ReadInt();
+  uint32_t height = in.ReadInt();
+  size_t dxt_size = (width * height) / 2;
+
+  // Generate a buffer to plop our data into
+  GLuint pbo;
+  glGenBuffers(1, &pbo);
+  glBindBuffer(GL_PIXEL_UNPACK_BUFFER, pbo);
+  glBufferData(GL_PIXEL_UNPACK_BUFFER, dxt_size, NULL, GL_DYNAMIC_DRAW);
+  glBindBuffer(GL_PIXEL_UNPACK_BUFFER, 0);
+
+  // Get an OpenCL handle to pbo memory
+  cl_int errCreateFromGL;
+  decmp.output = clCreateFromGLBuffer(gpu_ctx->GetOpenCLContext(), CL_MEM_READ_WRITE,
+                                      pbo, &errCreateFromGL);
+  CHECK_CL((cl_int), errCreateFromGL);
+
+  // Acquire lock on GL objects...
+  cl_event acquire_event;
+  CHECK_CL(clEnqueueAcquireGLObjects, gpu_ctx->GetCommandQueue(),
+                                      1, &decmp.output, 0, NULL, &acquire_event);
+
+  // Queue the decompression...
+  DecompressDXTImage(gpu_ctx, cmp_data, acquire_event, &decmp);
+
+  // Release lock on GL objects...
+  cl_event release_event;
+  CHECK_CL(clEnqueueReleaseGLObjects, gpu_ctx->GetCommandQueue(),
+                                      1, &decmp.output,
+                                      decmp.num_events, decmp.output_events,
+                                      &release_event);
+
+  // !SPEED! No reason to block here...
+  CHECK_CL(clWaitForEvents, 1, &release_event);
+
+  // Copy to the newly created texture
+  glBindBuffer(GL_PIXEL_UNPACK_BUFFER, pbo);
+  glBindTexture(GL_TEXTURE_2D, texID);
+  glCompressedTexImage2D(
+    GL_TEXTURE_2D, 0, GL_COMPRESSED_RGB_S3TC_DXT1_EXT, width, height, 0, dxt_size, 0);
+  
+#ifndef NDEBUG
+  GLint query;
+  glGetTexLevelParameteriv(GL_TEXTURE_2D, 0, GL_TEXTURE_COMPRESSED, &query);
+  assert ( query == GL_TRUE );
+
+  glGetTexLevelParameteriv(GL_TEXTURE_2D, 0, GL_TEXTURE_COMPRESSED_IMAGE_SIZE, &query);
+  assert ( query == dxt_size );
+
+  glGetTexLevelParameteriv(GL_TEXTURE_2D, 0, GL_TEXTURE_INTERNAL_FORMAT, &query);
+  assert ( query == GL_COMPRESSED_RGB_S3TC_DXT1_EXT );
+#endif
+
+  // Unbind the textures
+  glBindBuffer(GL_PIXEL_UNPACK_BUFFER, 0);
+  glBindTexture(GL_TEXTURE_2D, 0);
+
+  // Don't need the PBO anymore
+  glDeleteBuffers(1, &pbo);
+
+  for (size_t i = 0; i < decmp.num_events; ++i) {
+    CHECK_CL(clReleaseEvent, decmp.output_events[i]);
+  }
+  CHECK_CL(clReleaseMemObject, decmp.output);
+  CHECK_CL(clReleaseEvent, acquire_event);
+  CHECK_CL(clReleaseEvent, release_event);
 }
 
 }
