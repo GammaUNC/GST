@@ -47,19 +47,10 @@ __kernel void decode_indices(const __global uchar *index_data,
 
 __kernel void collect_indices(const __global int *palette,
 							  int stage, __global int *out) {
+  // !SPEED! This should really just be two separate kernels
   if (0 == stage) {
-    uint idx = 2 * get_global_id(0) + 1;    
-    int offset = get_group_id(0) * LOCAL_SCAN_SIZE - 1;
-
-    // We can't use any tricks here because otherwise
-    // we will access memory out of bounds. :(
-    offset *= (int)(offset > 0);
-    if (offset > 0) {
-      offset = out[2 * offset + 1];
-    }
-    offset *= (int)(get_local_id(0) != (LOCAL_SCAN_SIZE - 1));
-
-    out[idx] = palette[offset + out[idx]];
+    uint idx = 2 * get_global_id(0) + 1;
+    out[idx] = palette[out[idx]];
   } else {
     uint offset = 1 << (stage * LOCAL_SCAN_SIZE_LOG);
     uint gidx = offset * get_group_id(0) - 1;
@@ -67,7 +58,7 @@ __kernel void collect_indices(const __global int *palette,
     uint next_offset = 1 << ((stage - 1) * LOCAL_SCAN_SIZE_LOG);
     uint tidx = next_offset * (get_global_id(0) + 1) - 1;
 
-    if (get_group_id(0) > 0 && gidx + LOCAL_SCAN_SIZE != tidx) {
+    if (get_group_id(0) > 0 && get_local_id(0) != (LOCAL_SCAN_SIZE - 1)) {
       out[2 * tidx + 1] += out[2 * gidx + 1];
     }
   }

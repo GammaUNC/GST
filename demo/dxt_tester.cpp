@@ -12,6 +12,7 @@
 // #define VERBOSE
 #include "codec.h"
 #include "gpu.h"
+#include "kernel_cache.h"
 
 #include <opencv2/opencv.hpp>
 
@@ -97,7 +98,6 @@ int main(int argc, char **argv) {
 
   if (!GenTC::TestDXT(ctx, orig_fn, cmp_fn, width, height)) {
     std::cout << "ERROR: DXT GPU Decompression failed!" << std::endl;
-    return -1;
   }
 
   std::vector<uint8_t> cmp_img = std::move(GenTC::CompressDXT(orig_fn, cmp_fn, width, height));
@@ -120,6 +120,10 @@ int main(int argc, char **argv) {
   cv::imwrite("img_dxt_interp.png", interp_img);
 
   // cv::imwrite("img_dxt_interp_dft.png", dft_opencv(interp_img));
+
+  clFlush(ctx->GetCommandQueue());
+  clFinish(ctx->GetCommandQueue());
+  gpu::GPUKernelCache::Clear();
 
   return 0;
 }

@@ -177,7 +177,7 @@ PhysicalDXTBlock LogicalToPhysical(const LogicalDXTBlock &b) {
     // Swap it all 
     std::swap(result.ep1, result.ep2);
     swap = true;
-  } else if (result.ep1 <= result.ep2 && b.palette[3][3] == 255) {
+  } else if (result.ep1 < result.ep2 && b.palette[3][3] == 255) {
     std::swap(result.ep1, result.ep2);
     swap = true;
   }
@@ -509,6 +509,7 @@ void DXTImage::LoadDXTFromFile(const char *fn, const char *cmp_fn) {
     j = static_cast<uint16_t>(physical_idx / num_blocks_x);
 
     int block_idx = j * num_blocks_x + i;
+    assert(block_idx == physical_idx);
     const unsigned char *offset_data = data + (j * 4 * width + i * 4) * 3;
 
     CompressedBlock blk;
@@ -531,9 +532,19 @@ void DXTImage::LoadDXTFromFile(const char *fn, const char *cmp_fn) {
     size_t min_err_idx = 0;
 
     for (size_t idx = 0; idx < std::min<size_t>(kNumPrevLookup - 1, _index_palette.size()); ++idx) {
+      uint32_t indices = *(_index_palette.crbegin() + idx);
       CompressedBlock blk2 = blk;
-      blk2.AssignIndices(*(_index_palette.crbegin() + idx));
+      blk2.AssignIndices(indices);
       blk2.RecalculateEndpoints();
+
+      // !HACK! Check if it flips the indices... There has to be a
+      // better way to deal with this... In principle we can just leave
+      // them flipped and then reflip them back to the proper value
+      // in the decompressor...
+      if (LogicalToPhysical(blk2._logical).interpolation != indices) {
+        continue;
+      }
+
       int err = static_cast<int>(blk2.Error());
       int err_diff = err - orig_err;
       if (err_diff < min_err) {
@@ -569,7 +580,6 @@ void DXTImage::LoadDXTFromFile(const char *fn, const char *cmp_fn) {
     _indices.push_back(idx_diff + 128);
     last_index = this_index;
   }
-
 
   std::cout << "Unique index blocks: " << _index_palette.size() << std::endl;
   std::cout << "DXT Optimized PSNR: " << PSNR() << std::endl;

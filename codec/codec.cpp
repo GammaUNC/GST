@@ -77,6 +77,7 @@ static CLKernelResult DecodeANS(const std::unique_ptr<GPUContext> &gpu_ctx,
   // at doing it. We can also stick it in constant memory, which makes the
   // upload not that bad...
   cl_uint cum_freqs[256];
+  memset(cum_freqs, 0, sizeof(cum_freqs));
   std::partial_sum(freqs, freqs + num_freqs - 1, cum_freqs + 1);
 
   size_t M = static_cast<size_t>(cum_freqs[num_freqs - 1] + freqs[num_freqs - 1]);
@@ -158,6 +159,7 @@ static CLKernelResult DecodeANS(const std::unique_ptr<GPUContext> &gpu_ctx,
 
   CHECK_CL(clReleaseMemObject, table);
   CHECK_CL(clReleaseMemObject, data_buf);
+  CHECK_CL(clReleaseEvent, build_table_event);
 
   return result;
 }
@@ -229,6 +231,9 @@ static CLKernelResult InverseWavelet(const std::unique_ptr<GPUContext> &gpu_ctx,
 
   // No longer need image buffer
   CHECK_CL(clReleaseMemObject, img.output);
+  for (cl_uint i = 0; i < img.num_events; ++i) {
+    CHECK_CL(clReleaseEvent, img.output_events[i]);
+  }
 
   return result;
 }
@@ -243,8 +248,7 @@ static CLKernelResult DecompressEndpoints(const std::unique_ptr<GPUContext> &gpu
   ep_cmp_data += *data_offset;
   *data_offset += data_sz;
 
-  CLKernelResult ep_cmp = DecodeANS(gpu_ctx, ep_cmp_data);
-  return InverseWavelet(gpu_ctx, ep_cmp, val_offset, width, height);
+  return InverseWavelet(gpu_ctx, DecodeANS(gpu_ctx, ep_cmp_data), val_offset, width, height);
 }
 
 static cl_event CollectEndpoints(const std::unique_ptr<GPUContext> &gpu_ctx,
@@ -261,6 +265,10 @@ static cl_event CollectEndpoints(const std::unique_ptr<GPUContext> &gpu_ctx,
   CHECK_CL(clSetKernelArg, ep_kernel, 3, sizeof(dst), &dst);
   CHECK_CL(clSetKernelArg, ep_kernel, 4, sizeof(endpoint_index), &endpoint_index);
 
+  assert(y.num_events == 1);
+  assert(co.num_events == 1);
+  assert(cg.num_events == 1);
+
   cl_event wait_events[] = {
     y.output_events[0], co.output_events[0], cg.output_events[0]
   };
@@ -270,6 +278,15 @@ static cl_event CollectEndpoints(const std::unique_ptr<GPUContext> &gpu_ctx,
   CHECK_CL(clEnqueueNDRangeKernel, gpu_ctx->GetCommandQueue(), ep_kernel,
                                    1, NULL, &num_pixels, NULL,
                                    num_wait_events, wait_events, &e);
+
+  // Release events we don't need anymore
+  for (size_t i = 0; i < num_wait_events; ++i) {
+    CHECK_CL(clReleaseEvent, wait_events[i]);
+  }
+  CHECK_CL(clReleaseMemObject, y.output);
+  CHECK_CL(clReleaseMemObject, co.output);
+  CHECK_CL(clReleaseMemObject, cg.output);
+
   return e;
 }
 
@@ -298,7 +315,7 @@ static cl_event DecodeIndices(const std::unique_ptr<GPUContext> &gpu_ctx, cl_mem
   
   // !SPEED! We don't really need to allocate here...
   std::vector<cl_event> e;
-  size_t event_idx = 0;
+  cl_uint event_idx = 0;
   for (size_t i = 0; i < indices.num_events; ++i) {
     e.push_back(indices.output_events[i]);
   }
@@ -309,7 +326,7 @@ static cl_event DecodeIndices(const std::unique_ptr<GPUContext> &gpu_ctx, cl_mem
     stage++;
 
     cl_event next_event;
-    size_t num_events = e.size() - event_idx;
+    cl_uint num_events = static_cast<cl_uint>(e.size()) - event_idx;
     size_t local_work_sz = std::min(num_vals, kLocalScanSz);
     CHECK_CL(clSetKernelArg, idx_kernel, 1, sizeof(stage), &stage);
     CHECK_CL(clEnqueueNDRangeKernel, gpu_ctx->GetCommandQueue(), idx_kernel,
@@ -336,12 +353,11 @@ static cl_event DecodeIndices(const std::unique_ptr<GPUContext> &gpu_ctx, cl_mem
     num_vals >>= kLocalScanSzLog;
   }
 
-  stage--;
   while (stage >= 0) {
-    num_vals <<= kLocalScanSzLog;
+    num_vals = std::min(num_pixels, num_vals << kLocalScanSzLog);
 
     cl_event next_event;
-    size_t num_events = e.size() - event_idx;
+    cl_uint num_events = static_cast<cl_uint>(e.size()) - event_idx;
     CHECK_CL(clSetKernelArg, final_kernel, 1, sizeof(stage), &stage);
     CHECK_CL(clEnqueueNDRangeKernel, gpu_ctx->GetCommandQueue(), final_kernel,
                                      1, NULL, &num_vals, &kLocalScanSz,
@@ -352,8 +368,15 @@ static cl_event DecodeIndices(const std::unique_ptr<GPUContext> &gpu_ctx, cl_mem
     stage--;
   }
 
+  // Don't need these events anymore...
+  for (size_t i = 0; i < event_idx; ++i) {
+    CHECK_CL(clReleaseEvent, e[i]);
+  }
+  CHECK_CL(clReleaseMemObject, indices.output);
+  CHECK_CL(clReleaseMemObject, palette.output);
+
   assert(e.size() - event_idx == 1);
-  return e[event_idx - 1];
+  return e[event_idx];
 }
 
 static CLKernelResult DecompressDXTImage(const std::unique_ptr<GPUContext> &gpu_ctx,
@@ -424,7 +447,8 @@ static CLKernelResult DecompressDXTImage(const std::unique_ptr<GPUContext> &gpu_
   CLKernelResult ep2_cg = DecompressEndpoints(gpu_ctx, cmp_data, ep2_cg_cmp_sz,
                                               &offset, -128, blocks_x, blocks_y);
 
-#ifdef CL_VERSION_1_2
+// #ifdef CL_VERSION_1_2
+#if 0
   cl_mem_flags out_flags = CL_MEM_READ_WRITE | CL_MEM_HOST_READ_ONLY;
 #else
   cl_mem_flags out_flags = CL_MEM_READ_WRITE;
@@ -612,13 +636,22 @@ std::vector<uint8_t>  DecompressDXTBuffer(const std::unique_ptr<GPUContext> &gpu
                                           uint32_t width, uint32_t height) {
   CLKernelResult decmp = DecompressDXTImage(gpu_ctx, cmp_data);
 
+  clFinish(gpu_ctx->GetCommandQueue());
   size_t dxt_size = (width * height) / 2;
-  std::vector<uint8_t> decmp_data(dxt_size);
+  std::vector<uint8_t> decmp_data(dxt_size, 0xFF);
   CHECK_CL(clEnqueueReadBuffer, gpu_ctx->GetCommandQueue(),
-                                decmp.output, true,
-                                0, dxt_size, decmp_data.data(),
-                                decmp.num_events, decmp.output_events,
-                                NULL);
+                                decmp.output, CL_TRUE, 0, dxt_size, decmp_data.data(),
+                                decmp.num_events, decmp.output_events, NULL);
+
+  for (size_t i = 0; i < decmp.num_events; ++i) {
+    CHECK_CL(clReleaseEvent, decmp.output_events[i]);
+  }
+  CHECK_CL(clReleaseMemObject, decmp.output);
+
+  for (size_t i = 0; i < 10; ++i) {
+    printf("0x%x ", decmp_data[i]);
+  }
+  printf("\n");
 
   return std::move(decmp_data);
 }
@@ -641,10 +674,20 @@ bool TestDXT(const std::unique_ptr<gpu::GPUContext> &gpu_ctx,
   std::vector<uint8_t> cmp_img = std::move(CompressDXTImage(dxt_img));
   std::vector<uint8_t> decmp_data =
     std::move(DecompressDXTBuffer(gpu_ctx, cmp_img, width, height));
+
+  const std::vector<PhysicalDXTBlock> &blks = dxt_img.PhysicalBlocks();
+  for (size_t i = 0; i < blks.size(); ++i) {
+    const PhysicalDXTBlock *blk =
+      reinterpret_cast<const PhysicalDXTBlock *>(decmp_data.data() + i * 8);
+    if (memcmp(&blks[i], blk, 8) != 0) {
+      std::cout << "Bad block: " << i << std::endl;
+      printf("Original block: 0x%llx\n", blks[i].dxt_block);
+      printf("Compressed block: 0x%llx\n", blk->dxt_block);
+      return false;
+    }
+  }
   
-  // Check that both dxt_img and decomp_img match...
-  return 0 == memcmp(dxt_img.PhysicalBlocks().data(),
-                     decmp_data.data(), decmp_data.size());
+  return true;
 }
 
 }
