@@ -96,10 +96,6 @@ int main(int argc, char **argv) {
   const char *orig_fn = argv[1];
   const char *cmp_fn = (argc == 2) ? NULL : argv[2];
 
-  if (!GenTC::TestDXT(ctx, orig_fn, cmp_fn, width, height)) {
-    std::cout << "ERROR: DXT GPU Decompression failed!" << std::endl;
-  }
-
   std::vector<uint8_t> cmp_img = std::move(GenTC::CompressDXT(orig_fn, cmp_fn, width, height));
 #if 0
   GenTC::DXTImage dxt_img = GenTC::DXTImage(width, height, orig_fn, cmp_fn);
@@ -109,6 +105,7 @@ int main(int argc, char **argv) {
 
   // Decompress into image...
   std::vector<uint8_t> decomp_rgba = std::move(dxt_img.DecompressedImage()->Pack());
+
   cv::Mat decomp_img(height, width, CV_8UC4, decomp_rgba.data());
   cv::Mat decomp_output;
   cv::cvtColor(decomp_img, decomp_output, cv::COLOR_BGRA2RGBA);

@@ -647,12 +647,6 @@ std::vector<uint8_t>  DecompressDXTBuffer(const std::unique_ptr<GPUContext> &gpu
     CHECK_CL(clReleaseEvent, decmp.output_events[i]);
   }
   CHECK_CL(clReleaseMemObject, decmp.output);
-
-  for (size_t i = 0; i < 10; ++i) {
-    printf("0x%x ", decmp_data[i]);
-  }
-  printf("\n");
-
   return std::move(decmp_data);
 }
 
@@ -681,8 +675,8 @@ bool TestDXT(const std::unique_ptr<gpu::GPUContext> &gpu_ctx,
       reinterpret_cast<const PhysicalDXTBlock *>(decmp_data.data() + i * 8);
     if (memcmp(&blks[i], blk, 8) != 0) {
       std::cout << "Bad block: " << i << std::endl;
-      printf("Original block: 0x%llx\n", blks[i].dxt_block);
-      printf("Compressed block: 0x%llx\n", blk->dxt_block);
+      printf("Original block: 0x%lx\n", blks[i].dxt_block);
+      printf("Compressed block: 0x%lx\n", blk->dxt_block);
       return false;
     }
   }

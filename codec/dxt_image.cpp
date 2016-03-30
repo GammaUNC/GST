@@ -167,19 +167,23 @@ LogicalDXTBlock PhysicalToLogical(const PhysicalDXTBlock &b) {
   return out;
 }
 
+static bool PhysicalBlockNeedsSwap(const LogicalDXTBlock &b) {
+  uint16_t p0 = Pack565(b.ep1);
+  uint16_t p1 = Pack565(b.ep2);
+
+  bool swap = p0 > p1 && b.palette[3][3] == 0;
+  swap = swap || (p0 <= p1 && b.palette[3][3] == 255);
+  return swap;
+}
+
 PhysicalDXTBlock LogicalToPhysical(const LogicalDXTBlock &b) {
   PhysicalDXTBlock result;
   result.ep1 = Pack565(b.ep1);
   result.ep2 = Pack565(b.ep2);
 
-  bool swap = false;
-  if (result.ep1 > result.ep2 && b.palette[3][3] == 0) {
-    // Swap it all 
+  bool swap = PhysicalBlockNeedsSwap(b);
+  if (swap) {
     std::swap(result.ep1, result.ep2);
-    swap = true;
-  } else if (result.ep1 < result.ep2 && b.palette[3][3] == 255) {
-    std::swap(result.ep1, result.ep2);
-    swap = true;
   }
 
   result.interpolation = 0;
@@ -541,7 +545,10 @@ void DXTImage::LoadDXTFromFile(const char *fn, const char *cmp_fn) {
       // better way to deal with this... In principle we can just leave
       // them flipped and then reflip them back to the proper value
       // in the decompressor...
-      if (LogicalToPhysical(blk2._logical).interpolation != indices) {
+      PhysicalDXTBlock maybe_blk = LogicalToPhysical(blk2._logical);
+      bool ok = maybe_blk.interpolation == indices;
+      ok = ok && blk2._logical.palette[3][3] == 0xFF;
+      if (!ok) {
         continue;
       }
 
