@@ -38,10 +38,6 @@
 #  include <GL/glx.h>
 #endif
 
-#ifdef _WIN32
-#  include <GL/glew.h>
-#endif
-
 static void error_callback(int error, const char* description)
 {
     fputs(description, stderr);
@@ -241,7 +237,7 @@ void LoadTexture(const std::unique_ptr<gpu::GPUContext> &ctx, cl_kernel kernel, 
   glFinish();
 
   RunKernel(ctx, kernel, data, pbo, x, y, channels);
-  
+
   // "Bind" the newly created texture : all future texture functions will modify this texture
   glBindBuffer(GL_PIXEL_UNPACK_BUFFER, pbo);
 
