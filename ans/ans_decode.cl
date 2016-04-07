@@ -13,16 +13,16 @@ typedef struct AnsTableEntry_Struct {
 } AnsTableEntry;
 
 __kernel void ans_decode(const __constant AnsTableEntry *table,
-						 const __constant uchar         *data,
+						 const __global   uchar         *data,
 						       __global   uchar         *out_stream)
 {
 	__local uint normalization_mask;
 	normalization_mask = 0;
 
-	uint offset = ((const __constant uint *)data)[get_group_id(0)];
-	uint state = ((const __constant uint *)(data + offset) - get_local_size(0))[get_local_id(0)];
+	uint offset = ((const __global uint *)data)[get_group_id(0)];
+	uint state = ((const __global uint *)(data + offset) - get_local_size(0))[get_local_id(0)];
     uint next_to_read = (offset - (get_local_size(0) * 4)) / 2;
-    const __constant ushort *stream_data = (const __constant ushort *)data;
+    const __global ushort *stream_data = (const __global ushort *)data;
 
 	barrier(CLK_LOCAL_MEM_FENCE);
 

@@ -252,23 +252,23 @@ public:
 };
 
 // !HACK! We might just need to switch do different wavelets
-template <typename T, bool IsSigned>
+template <typename T, bool IsSixBits>
 struct WaveletResultTy {
   typedef typename PixelTraits::SignedTypeForBits<PixelTraits::BitsUsed<T>::value + 2>::Ty DstTy;
   static const size_t kNumDstBits = PixelTraits::BitsUsed<T>::value + 2;
 };
 
 template <typename T>
-struct WaveletResultTy<T, true> {
+struct WaveletResultTy<T, false> {
   typedef typename PixelTraits::SignedTypeForBits<PixelTraits::BitsUsed<T>::value + 1>::Ty DstTy;
   static const size_t kNumDstBits = PixelTraits::BitsUsed<T>::value + 1;
 };
 
 template <typename T, size_t BlockSize>
 class FWavelet2D : public PipelineUnit<Image<T>,
-  Image< typename WaveletResultTy<T, PixelTraits::IsSigned<T>::value >::DstTy > > {
+  Image< typename WaveletResultTy<T, PixelTraits::BitsUsed<T>::value == 6 >::DstTy > > {
 public:
-  typedef WaveletResultTy<T, PixelTraits::IsSigned<T>::value> ResultTy;
+  typedef WaveletResultTy< T, PixelTraits::BitsUsed<T>::value == 6 > ResultTy;
   static const size_t kNumSrcBits = PixelTraits::BitsUsed<T>::value;
   static const size_t kNumDstBits = ResultTy::kNumDstBits;
 

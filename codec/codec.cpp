@@ -132,10 +132,6 @@ static CLKernelResult DecodeANS(const std::unique_ptr<GPUContext> &gpu_ctx,
     const_cast<cl_uchar *>(data), &errCreateBuffer);
   CHECK_CL((cl_int), errCreateBuffer);
 
-  // Make sure that we have enough constant memory to allocate here...
-  assert(data_sz + 8 * num_freqs + M * sizeof(AnsTableEntry) <
-    gpu_ctx->GetDeviceInfo<cl_ulong>(CL_DEVICE_MAX_CONSTANT_BUFFER_SIZE));
-
   // Allocate 256 * num interleaved slots for result
   size_t total_encoded =
     num_offsets * ans::ocl::kThreadsPerEncodingGroup * ans::ocl::kNumEncodedSymbols;
@@ -440,14 +436,14 @@ static void DecompressDXTImage(const std::unique_ptr<GPUContext> &gpu_ctx,
   CLKernelResult ep1_y = DecompressEndpoints(gpu_ctx, cmp_data, ep1_y_cmp_sz,
                                              &offset, init_event, -128, blocks_x, blocks_y);
   CLKernelResult ep1_co = DecompressEndpoints(gpu_ctx, cmp_data, ep1_co_cmp_sz,
-                                              &offset, init_event, -64, blocks_x, blocks_y);
+                                              &offset, init_event, -128, blocks_x, blocks_y);
   CLKernelResult ep1_cg = DecompressEndpoints(gpu_ctx, cmp_data, ep1_cg_cmp_sz,
                                               &offset, init_event, -128, blocks_x, blocks_y);
 
   CLKernelResult ep2_y = DecompressEndpoints(gpu_ctx, cmp_data, ep2_y_cmp_sz,
                                              &offset, init_event, -128, blocks_x, blocks_y);
   CLKernelResult ep2_co = DecompressEndpoints(gpu_ctx, cmp_data, ep2_co_cmp_sz,
-                                              &offset, init_event, -64, blocks_x, blocks_y);
+                                              &offset, init_event, -128, blocks_x, blocks_y);
   CLKernelResult ep2_cg = DecompressEndpoints(gpu_ctx, cmp_data, ep2_cg_cmp_sz,
                                               &offset, init_event, -128, blocks_x, blocks_y);
 
@@ -467,8 +463,8 @@ RunDXTEndpointPipeline(const std::unique_ptr<Image<T> > &img) {
   static_assert(PixelTraits::NumChannels<T>::value,
     "This should operate on each DXT endpoing channel separately");
 
-  const bool kIsSigned = PixelTraits::IsSigned<T>::value;
-  typedef typename WaveletResultTy<T, kIsSigned>::DstTy WaveletSignedTy;
+  const bool kIsSixBits = PixelTraits::BitsUsed<T>::value == 6;
+  typedef typename WaveletResultTy<T, kIsSixBits>::DstTy WaveletSignedTy;
   typedef typename PixelTraits::UnsignedForSigned<WaveletSignedTy>::Ty WaveletUnsignedTy;
 
   auto pipeline = Pipeline<Image<T>, Image<WaveletSignedTy> >
