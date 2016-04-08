@@ -36,7 +36,7 @@ namespace GenTC {
 
   void LoadCompressedDXT(const std::unique_ptr<gpu::GPUContext> &gpu_ctx,
                          const std::vector<uint8_t> &cmp_data, cl_event *e,
-                         GLuint texID);
+                         GLuint pbo, GLuint texID);
 
   bool TestDXT(const std::unique_ptr<gpu::GPUContext> &gpu_ctx,
                const char *filename, const char *cmp_fn);

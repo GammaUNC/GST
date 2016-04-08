@@ -389,9 +389,6 @@ static cl_event DecodeIndices(const std::unique_ptr<GPUContext> &gpu_ctx, cl_mem
 static void DecompressDXTImage(const std::unique_ptr<GPUContext> &gpu_ctx,
                                const std::vector<uint8_t> &dxt_img,
                                cl_event init_event, CLKernelResult *result) {
-  std::cout << std::endl;
-  std::cout << "Decompressing DXT Image..." << std::endl;
-
   DataStream in(dxt_img);
   uint32_t width = in.ReadInt();
   uint32_t height = in.ReadInt();
@@ -653,6 +650,8 @@ std::vector<uint8_t>  DecompressDXTBuffer(const std::unique_ptr<GPUContext> &gpu
   CHECK_CL(clEnqueueMarker, gpu_ctx->GetCommandQueue(), &init_event);
 #endif
 
+  std::cout << "Decompressing DXT Image..." << std::endl;
+
   // Queue the decompression...
   DecompressDXTImage(gpu_ctx, cmp_data, init_event, &decmp);
 
@@ -708,20 +707,13 @@ bool TestDXT(const std::unique_ptr<gpu::GPUContext> &gpu_ctx,
 
 void LoadCompressedDXT(const std::unique_ptr<gpu::GPUContext> &gpu_ctx,
                        const std::vector<uint8_t> &cmp_data, cl_event *e,
-                       GLuint texID) {
+                       GLuint pbo, GLuint texID) {
   CLKernelResult decmp;
 
   DataStream in(cmp_data);
   uint32_t width = in.ReadInt();
   uint32_t height = in.ReadInt();
   size_t dxt_size = (width * height) / 2;
-
-  // Generate a buffer to plop our data into
-  GLuint pbo;
-  glGenBuffers(1, &pbo);
-  glBindBuffer(GL_PIXEL_UNPACK_BUFFER, pbo);
-  glBufferData(GL_PIXEL_UNPACK_BUFFER, dxt_size, NULL, GL_DYNAMIC_DRAW);
-  glBindBuffer(GL_PIXEL_UNPACK_BUFFER, 0);
 
   // Get an OpenCL handle to pbo memory
   cl_int errCreateFromGL;
@@ -750,8 +742,8 @@ void LoadCompressedDXT(const std::unique_ptr<gpu::GPUContext> &gpu_ctx,
   // Copy to the newly created texture
   glBindBuffer(GL_PIXEL_UNPACK_BUFFER, pbo);
   glBindTexture(GL_TEXTURE_2D, texID);
-  glCompressedTexImage2D(
-    GL_TEXTURE_2D, 0, GL_COMPRESSED_RGB_S3TC_DXT1_EXT, width, height, 0, dxt_size, 0);
+  glCompressedTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, width, height,
+    GL_COMPRESSED_RGB_S3TC_DXT1_EXT, dxt_size, 0);
   
 #ifndef NDEBUG
   GLint query;
@@ -768,9 +760,6 @@ void LoadCompressedDXT(const std::unique_ptr<gpu::GPUContext> &gpu_ctx,
   // Unbind the textures
   glBindBuffer(GL_PIXEL_UNPACK_BUFFER, 0);
   glBindTexture(GL_TEXTURE_2D, 0);
-
-  // Don't need the PBO anymore
-  glDeleteBuffers(1, &pbo);
 
   for (size_t i = 0; i < decmp.num_events; ++i) {
     CHECK_CL(clReleaseEvent, decmp.output_events[i]);
