@@ -80,40 +80,27 @@ int main(int argc, char **argv) {
 
   std::unique_ptr<gpu::GPUContext> ctx = gpu::GPUContext::InitializeOpenCL(false);
 
-  // Is it a crunch img?
-  int width, height;
-  std::string fname(argv[1]);
-
-  // Otherwise, load the file
-  const cv::Mat img = cv::imread(argv[1], -1);
-  if (!img.data) {
-    std::cerr << "Error loading image: " << argv[1] << std::endl;
-    return 1;
-  }
-  width = img.cols;
-  height = img.rows;
-
   const char *orig_fn = argv[1];
   const char *cmp_fn = (argc == 2) ? NULL : argv[2];
 
-  std::vector<uint8_t> cmp_img = std::move(GenTC::CompressDXT(orig_fn, cmp_fn, width, height));
 #if 0
-  GenTC::DXTImage dxt_img = GenTC::DXTImage(width, height, orig_fn, cmp_fn);
+  GenTC::DXTImage dxt_img = GenTC::DXTImage(orig_fn, cmp_fn);
 #else
+  std::vector<uint8_t> cmp_img = std::move(GenTC::CompressDXT(orig_fn, cmp_fn));
   GenTC::DXTImage dxt_img = GenTC::DecompressDXT(ctx, cmp_img);
 #endif
 
   // Decompress into image...
   std::vector<uint8_t> decomp_rgba = std::move(dxt_img.DecompressedImage()->Pack());
 
-  cv::Mat decomp_img(height, width, CV_8UC4, decomp_rgba.data());
+  cv::Mat decomp_img(dxt_img.Height(), dxt_img.Width(), CV_8UC4, decomp_rgba.data());
   cv::Mat decomp_output;
   cv::cvtColor(decomp_img, decomp_output, cv::COLOR_BGRA2RGBA);
   cv::imwrite("img_dxt.png", decomp_output);
 
   // Visualize interpolation data...
   std::vector<uint8_t> interp_img_data = std::move(dxt_img.InterpolationImage());
-  cv::Mat interp_img = cv::Mat(height, width, CV_8UC1, interp_img_data.data());
+  cv::Mat interp_img = cv::Mat(dxt_img.Height(), dxt_img.Width(), CV_8UC1, interp_img_data.data());
   cv::imwrite("img_dxt_interp.png", interp_img);
 
   // cv::imwrite("img_dxt_interp_dft.png", dft_opencv(interp_img));

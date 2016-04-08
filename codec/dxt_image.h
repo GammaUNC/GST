@@ -38,7 +38,9 @@ namespace GenTC {
 
   class DXTImage {
    public:
-    DXTImage(int width, int height, const char *orig_fn, const char *cmp_fn);
+    DXTImage(const char *orig_fn, const char *cmp_fn);
+    DXTImage(int width, int height, const std::vector<uint8_t> &rgb_data,
+             const std::vector<uint8_t> &dxt_data);
     DXTImage(int width, int height, const std::vector<uint8_t> &dxt_data);
 
     int Width() const { return _width;  }
@@ -98,13 +100,13 @@ namespace GenTC {
       return (y / 4) * _blocks_width + (x / 4);
     }
 
-    void LoadDXTFromFile(const char *filename, const char *cmp_fn);
+    void Reencode();
     double PSNR() const;
 
-    const int _width;
-    const int _height;
-    const int _blocks_width;
-    const int _blocks_height;
+    int _width;
+    int _height;
+    int _blocks_width;
+    int _blocks_height;
 
     std::vector<PhysicalDXTBlock> _physical_blocks;
     std::vector<LogicalDXTBlock> _logical_blocks;

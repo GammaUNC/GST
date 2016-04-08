@@ -24,11 +24,12 @@
 #endif
 
 namespace GenTC {
-
   // Compresses the DXT texture with the given width and height into a
   // GPU decompressible stream.
-  std::vector<uint8_t> CompressDXT(const char *filename, const char *cmp_fn,
-                                   int width, int height);
+  std::vector<uint8_t> CompressDXT(const char *filename, const char *cmp_fn);
+  std::vector<uint8_t> CompressDXT(int width, int height,
+                                   const std::vector<uint8_t> &rgb_data,
+                                   const std::vector<uint8_t> &dxt_data);
 
   DXTImage DecompressDXT(const std::unique_ptr<gpu::GPUContext> &gpu_ctx,
                          const std::vector<uint8_t> &cmp_data);
@@ -38,7 +39,7 @@ namespace GenTC {
                          GLuint texID);
 
   bool TestDXT(const std::unique_ptr<gpu::GPUContext> &gpu_ctx,
-               const char *filename, const char *cmp_fn, int width, int height);
+               const char *filename, const char *cmp_fn);
 
 }  // namespace GenTC
 

@@ -479,6 +479,10 @@ RunDXTEndpointPipeline(const std::unique_ptr<Image<T> > &img) {
 }
 
 static std::vector<uint8_t> CompressDXTImage(const DXTImage &dxt_img) {
+  // Otherwise we can't really compress this...
+  assert((dxt_img.Width() % 128) == 0);
+  assert((dxt_img.Height() % 128) == 0);
+
   std::cout << "Original DXT size: " <<
     (dxt_img.Width() * dxt_img.Height()) / 2 << std::endl;
   std::cout << "Half original DXT size: " <<
@@ -606,10 +610,15 @@ static std::vector<uint8_t> CompressDXTImage(const DXTImage &dxt_img) {
   return std::move(result);
 }
 
-std::vector<uint8_t> CompressDXT(const char *filename, const char *cmp_fn,
-                                 int width, int height) {
-  DXTImage dxt_img(width, height, filename, cmp_fn);
+std::vector<uint8_t> CompressDXT(const char *filename, const char *cmp_fn) {
+  DXTImage dxt_img(filename, cmp_fn);
   return std::move(CompressDXTImage(dxt_img));
+}
+
+std::vector<uint8_t> CompressDXT(int width, int height, const std::vector<uint8_t> &rgb_data,
+                                 const std::vector<uint8_t> &dxt_data) {
+  DXTImage dxt_img(width, height, rgb_data, dxt_data);
+  return std::move(CompressDXTImage(dxt_img));  
 }
   
 std::vector<uint8_t>  DecompressDXTBuffer(const std::unique_ptr<GPUContext> &gpu_ctx,
@@ -665,8 +674,10 @@ DXTImage DecompressDXT(const std::unique_ptr<GPUContext> &gpu_ctx,
 }
 
 bool TestDXT(const std::unique_ptr<gpu::GPUContext> &gpu_ctx,
-             const char *filename, const char *cmp_fn, int width, int height) {
-  DXTImage dxt_img(width, height, filename, cmp_fn);
+             const char *filename, const char *cmp_fn) {
+  DXTImage dxt_img(filename, cmp_fn);
+  int width = dxt_img.Width();
+  int height = dxt_img.Height();
   
   std::vector<uint8_t> cmp_img = std::move(CompressDXTImage(dxt_img));
   std::vector<uint8_t> decmp_data =

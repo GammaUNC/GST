@@ -382,52 +382,7 @@ static uint64_t CompressRGB(const uint8_t *img, int width) {
   return result.dxt_block;
 }
 
-DXTImage::DXTImage(int width, int height, const char *orig_fn, const char *cmp_fn)
-  : _width(width)
-  , _height(height)
-  , _blocks_width((width + 3) / 4)
-  , _blocks_height((height + 3) / 4)
-{
-  LoadDXTFromFile(orig_fn, cmp_fn);
-}
-
-DXTImage::DXTImage(int width, int height, const std::vector<uint8_t> &dxt_data)
-  : _width(width)
-  , _height(height)
-  , _blocks_width((width + 3) / 4)
-  , _blocks_height((height + 3) / 4)
-  , _physical_blocks(
-    reinterpret_cast<const PhysicalDXTBlock *>(dxt_data.data()),
-    reinterpret_cast<const PhysicalDXTBlock *>(dxt_data.data())
-    + (_blocks_width * _blocks_height))
-  , _logical_blocks(PhysicalToLogicalBlocks(_physical_blocks))
-{ }
-
-double DXTImage::PSNR() const {
-  // Compute DXT PSNR...
-  double orig_mse = 0.0;
-  for (int j = 0; j < Height(); ++j) {
-    for (int i = 0; i < Width(); ++i) {
-      uint8_t pixel[4];
-      GetColorAt(i, j, pixel);
-
-      const size_t src_idx = (j * Width() + i) * 3;
-      for (int c = 0; c < 3; ++c) {
-        double orig = static_cast<double>(_src_img[src_idx + c]);
-        double cmp = static_cast<double>(pixel[c]);
-        double diff = orig - cmp;
-        orig_mse += diff * diff;
-      }
-    }
-  }
-
-  orig_mse /= static_cast<double>(Width() * Height());
-  return 10.0 * log10((3.0 * 255.0 * 255.0) / orig_mse);
-}
-
-static const int kErrThreshold = 35;
-static const size_t kNumPrevLookup = 128;
-void DXTImage::LoadDXTFromFile(const char *fn, const char *cmp_fn) {
+DXTImage::DXTImage(const char *orig_fn, const char *cmp_fn) {
   std::string cmp_fname(cmp_fn ? cmp_fn : "");
   if (cmp_fname.substr(cmp_fname.find_last_of(".") + 1) == "crn") {
     std::ifstream ifs(cmp_fname.c_str(), std::ifstream::binary | std::ifstream::ate);
@@ -468,53 +423,117 @@ void DXTImage::LoadDXTFromFile(const char *fn, const char *cmp_fn) {
   } 
   
   // Otherwise, load the file
-  int width, height;
-  stbi_uc *data = stbi_load(fn, &width, &height, NULL, 3);
+  stbi_uc *data = stbi_load(orig_fn, &_width, &_height, NULL, 3);
   if (!data) {
     assert(!"Error loading image");
-    std::cout << "Error loading image" << fn << std::endl;
+    std::cout << "Error loading image" << orig_fn << std::endl;
     return;
   }
 
-  _src_img.resize(width * height * 3);
-  memcpy(_src_img.data(), data, width * height * 3);
+  size_t src_img_sz = _width * _height * 3;
+  _src_img.resize(src_img_sz);
+  memcpy(_src_img.data(), data, src_img_sz);
 
-  const int num_blocks_x = (width + 3) / 4;
-  const int num_blocks_y = (height + 3) / 4;
-  const int num_blocks = num_blocks_x * num_blocks_y;
+  _blocks_width = (_width + 3) / 4;
+  _blocks_height = (_height + 3) / 4;
+  const int num_blocks = _blocks_width * _blocks_height;
 
   if (_physical_blocks.size() == 0) {
     // Compress the DXT data
     _physical_blocks.resize(num_blocks);
     for (int physical_idx = 0; physical_idx < num_blocks; ++physical_idx) {
       uint16_t i, j;
-      i = static_cast<uint16_t>(physical_idx % num_blocks_x);
-      j = static_cast<uint16_t>(physical_idx / num_blocks_x);
+      i = static_cast<uint16_t>(physical_idx % _blocks_width);
+      j = static_cast<uint16_t>(physical_idx / _blocks_width);
 
-      int block_idx = j * num_blocks_x + i;
-      const unsigned char *offset_data = data + (j * 4 * width + i * 4) * 3;
-      _physical_blocks[block_idx].dxt_block = CompressRGB(offset_data, width);
+      int block_idx = j * _blocks_width + i;
+      const unsigned char *offset_data = data + (j * 4 * _width + i * 4) * 3;
+      _physical_blocks[block_idx].dxt_block = CompressRGB(offset_data, _width);
     }
   }
 
+  // Optimize it...
+  Reencode();
+}
+
+DXTImage::DXTImage(int width, int height, const std::vector<uint8_t> &rgb_data,
+                   const std::vector<uint8_t> &dxt_data)
+  : _width(width)
+  , _height(height)
+  , _blocks_width((width + 3) / 4)
+  , _blocks_height((height + 3) / 4)
+  , _physical_blocks(
+    reinterpret_cast<const PhysicalDXTBlock *>(dxt_data.data()),
+    reinterpret_cast<const PhysicalDXTBlock *>(dxt_data.data())
+    + (_blocks_width * _blocks_height))
+  , _logical_blocks(PhysicalToLogicalBlocks(_physical_blocks))
+  , _src_img(rgb_data)
+{
+  Reencode();
+}
+
+DXTImage::DXTImage(int width, int height, const std::vector<uint8_t> &dxt_data)
+  : _width(width)
+  , _height(height)
+  , _blocks_width((width + 3) / 4)
+  , _blocks_height((height + 3) / 4)
+  , _physical_blocks(
+    reinterpret_cast<const PhysicalDXTBlock *>(dxt_data.data()),
+    reinterpret_cast<const PhysicalDXTBlock *>(dxt_data.data())
+    + (_blocks_width * _blocks_height))
+  , _logical_blocks(PhysicalToLogicalBlocks(_physical_blocks))
+{ }
+
+double DXTImage::PSNR() const {
+  if (_src_img.size() == 0) {
+    std::cout << "WARNING: Cannot compute PSNR, no original data!" << std::endl;
+    assert(false);
+    return -1.0;
+  }
+
+  // Compute DXT PSNR...
+  double orig_mse = 0.0;
+  for (int j = 0; j < Height(); ++j) {
+    for (int i = 0; i < Width(); ++i) {
+      uint8_t pixel[4];
+      GetColorAt(i, j, pixel);
+
+      const size_t src_idx = (j * Width() + i) * 3;
+      for (int c = 0; c < 3; ++c) {
+        double orig = static_cast<double>(_src_img[src_idx + c]);
+        double cmp = static_cast<double>(pixel[c]);
+        double diff = orig - cmp;
+        orig_mse += diff * diff;
+      }
+    }
+  }
+
+  orig_mse /= static_cast<double>(Width() * Height());
+  return 10.0 * log10((3.0 * 255.0 * 255.0) / orig_mse);
+}
+
+static const int kErrThreshold = 35;
+static const size_t kNumPrevLookup = 128;
+void DXTImage::Reencode() {
   _logical_blocks = std::move(PhysicalToLogicalBlocks(_physical_blocks));
   std::cout << "DXT Compressed PSNR: " << PSNR() << std::endl;
 
-  assert((width & 0x3) == 0);
-  assert((height & 0x3) == 0);
+  assert((_width & 0x3) == 0);
+  assert((_height & 0x3) == 0);
 
   // Now do the dxt compression...
   int last_index = 0;
 
+  const int num_blocks = _blocks_width * _blocks_height;
   for (int physical_idx = 0; physical_idx < num_blocks; ++physical_idx) {
     uint16_t i, j;
     Deinterleave(static_cast<uint32_t>(physical_idx), &i, &j);
-    i = static_cast<uint16_t>(physical_idx % num_blocks_x);
-    j = static_cast<uint16_t>(physical_idx / num_blocks_x);
+    i = static_cast<uint16_t>(physical_idx % _blocks_width);
+    j = static_cast<uint16_t>(physical_idx / _blocks_width);
 
-    int block_idx = j * num_blocks_x + i;
+    int block_idx = j * _blocks_width + i;
     assert(block_idx == physical_idx);
-    const unsigned char *offset_data = data + (j * 4 * width + i * 4) * 3;
+    const unsigned char *offset_data = _src_img.data() + (j * 4 * _width + i * 4) * 3;
 
     CompressedBlock blk;
     blk._logical = _logical_blocks[block_idx];
@@ -523,9 +542,9 @@ void DXTImage::LoadDXTFromFile(const char *fn, const char *cmp_fn) {
     for (int row = 0; row < 4; ++row) {
       uint8_t block_row[12];
       for (int p = 0; p < 4; ++p) {
-        block_row[3 * p + 0] = offset_data[(row * width + p) * 3 + 0];
-        block_row[3 * p + 1] = offset_data[(row * width + p) * 3 + 1];
-        block_row[3 * p + 2] = offset_data[(row * width + p) * 3 + 2];
+        block_row[3 * p + 0] = offset_data[(row * _width + p) * 3 + 0];
+        block_row[3 * p + 1] = offset_data[(row * _width + p) * 3 + 1];
+        block_row[3 * p + 2] = offset_data[(row * _width + p) * 3 + 2];
       }
 
       memcpy(blk._uncompressed.data() + 12 * row, block_row, sizeof(block_row));
