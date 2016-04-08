@@ -55,10 +55,10 @@ void InverseWaveletOdd(__local int *src, __local int *scratch,
 // We use one thread per pixel, and the group size (local work size)
 // dictates how big the dimensions are of the 
 
-__kernel void inv_wavelet(const __constant uchar *wavelet_data,
-					      const int value_offset,
-                          __local int *local_data,
-                          __global char *out_data)
+__kernel void inv_wavelet(const __global uchar *wavelet_data,
+					      const          int    value_offset,
+                                __local  int   *local_data,
+                                __global char  *out_data)
 {
   int local_dim = get_local_size(1);
   int wavelet_block_size = local_dim * local_dim;
@@ -76,7 +76,7 @@ __kernel void inv_wavelet(const __constant uchar *wavelet_data,
   // with signed two-byte integers to reduce cache misses.
   {
     uint group_idx = get_group_id(1) * get_num_groups(0) + get_group_id(0);
-    const __constant uchar *global_data = wavelet_data + group_idx * wavelet_block_size;
+    const __global uchar *global_data = wavelet_data + group_idx * wavelet_block_size;
 
     uint lidx = 2 * (local_y * get_local_size(0) + local_x);
     local_data[lidx] = ((int)(global_data[lidx])) + value_offset;

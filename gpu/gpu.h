@@ -125,6 +125,20 @@ namespace gpu {
       assert(bytes_read == sizeof(T));
       return reinterpret_cast<const T *>(ret_buffer)[0];
     }
+
+    template<typename T>
+    T GetKernelWGInfo(const std::string &filename, const std::string &kernel,
+                      cl_kernel_work_group_info param) const {
+      cl_kernel k = GetOpenCLKernel(filename, kernel);
+      cl_uchar ret_buffer[256];
+      size_t bytes_read;
+      CHECK_CL(clGetKernelWorkGroupInfo, k, _device, param, sizeof(ret_buffer),
+                                         ret_buffer, &bytes_read);
+      assert(bytes_read < sizeof(ret_buffer));
+      assert(bytes_read == sizeof(T));
+      return reinterpret_cast<const T *>(ret_buffer)[0];
+    }
+
   private:
     GPUContext() { }
     GPUContext(const GPUContext &);

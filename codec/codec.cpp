@@ -119,6 +119,10 @@ static CLKernelResult DecodeANS(const std::unique_ptr<GPUContext> &gpu_ctx,
   data++;
 
 #ifndef NDEBUG
+  // Make sure we have enough space to use constant buffer...
+  assert( static_cast<cl_ulong>(M * sizeof(AnsTableEntry)) <
+          gpu_ctx->GetDeviceInfo<cl_ulong>(CL_DEVICE_MAX_CONSTANT_BUFFER_SIZE) );
+
   // Make sure that each offset is a multiple of four, otherwise we won't be getting
   // the values we're expecting in our kernel.
   const cl_uint *debug_offsets = reinterpret_cast<const cl_uint *>(data);
@@ -292,10 +296,6 @@ static cl_event DecodeIndices(const std::unique_ptr<GPUContext> &gpu_ctx, cl_mem
                               cl_event init_event,
                               const std::vector<uint8_t> &cmp_data, size_t offset,
                               size_t num_pixels, uint32_t palette_cmp_sz) {
-  // If num_pixels isn't a power of two, our parallel scan will run out of
-  // bounds and crash in the best case...
-  assert((num_pixels & (num_pixels - 1)) == 0);
-
   const cl_uchar *palette_cmp_data =
     reinterpret_cast<const cl_uchar *>(cmp_data.data()) + offset;
   const cl_uchar *indices_cmp_data = palette_cmp_data + palette_cmp_sz;
@@ -323,11 +323,19 @@ static cl_event DecodeIndices(const std::unique_ptr<GPUContext> &gpu_ctx, cl_mem
   size_t num_vals = num_pixels;
   while (num_vals > 1) {
     stage++;
+    CHECK_CL(clSetKernelArg, idx_kernel, 1, sizeof(stage), &stage);
 
     cl_event next_event;
     cl_uint num_events = static_cast<cl_uint>(e.size()) - event_idx;
     size_t local_work_sz = std::min(num_vals, kLocalScanSz);
-    CHECK_CL(clSetKernelArg, idx_kernel, 1, sizeof(stage), &stage);
+
+#ifndef NDEBUG
+    assert((num_vals % local_work_sz) == 0);
+    assert(local_work_sz <= gpu_ctx->GetKernelWGInfo<size_t>(
+      GenTC::kOpenCLKernels[GenTC::eOpenCLKernel_DecodeIndices], "decode_indices",
+      CL_KERNEL_WORK_GROUP_SIZE));
+#endif
+
     CHECK_CL(clEnqueueNDRangeKernel, gpu_ctx->GetCommandQueue(), idx_kernel,
                                      1, NULL, &num_vals, &local_work_sz,
                                      num_events, e.data() + event_idx,
@@ -751,7 +759,7 @@ void LoadCompressedDXT(const std::unique_ptr<gpu::GPUContext> &gpu_ctx,
   assert ( query == GL_TRUE );
 
   glGetTexLevelParameteriv(GL_TEXTURE_2D, 0, GL_TEXTURE_COMPRESSED_IMAGE_SIZE, &query);
-  assert ( query == dxt_size );
+  assert ( static_cast<size_t>(query) == dxt_size );
 
   glGetTexLevelParameteriv(GL_TEXTURE_2D, 0, GL_TEXTURE_INTERNAL_FORMAT, &query);
   assert ( query == GL_COMPRESSED_RGB_S3TC_DXT1_EXT );
