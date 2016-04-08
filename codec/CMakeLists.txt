@@ -66,6 +66,9 @@ TARGET_LINK_LIBRARIES( gentc_codec ${OPENGL_glu_LIBRARY} )
 TARGET_LINK_LIBRARIES( gentc_codec vptree)
 TARGET_LINK_LIBRARIES( gentc_codec squish)
 
+ADD_EXECUTABLE(gentenc encoder.cpp)
+TARGET_LINK_LIBRARIES( gentenc gentc_codec )
+
 INCLUDE_DIRECTORIES(${GenTC_SOURCE_DIR}/googletest/include)
 
 # Summary of tuple support for Microsoft Visual Studio:
