@@ -9,30 +9,13 @@ if ("${OPENGL_INCLUDE_DIR}")
   include_directories("${OPENGL_INCLUDE_DIR}")
 endif()
 
-SET( OPENCL_KERNEL_PATH ${GenTC_SOURCE_DIR}/demo/kernel.cl )
-
 INCLUDE_DIRECTORIES( ${GenTC_SOURCE_DIR}/lib/include )
-
-# !HACK! We still need OpenCL because we don't use our 'gpu' library properly...
-FIND_PACKAGE(OpenCL REQUIRED)
-INCLUDE_DIRECTORIES( ${OPENCL_INCLUDE_DIRS} )
-
-
-CONFIGURE_FILE(
-  "config.h.in"
-  "config.h"
-)
-
-SET( HEADERS
-  "config.h.in"
-)  
 
 SET( SOURCES
   "demo.cpp"
 )
 
-SOURCE_GROUP(OpenCL FILES ${OPENCL_KERNEL_PATH})
-ADD_EXECUTABLE(demo ${HEADERS} ${SOURCES} ${OPENCL_KERNEL_PATH})
+ADD_EXECUTABLE(demo ${HEADERS} ${SOURCES})
 
 TARGET_LINK_LIBRARIES( demo glfw )
 TARGET_LINK_LIBRARIES( demo ${GLFW_LIBRARIES} )

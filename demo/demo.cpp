@@ -269,7 +269,7 @@ int main(int argc, char* argv[])
     glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
 
     static int gFrameNumber = 0;
-    static const int kNumFrames = 800;
+    static const int kNumFrames = 2000;
 
     double frame_times[8] = { 0 };
     int frame_time_idx = 0;

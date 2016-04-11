@@ -1,6 +1,0 @@
-#ifndef __GENTC_CONFIG_H__
-#define __GENTC_CONFIG_H__
-
-#cmakedefine OPENCL_KERNEL_PATH "${OPENCL_KERNEL_PATH}"
-
-#endif  // __GENTC_CONFIG_H__
