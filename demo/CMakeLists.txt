@@ -11,37 +11,36 @@ endif()
 
 INCLUDE_DIRECTORIES( ${GenTC_SOURCE_DIR}/lib/include )
 
-SET( SOURCES
-  "demo.cpp"
-)
+ADD_EXECUTABLE(photos "photos.cpp")
+ADD_EXECUTABLE(demo "demo.cpp")
 
-ADD_EXECUTABLE(demo ${HEADERS} ${SOURCES})
+FOREACH(prg "photos" "demo")
+  TARGET_LINK_LIBRARIES( ${prg} glfw )
+  TARGET_LINK_LIBRARIES( ${prg} ${GLFW_LIBRARIES} )
+  TARGET_LINK_LIBRARIES( ${prg} gentc_gpu )
+  TARGET_LINK_LIBRARIES( ${prg} gentc_codec )
+  TARGET_LINK_LIBRARIES( ${prg} ${OPENCL_LIBRARIES} )
+  TARGET_LINK_LIBRARIES( ${prg} ${OPENGL_gl_LIBRARY} )
+  TARGET_LINK_LIBRARIES( ${prg} ${OPENGL_glu_LIBRARY} )
 
-TARGET_LINK_LIBRARIES( demo glfw )
-TARGET_LINK_LIBRARIES( demo ${GLFW_LIBRARIES} )
-TARGET_LINK_LIBRARIES( demo gentc_gpu )
-TARGET_LINK_LIBRARIES( demo gentc_codec )
-TARGET_LINK_LIBRARIES( demo ${OPENCL_LIBRARIES} )
-TARGET_LINK_LIBRARIES( demo ${OPENGL_gl_LIBRARY} )
-TARGET_LINK_LIBRARIES( demo ${OPENGL_glu_LIBRARY} )
+  IF ( MSVC )
+    IF( ${CMAKE_SIZEOF_VOID_P} EQUAL 8 )
+      TARGET_LINK_LIBRARIES( ${prg} ${GenTC_SOURCE_DIR}/lib/x64/glew32.lib )
+      add_custom_command(TARGET ${prg} POST_BUILD          # Adds a post-build event to MyTest
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different    # which executes "cmake - E copy_if_different..."
+        "${PROJECT_SOURCE_DIR}/lib/bin/x64/glew32.dll"   # <--this is in-file
+        $<TARGET_FILE_DIR:${prg}>)                       # <--this is out-file path
+    ELSE (${CMAKE_SIZEOF_VOID_P} EQUAL 8)
+      TARGET_LINK_LIBRARIES( ${prg} ${GenTC_SOURCE_DIR}/lib/Win32/glew32.lib )
+      add_custom_command(TARGET ${prg} POST_BUILD          # Adds a post-build event to MyTest
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different    # which executes "cmake - E copy_if_different..."
+        "${PROJECT_SOURCE_DIR}/lib/bin/Win32/glew32.dll"   # <--this is in-file
+        $<TARGET_FILE_DIR:${prg}>)                       # <--this is out-file path
+    ENDIF( ${CMAKE_SIZEOF_VOID_P} EQUAL 8 )
+  ENDIF()
 
-IF ( MSVC )
-  IF( ${CMAKE_SIZEOF_VOID_P} EQUAL 8 )
-    TARGET_LINK_LIBRARIES( demo ${GenTC_SOURCE_DIR}/lib/x64/glew32.lib )
-    add_custom_command(TARGET demo POST_BUILD          # Adds a post-build event to MyTest
-      COMMAND ${CMAKE_COMMAND} -E copy_if_different    # which executes "cmake - E copy_if_different..."
-      "${PROJECT_SOURCE_DIR}/lib/bin/x64/glew32.dll"   # <--this is in-file
-      $<TARGET_FILE_DIR:demo>)                       # <--this is out-file path
-  ELSE (${CMAKE_SIZEOF_VOID_P} EQUAL 8)
-    TARGET_LINK_LIBRARIES( demo ${GenTC_SOURCE_DIR}/lib/Win32/glew32.lib )
-    add_custom_command(TARGET demo POST_BUILD          # Adds a post-build event to MyTest
-      COMMAND ${CMAKE_COMMAND} -E copy_if_different    # which executes "cmake - E copy_if_different..."
-      "${PROJECT_SOURCE_DIR}/lib/bin/Win32/glew32.dll"   # <--this is in-file
-      $<TARGET_FILE_DIR:demo>)                       # <--this is out-file path
-  ENDIF( ${CMAKE_SIZEOF_VOID_P} EQUAL 8 )
-ENDIF()
-
-INSTALL(TARGETS demo EXPORT GenTCTargets RUNTIME DESTINATION bin COMPONENT bin)
+  INSTALL(TARGETS ${prg} EXPORT GenTCTargets RUNTIME DESTINATION bin COMPONENT bin)
+ENDFOREACH()
 
 FIND_PACKAGE(OpenCV)
 
