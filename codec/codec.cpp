@@ -705,15 +705,20 @@ bool TestDXT(const std::unique_ptr<gpu::GPUContext> &gpu_ctx,
   return true;
 }
 
-void LoadCompressedDXT(const std::unique_ptr<gpu::GPUContext> &gpu_ctx,
-                       const std::vector<uint8_t> &cmp_data, cl_event *e,
-                       GLuint pbo, GLuint texID) {
+static void PeekWidthHeight(const std::vector<uint8_t> &cmp_data,
+                            uint32_t *width, uint32_t *height) {
+  DataStream in(cmp_data);
+  *width = in.ReadInt();
+  *height = in.ReadInt();
+}
+
+static void DecompressToPBO(const std::unique_ptr<gpu::GPUContext> &gpu_ctx,
+                            const std::vector<uint8_t> &cmp_data, cl_event *e,
+                            GLuint pbo) {
   CLKernelResult decmp;
 
-  DataStream in(cmp_data);
-  uint32_t width = in.ReadInt();
-  uint32_t height = in.ReadInt();
-  size_t dxt_size = (width * height) / 2;
+  uint32_t width, height;
+  PeekWidthHeight(cmp_data, &width, &height);
 
   // Get an OpenCL handle to pbo memory
   cl_int errCreateFromGL;
@@ -737,29 +742,7 @@ void LoadCompressedDXT(const std::unique_ptr<gpu::GPUContext> &gpu_ctx,
                                       &release_event);
 
   // !SPEED! No reason to block here...
-  CHECK_CL(clWaitForEvents, 1, &release_event);
-
-  // Copy to the newly created texture
-  glBindBuffer(GL_PIXEL_UNPACK_BUFFER, pbo);
-  glBindTexture(GL_TEXTURE_2D, texID);
-  glCompressedTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, width, height,
-    GL_COMPRESSED_RGB_S3TC_DXT1_EXT, dxt_size, 0);
-  
-#ifndef NDEBUG
-  GLint query;
-  glGetTexLevelParameteriv(GL_TEXTURE_2D, 0, GL_TEXTURE_COMPRESSED, &query);
-  assert ( query == GL_TRUE );
-
-  glGetTexLevelParameteriv(GL_TEXTURE_2D, 0, GL_TEXTURE_COMPRESSED_IMAGE_SIZE, &query);
-  assert ( static_cast<size_t>(query) == dxt_size );
-
-  glGetTexLevelParameteriv(GL_TEXTURE_2D, 0, GL_TEXTURE_INTERNAL_FORMAT, &query);
-  assert ( query == GL_COMPRESSED_RGB_S3TC_DXT1_EXT );
-#endif
-
-  // Unbind the textures
-  glBindBuffer(GL_PIXEL_UNPACK_BUFFER, 0);
-  glBindTexture(GL_TEXTURE_2D, 0);
+  CHECK_CL(clWaitForEvents, 1, &release_event);  
 
   for (size_t i = 0; i < decmp.num_events; ++i) {
     CHECK_CL(clReleaseEvent, decmp.output_events[i]);
@@ -767,6 +750,84 @@ void LoadCompressedDXT(const std::unique_ptr<gpu::GPUContext> &gpu_ctx,
   CHECK_CL(clReleaseMemObject, decmp.output);
   CHECK_CL(clReleaseEvent, acquire_event);
   CHECK_CL(clReleaseEvent, release_event);
+}
+
+void LoadCompressedDXTInto(const std::unique_ptr<gpu::GPUContext> &gpu_ctx,
+                           const std::vector<uint8_t> &cmp_data, cl_event *e,
+                           GLuint pbo, GLuint texID) {
+  uint32_t width, height;
+  PeekWidthHeight(cmp_data, &width, &height);
+  size_t dxt_size = (width * height) / 2;
+
+  DecompressToPBO(gpu_ctx, cmp_data, e, pbo);
+
+  // Copy to the newly created texture
+  CHECK_GL(glBindBuffer, GL_PIXEL_UNPACK_BUFFER, pbo);
+  CHECK_GL(glBindTexture, GL_TEXTURE_2D, texID);
+  CHECK_GL(glCompressedTexSubImage2D, GL_TEXTURE_2D, 0, 0, 0, width, height,
+                                      GL_COMPRESSED_RGB_S3TC_DXT1_EXT, dxt_size, 0);
+  
+#ifndef NDEBUG
+  GLint query;
+  CHECK_GL(glGetTexLevelParameteriv, GL_TEXTURE_2D, 0, GL_TEXTURE_COMPRESSED, &query);
+  assert ( query == GL_TRUE );
+
+  CHECK_GL(glGetTexLevelParameteriv, GL_TEXTURE_2D, 0, GL_TEXTURE_COMPRESSED_IMAGE_SIZE, &query);
+  assert ( static_cast<size_t>(query) == dxt_size );
+
+  CHECK_GL(glGetTexLevelParameteriv, GL_TEXTURE_2D, 0, GL_TEXTURE_INTERNAL_FORMAT, &query);
+  assert ( query == GL_COMPRESSED_RGB_S3TC_DXT1_EXT );
+#endif
+
+  // Unbind the textures
+  CHECK_GL(glBindBuffer, GL_PIXEL_UNPACK_BUFFER, 0);
+  CHECK_GL(glBindTexture, GL_TEXTURE_2D, 0);
+}
+
+GLuint LoadCompressedDXT(const std::unique_ptr<gpu::GPUContext> &gpu_ctx,
+                         const std::vector<uint8_t> &cmp_data, cl_event *e,
+                         GLuint pbo) {
+  uint32_t width, height;
+  PeekWidthHeight(cmp_data, &width, &height);
+  size_t dxt_size = (width * height) / 2;
+
+  DecompressToPBO(gpu_ctx, cmp_data, e, pbo);
+
+  GLuint texID;
+  CHECK_GL(glGenTextures, 1, &texID);
+
+  // Initialize the texture...
+  CHECK_GL(glBindTexture, GL_TEXTURE_2D, texID);
+  CHECK_GL(glTexStorage2D, GL_TEXTURE_2D, 1, GL_COMPRESSED_RGB_S3TC_DXT1_EXT, width, height);
+  CHECK_GL(glTexParameteri, GL_TEXTURE_2D, GL_TEXTURE_BASE_LEVEL, 0);
+  CHECK_GL(glTexParameteri, GL_TEXTURE_2D, GL_TEXTURE_MAX_LEVEL, 0);
+  CHECK_GL(glTexParameteri, GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
+  CHECK_GL(glTexParameteri, GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
+  CHECK_GL(glTexParameteri, GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+  CHECK_GL(glTexParameteri, GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
+
+  // Copy to the newly created texture
+  CHECK_GL(glBindBuffer, GL_PIXEL_UNPACK_BUFFER, pbo);
+  CHECK_GL(glCompressedTexSubImage2D, GL_TEXTURE_2D, 0, 0, 0, width, height,
+                                      GL_COMPRESSED_RGB_S3TC_DXT1_EXT, dxt_size, 0);
+  
+#ifndef NDEBUG
+  GLint query;
+  CHECK_GL(glGetTexLevelParameteriv, GL_TEXTURE_2D, 0, GL_TEXTURE_COMPRESSED, &query);
+  assert ( query == GL_TRUE );
+
+  CHECK_GL(glGetTexLevelParameteriv, GL_TEXTURE_2D, 0, GL_TEXTURE_COMPRESSED_IMAGE_SIZE, &query);
+  assert ( static_cast<size_t>(query) == dxt_size );
+
+  CHECK_GL(glGetTexLevelParameteriv, GL_TEXTURE_2D, 0, GL_TEXTURE_INTERNAL_FORMAT, &query);
+  assert ( query == GL_COMPRESSED_RGB_S3TC_DXT1_EXT );
+#endif
+
+  // Unbind the textures
+  CHECK_GL(glBindBuffer, GL_PIXEL_UNPACK_BUFFER, 0);
+  CHECK_GL(glBindTexture, GL_TEXTURE_2D, 0);
+
+  return texID;
 }
 
 }

@@ -148,7 +148,7 @@ void LoadGTC(const std::unique_ptr<gpu::GPUContext> &ctx,
   std::vector<uint8_t> cmp_data(length);
   is.read(reinterpret_cast<char *>(cmp_data.data()), length);
 
-  GenTC::LoadCompressedDXT(ctx, cmp_data, NULL, pbo, texID);
+  GenTC::LoadCompressedDXTInto(ctx, cmp_data, NULL, pbo, texID);
   assert(is);
   is.close();
 }

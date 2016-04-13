@@ -23,6 +23,8 @@
 #  include <GL/glx.h>
 #endif
 
+#include "gl_guards.h"
+
 namespace GenTC {
   // Compresses the DXT texture with the given width and height into a
   // GPU decompressible stream.
@@ -34,9 +36,13 @@ namespace GenTC {
   DXTImage DecompressDXT(const std::unique_ptr<gpu::GPUContext> &gpu_ctx,
                          const std::vector<uint8_t> &cmp_data);
 
-  void LoadCompressedDXT(const std::unique_ptr<gpu::GPUContext> &gpu_ctx,
-                         const std::vector<uint8_t> &cmp_data, cl_event *e,
-                         GLuint pbo, GLuint texID);
+  void LoadCompressedDXTInto(const std::unique_ptr<gpu::GPUContext> &gpu_ctx,
+                             const std::vector<uint8_t> &cmp_data, cl_event *e,
+                             GLuint pbo, GLuint texID);
+
+  GLuint LoadCompressedDXT(const std::unique_ptr<gpu::GPUContext> &gpu_ctx,
+                           const std::vector<uint8_t> &cmp_data, cl_event *e,
+                           GLuint pbo);
 
   bool TestDXT(const std::unique_ptr<gpu::GPUContext> &gpu_ctx,
                const char *filename, const char *cmp_fn);
