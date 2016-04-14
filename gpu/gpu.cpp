@@ -158,6 +158,67 @@ static void CreateCLContext(cl_context *result, const cl_context_properties *pro
   CHECK_CL((cl_int), errCreateContext);
 }
 
+static cl_platform_id GetCLPlatform() {
+  const cl_uint kMaxPlatforms = 8;
+  cl_platform_id platforms[kMaxPlatforms];
+  cl_uint nPlatforms;
+  static int platform_idx = -1;
+
+  CHECK_CL(clGetPlatformIDs, kMaxPlatforms, platforms, &nPlatforms);
+#ifdef NDEBUG
+  platform_idx = 0;
+#else
+  static bool print_once = false;
+  if (platform_idx < 0) {
+    std::cout << "OpenCL has " << nPlatforms << " platform"
+      << ((nPlatforms != 1) ? "s" : "")
+      << " available. Querying... " << std::endl;
+  }
+  else {
+    return platforms[platform_idx];
+  }
+
+  platform_idx = 0;
+
+  size_t strLen;
+  for (cl_uint i = 0; i < nPlatforms; i++) {
+    char strBuf[256];
+
+    std::cout << std::endl;
+    std::cout << "Platform " << i << " info:" << std::endl;
+
+    CHECK_CL(clGetPlatformInfo, platforms[i], CL_PLATFORM_PROFILE, 256, strBuf, &strLen);
+    std::cout << "Platform profile: " << strBuf << std::endl;
+
+    CHECK_CL(clGetPlatformInfo, platforms[i], CL_PLATFORM_VERSION, 256, strBuf, &strLen);
+    std::cout << "Platform version: " << strBuf << std::endl;
+
+    CHECK_CL(clGetPlatformInfo, platforms[i], CL_PLATFORM_NAME, 256, strBuf, &strLen);
+    std::cout << "Platform name: " << strBuf << std::endl;
+
+    bool isCPUOnly = false;
+    if (strstr(strBuf, "CPU Only")) {
+      isCPUOnly = true;
+    }
+
+    CHECK_CL(clGetPlatformInfo, platforms[i], CL_PLATFORM_VENDOR, 256, strBuf, &strLen);
+    std::cout << "Platform vendor: " << strBuf << std::endl;
+
+    bool isIntel = false;
+    if (strstr(strBuf, "Intel")) {
+      isIntel = true;
+    }
+
+    if (isCPUOnly && isIntel) {
+      platform_idx = i;
+    }
+  }
+  std::cout << "Using platform " << platform_idx << std::endl;
+#endif
+
+  return platforms[platform_idx];
+}
+
 static cl_device_id GetDeviceForSharedContext(cl_context ctx) {
   size_t device_id_size_bytes;
   cl_device_id device;
@@ -173,8 +234,7 @@ static cl_device_id GetDeviceForSharedContext(cl_context ctx) {
   getCtxInfoFunc = reinterpret_cast<CtxInfoFunc>(
     clGetExtensionFunctionAddress("clGetGLContextInfoKHR"));
 #else
-  cl_platform_id platform;
-  CHECK_CL(clGetPlatformIDs, 1, &platform, NULL);
+  cl_platform_id platform = GetCLPlatform();
   std::vector<cl_context_properties> extra_props = { CL_CONTEXT_PLATFORM, (cl_context_properties)platform };
   extra_props.insert(extra_props.end(), props.begin(), props.end());
   props = extra_props;
@@ -219,61 +279,17 @@ GPUContext::~GPUContext() {
 }
 
 std::unique_ptr<GPUContext> GPUContext::InitializeOpenCL(bool share_opengl) {
-  const cl_uint kMaxPlatforms = 8;
-  cl_platform_id platforms[kMaxPlatforms];
-  cl_uint nPlatforms;
-  int platform_idx = -1;
-
-#ifdef NDEBUG
-  CHECK_CL(clGetPlatformIDs, kMaxPlatforms, platforms, &nPlatforms);
-#else
-  CHECK_CL(clGetPlatformIDs, kMaxPlatforms, NULL, &nPlatforms);
-  std::cout << "OpenCL has " << nPlatforms << " platform"
-            << ((nPlatforms != 1)? "s" : "")
-            << " available. Querying... " << std::endl;
-  CHECK_CL(clGetPlatformIDs, nPlatforms, platforms, &nPlatforms);
-
-  size_t strLen;
-  for (cl_uint i = 0; i < nPlatforms; i++) {
-    char strBuf[256];
-
-    std::cout << std::endl;
-    std::cout << "Platform " << i << " info:" << std::endl;
-
-    CHECK_CL(clGetPlatformInfo, platforms[i], CL_PLATFORM_PROFILE, 256, strBuf, &strLen);
-    std::cout << "Platform profile: " << strBuf << std::endl;
-
-    CHECK_CL(clGetPlatformInfo, platforms[i], CL_PLATFORM_VERSION, 256, strBuf, &strLen);
-    std::cout << "Platform version: " << strBuf << std::endl;
-
-    CHECK_CL(clGetPlatformInfo, platforms[i], CL_PLATFORM_NAME, 256, strBuf, &strLen);
-    std::cout << "Platform name: " << strBuf << std::endl;
-
-    bool isCPUOnly = false;
-    if (strstr(strBuf, "CPU Only")) {
-      isCPUOnly = true;
-    }
-
-    CHECK_CL(clGetPlatformInfo, platforms[i], CL_PLATFORM_VENDOR, 256, strBuf, &strLen);
-    std::cout << "Platform vendor: " << strBuf << std::endl;
-
-    bool isIntel = false;
-    if (strstr(strBuf, "Intel")) {
-      isIntel = true;
-    }
-
-    if (isCPUOnly && isIntel) {
-      platform_idx = i;
-    }
-  }
-#endif
-
   const cl_uint kMaxDevices = 8;
   cl_device_id devices[kMaxDevices];
   cl_uint nDevices;
 
-  cl_device_type device_type = CL_DEVICE_TYPE_GPU;
-  if (platform_idx >= 0) {
+  cl_platform_id platform = GetCLPlatform();
+  CHECK_CL(clGetDeviceIDs, platform, CL_DEVICE_TYPE_ALL, kMaxDevices, devices, &nDevices);
+
+  cl_device_type device_type;
+  CHECK_CL(clGetDeviceInfo, devices[0], CL_DEVICE_TYPE, sizeof(cl_device_type), &device_type, NULL);
+
+  if (device_type == CL_DEVICE_TYPE_CPU) {
     std::cout << "========================================";
     std::cout << "========================================" << std::endl;
     std::cout << "========================================";
@@ -283,18 +299,11 @@ std::unique_ptr<GPUContext> GPUContext::InitializeOpenCL(bool share_opengl) {
     std::cout << "========================================" << std::endl;
     std::cout << "========================================";
     std::cout << "========================================" << std::endl;
-    device_type = CL_DEVICE_TYPE_CPU;
-  } else {
-    platform_idx = 0;
   }
-
-  cl_platform_id platform = platforms[platform_idx];
-  CHECK_CL(clGetDeviceIDs, platform, device_type, kMaxDevices, devices, &nDevices);
 
 #ifndef NDEBUG
   std::cout << std::endl;
-  std::cout << "Found " << nDevices << " device" << (nDevices == 1 ? "" : "s")
-    << " on platform " << platform_idx << std::endl;
+  std::cout << "Found " << nDevices << " device" << (nDevices == 1 ? "" : "s") << std::endl;
 
   for (cl_uint i = 0; i < nDevices; i++) {
     gpu::PrintDeviceInfo(devices[i]);
@@ -333,6 +342,7 @@ std::unique_ptr<GPUContext> GPUContext::InitializeOpenCL(bool share_opengl) {
   // The device...
   if (share_opengl) {
     gpu_ctx->_device = GetDeviceForSharedContext(ctx);
+    assert(gpu_ctx->_device == devices[0]);
   } else {
     std::vector<cl_device_id> ds = std::move(GetAllDevicesForContext(ctx));
     assert(ds.size() > 0);
