@@ -204,12 +204,9 @@ private:
   GLint _uv_loc;
 
 public:
-  Texture(const std::unique_ptr<gpu::GPUContext> &ctx,
-          GLint texLoc, GLint posLoc, GLint uvLoc,
-          const char *filename, GLuint pbo, size_t num, size_t count)
-    : _tex_loc(texLoc), _pos_loc(posLoc), _uv_loc(uvLoc) {
-    _id = LoadGTC(ctx, pbo, std::string(filename));
-
+  Texture(GLint texLoc, GLint posLoc, GLint uvLoc,
+          GLuint texID, size_t num, size_t count)
+    : _id(texID), _tex_loc(texLoc), _pos_loc(posLoc), _uv_loc(uvLoc) {
     float x1, x2, y1, y2;
     GetCropWindow(num, count, kAspect, &x1, &x2, &y1, &y2);
 
@@ -302,9 +299,9 @@ std::vector<std::unique_ptr<Texture> > LoadTextures(const std::unique_ptr<gpu::G
 #ifndef NDEBUG
     std::cout << "Loading texture: " << filenames[i] << std::endl;
 #endif
-    textures.push_back(std::unique_ptr<Texture>(
-                       new Texture(ctx, texLoc, posLoc, uvLoc, filenames[i].c_str(),
-                                   pbo, i, filenames.size())));
+    GLuint texID = LoadGTC(ctx, pbo, std::string(filenames[i]));
+    Texture *tex = new Texture(texLoc, posLoc, uvLoc, texID, i, filenames.size());
+    textures.push_back(std::unique_ptr<Texture>(tex));
   }
 
   CHECK_GL(glDeleteBuffers, 1, &pbo);
