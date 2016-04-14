@@ -11,6 +11,9 @@ endif()
 
 INCLUDE_DIRECTORIES( ${GenTC_SOURCE_DIR}/lib/include )
 
+FIND_PACKAGE(OpenCL REQUIRED)
+INCLUDE_DIRECTORIES( ${OPENCL_INCLUDE_DIRS} )
+
 ADD_EXECUTABLE(photos "photos.cpp")
 ADD_EXECUTABLE(demo "demo.cpp")
 

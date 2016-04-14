@@ -66,6 +66,22 @@ TARGET_LINK_LIBRARIES( gentc_codec ${OPENGL_glu_LIBRARY} )
 TARGET_LINK_LIBRARIES( gentc_codec vptree)
 TARGET_LINK_LIBRARIES( gentc_codec squish)
 
+IF ( MSVC )
+  IF( ${CMAKE_SIZEOF_VOID_P} EQUAL 8 )
+    TARGET_LINK_LIBRARIES( gentc_codec ${GenTC_SOURCE_DIR}/lib/x64/glew32.lib )
+    add_custom_command(TARGET gentc_codec POST_BUILD      # Adds a post-build event to MyTest
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different         # which executes "cmake - E copy_if_different..."
+    "${PROJECT_SOURCE_DIR}/lib/bin/x64/glew32.dll"        # <--this is in-file
+    $<TARGET_FILE_DIR:gentc_codec>)                       # <--this is out-file path
+  ELSE (${CMAKE_SIZEOF_VOID_P} EQUAL 8)
+    TARGET_LINK_LIBRARIES( gentc_codec ${GenTC_SOURCE_DIR}/lib/Win32/glew32.lib )
+    add_custom_command(TARGET gentc_codec POST_BUILD      # Adds a post-build event to MyTest
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different         # which executes "cmake - E copy_if_different..."
+    "${PROJECT_SOURCE_DIR}/lib/bin/Win32/glew32.dll"      # <--this is in-file
+    $<TARGET_FILE_DIR:gentc_codec>)                       # <--this is out-file path
+  ENDIF( ${CMAKE_SIZEOF_VOID_P} EQUAL 8 )
+ENDIF()
+
 ADD_EXECUTABLE(gentenc encoder.cpp)
 TARGET_LINK_LIBRARIES( gentenc gentc_codec )
 

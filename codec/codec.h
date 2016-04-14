@@ -13,7 +13,7 @@
 #  define GLFW_INCLUDE_GLEXT 1
 #  include <GLFW/glfw3.h>
 #  include <OpenGL/opengl.h>
-#elif defined (_WIN32)
+#elif defined (_MSC_VER)
 #  include <GL/glew.h>
 #  include <GLFW/glfw3.h>
 #else

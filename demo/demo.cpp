@@ -19,25 +19,7 @@
 #pragma warning( pop )
 #endif  // _MSC_VER
 
-#include "gpu.h"
-#include "config.h"
 #include "codec.h"
-
-#ifdef __APPLE__
-#  define GLFW_INCLUDE_GLCOREARB 1
-#  define GL_GLEXT_PROTOTYPES 1
-#  define GLFW_INCLUDE_GLEXT 1
-#  include <GLFW/glfw3.h>
-#  include <OpenGL/opengl.h>
-#elif defined (_WIN32)
-#  include <GL/glew.h>
-#  include <GLFW/glfw3.h>
-#else
-#  define GL_GLEXT_PROTOTYPES 1
-#  define GLFW_INCLUDE_GLEXT 1
-#  include <GLFW/glfw3.h>
-#  include <GL/glx.h>
-#endif
 
 static void error_callback(int error, const char* description)
 {
