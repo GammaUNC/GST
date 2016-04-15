@@ -845,6 +845,7 @@ struct AsyncCallbackData {
   GLuint texID;
   GLuint pbo;
 
+  bool loaded;
   std::function<void()> user_fn;
 };
 
@@ -852,12 +853,30 @@ void CL_CALLBACK LoadTextureCallback(cl_event e, cl_int status, void *data) {
   assert(status == CL_COMPLETE);
 
   AsyncCallbackData *cbdata = reinterpret_cast<AsyncCallbackData *>(data);
+  cbdata->loaded = true;
+  cbdata->user_fn();
+}
+
+CompressedDXTAsyncRequest::CompressedDXTAsyncRequest(const AsyncCallbackData &data)
+  : _data(new AsyncCallbackData(data))
+{ }
+
+bool CompressedDXTAsyncRequest::IsReady() const {
+  return _data->loaded;
+}
+
+GLuint CompressedDXTAsyncRequest::TextureHandle() const {
+  return _data->texID;
+}
+
+void CompressedDXTAsyncRequest::LoadTexture() {
+  assert(_data->loaded);
 
   // Copy to the newly created texture
-  size_t dxt_size = (cbdata->width * cbdata->height) / 2;
-  CHECK_GL(glBindBuffer, GL_PIXEL_UNPACK_BUFFER, cbdata->pbo);
-  CHECK_GL(glBindTexture, GL_TEXTURE_2D, cbdata->texID);
-  CHECK_GL(glCompressedTexSubImage2D, GL_TEXTURE_2D, 0, 0, 0, cbdata->width, cbdata->height,
+  size_t dxt_size = (_data->width * _data->height) / 2;
+  CHECK_GL(glBindBuffer, GL_PIXEL_UNPACK_BUFFER, _data->pbo);
+  CHECK_GL(glBindTexture, GL_TEXTURE_2D, _data->texID);
+  CHECK_GL(glCompressedTexSubImage2D, GL_TEXTURE_2D, 0, 0, 0, _data->width, _data->height,
                                       GL_COMPRESSED_RGB_S3TC_DXT1_EXT, dxt_size, 0);
 
 #ifndef NDEBUG
@@ -872,15 +891,15 @@ void CL_CALLBACK LoadTextureCallback(cl_event e, cl_int status, void *data) {
   assert ( query == GL_COMPRESSED_RGB_S3TC_DXT1_EXT );
 #endif
 
-  CHECK_GL(glDeleteBuffers, 1, &(cbdata->pbo));
-  delete cbdata;
-
-  cbdata->user_fn();
+  CHECK_GL(glDeleteBuffers, 1, &(_data->pbo));
+  _data->loaded = false;
 }
 
-GLuint LoadCompressedDXTAsync(const std::unique_ptr<gpu::GPUContext> &gpu_ctx,
-                              const std::vector<uint8_t> &cmp_data,
-                              std::function<void()> callback) {
+CompressedDXTAsyncRequest LoadCompressedDXTAsync(
+  const std::unique_ptr<gpu::GPUContext> &gpu_ctx,
+  const std::vector<uint8_t> &cmp_data,
+  std::function<void()> callback) {
+
   uint32_t width, height;
   PeekWidthHeight(cmp_data, &width, &height);
   size_t dxt_size = (width * height) / 2;
@@ -907,15 +926,17 @@ GLuint LoadCompressedDXTAsync(const std::unique_ptr<gpu::GPUContext> &gpu_ctx,
   CHECK_GL(glTexParameteri, GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
   CHECK_GL(glTexParameteri, GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
 
-  AsyncCallbackData *data = new AsyncCallbackData;
-  data->width = width;
-  data->height = height;
-  data->texID = texID;
-  data->pbo = pbo;
-  data->user_fn = callback;
+  AsyncCallbackData data;
+  data.width = width;
+  data.height = height;
+  data.texID = texID;
+  data.pbo = pbo;
+  data.user_fn = callback;
+
+  CompressedDXTAsyncRequest req(data);
 
   // Set the callback...
-  CHECK_CL(clSetEventCallback, e, CL_COMPLETE, LoadTextureCallback, data);
+  CHECK_CL(clSetEventCallback, e, CL_COMPLETE, LoadTextureCallback, req._data.get());
 
   // Unbind everything
   CHECK_GL(glBindBuffer, GL_PIXEL_UNPACK_BUFFER, 0);
@@ -924,7 +945,7 @@ GLuint LoadCompressedDXTAsync(const std::unique_ptr<gpu::GPUContext> &gpu_ctx,
   // Release event
   CHECK_CL(clReleaseEvent, e);
 
-  return texID;
+  return req;
 }
 
 }

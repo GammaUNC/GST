@@ -42,9 +42,24 @@ namespace GenTC {
   GLuint LoadCompressedDXT(const std::unique_ptr<gpu::GPUContext> &gpu_ctx,
                            const std::vector<uint8_t> &cmp_data, GLuint pbo);
 
-  GLuint LoadCompressedDXTAsync(const std::unique_ptr<gpu::GPUContext> &gpu_ctx,
-                                const std::vector<uint8_t> &cmp_data,
-                                std::function<void()> callback);
+  struct AsyncCallbackData;
+  class CompressedDXTAsyncRequest {
+   public:
+    CompressedDXTAsyncRequest(const AsyncCallbackData &data);
+    bool IsReady() const;
+    GLuint TextureHandle() const;
+    void LoadTexture();
+   private:
+    std::shared_ptr<AsyncCallbackData> _data;
+    friend CompressedDXTAsyncRequest LoadCompressedDXTAsync(
+      const std::unique_ptr<gpu::GPUContext> &gpu_ctx,
+      const std::vector<uint8_t> &cmp_data,
+      std::function<void()> callback);
+  };
+
+  CompressedDXTAsyncRequest LoadCompressedDXTAsync(const std::unique_ptr<gpu::GPUContext> &gpu_ctx,
+                                                   const std::vector<uint8_t> &cmp_data,
+                                                   std::function<void()> callback);
 
   bool TestDXT(const std::unique_ptr<gpu::GPUContext> &gpu_ctx,
                const char *filename, const char *cmp_fn);

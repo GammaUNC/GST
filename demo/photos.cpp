@@ -3,11 +3,17 @@
 #include <cstdio>
 
 #include <algorithm>
+#include <atomic>
+#include <chrono>
+#include <condition_variable>
 #include <iostream>
 #include <fstream>
+#include <mutex>
 #include <numeric>
+#include <queue>
 #include <string>
 #include <sstream>
+#include <thread>
 #include <vector>
 
 #include "dirent.h"
@@ -171,8 +177,7 @@ GLuint LoadShaders() {
   return prog;
 }
 
-GLuint LoadGTC(const std::unique_ptr<gpu::GPUContext> &ctx,
-               GLuint pbo, const std::string &filePath) {
+static std::vector<uint8_t> LoadFile(const std::string &filePath) {
   // Load in compressed data.
   std::ifstream is (filePath.c_str(), std::ifstream::binary);
   if (!is) {
@@ -186,11 +191,15 @@ GLuint LoadGTC(const std::unique_ptr<gpu::GPUContext> &ctx,
 
   std::vector<uint8_t> cmp_data(length);
   is.read(reinterpret_cast<char *>(cmp_data.data()), length);
-
-  GLuint id = GenTC::LoadCompressedDXT(ctx, cmp_data, pbo);
   assert(is);
   is.close();
-  return id;
+  return std::move(cmp_data);
+}
+
+GLuint LoadGTC(const std::unique_ptr<gpu::GPUContext> &ctx,
+               GLuint pbo, const std::string &filePath) {
+  std::vector<uint8_t> cmp_data = std::move(LoadFile(filePath));
+  return GenTC::LoadCompressedDXT(ctx, cmp_data, pbo);
 }
 
 class Texture {
@@ -206,10 +215,8 @@ private:
 public:
   Texture(const std::unique_ptr<gpu::GPUContext> &ctx,
           GLint texLoc, GLint posLoc, GLint uvLoc,
-          const char *filename, GLuint pbo, size_t num, size_t count)
-    : _tex_loc(texLoc), _pos_loc(posLoc), _uv_loc(uvLoc) {
-    _id = LoadGTC(ctx, pbo, std::string(filename));
-
+          GLuint texID, size_t num, size_t count)
+    : _id(texID), _tex_loc(texLoc), _pos_loc(posLoc), _uv_loc(uvLoc) {
     float x1, x2, y1, y2;
     GetCropWindow(num, count, kAspect, &x1, &x2, &y1, &y2);
 
@@ -269,14 +276,7 @@ public:
 
 std::vector<std::unique_ptr<Texture> > LoadTextures(const std::unique_ptr<gpu::GPUContext> &ctx,
                                                     GLint texLoc, GLint posLoc, GLint uvLoc,
-                                                    const char *dirname) {
-  GLuint pbo;
-  CHECK_GL(glGenBuffers, 1, &pbo);
-
-  CHECK_GL(glBindBuffer, GL_PIXEL_UNPACK_BUFFER, pbo);
-  CHECK_GL(glBufferData, GL_PIXEL_UNPACK_BUFFER, 4096 * 4096 / 2, NULL, GL_DYNAMIC_DRAW);
-  CHECK_GL(glBindBuffer, GL_PIXEL_UNPACK_BUFFER, 0);
-
+                                                    bool async, const char *dirname) {
   // Load textures!
   DIR *dir = opendir(dirname);
   if (!dir) {
@@ -296,18 +296,60 @@ std::vector<std::unique_ptr<Texture> > LoadTextures(const std::unique_ptr<gpu::G
   closedir(dir);
 
   std::vector<std::unique_ptr<Texture> > textures;
+  std::vector<GenTC::CompressedDXTAsyncRequest> reqs;
   textures.reserve(filenames.size());
+  reqs.reserve(filenames.size());
+
+  std::atomic_int num_loaded; num_loaded = 0;
+  std::mutex m;
+  std::condition_variable cv;
+
+  GLuint pbo;
+  if (!async) {
+    size_t big_enough_pbo_sz = 4096 * 4096;
+    CHECK_GL(glGenBuffers, 1, &pbo);
+    CHECK_GL(glBindBuffer, GL_PIXEL_UNPACK_BUFFER, pbo);
+    CHECK_GL(glBufferData, GL_PIXEL_UNPACK_BUFFER, big_enough_pbo_sz, NULL, GL_DYNAMIC_DRAW);
+    CHECK_GL(glBindBuffer, GL_PIXEL_UNPACK_BUFFER, 0);
+    num_loaded = filenames.size();
+  }
 
   for (size_t i = 0; i < filenames.size(); ++i) {
+
 #ifndef NDEBUG
     std::cout << "Loading texture: " << filenames[i] << std::endl;
 #endif
+
+    std::vector<uint8_t> cmp_data = std::move(LoadFile(filenames[i]));
+
+    GLuint texID;
+    if (async) {
+      auto callback = [&cv, &num_loaded] {
+        num_loaded++;
+        cv.notify_one();
+      };
+
+      GenTC::CompressedDXTAsyncRequest req =
+        GenTC::LoadCompressedDXTAsync(ctx, cmp_data, callback);
+      texID = req.TextureHandle();
+      reqs.push_back(req);
+    } else {
+      texID = GenTC::LoadCompressedDXT(ctx, cmp_data, pbo);
+    }
+
     textures.push_back(std::unique_ptr<Texture>(
-                       new Texture(ctx, texLoc, posLoc, uvLoc, filenames[i].c_str(),
-                                   pbo, i, filenames.size())));
+                       new Texture(ctx, texLoc, posLoc, uvLoc, texID, i, filenames.size())));
   }
 
-  CHECK_GL(glDeleteBuffers, 1, &pbo);
+  std::unique_lock<std::mutex> lock(m);
+  while (num_loaded != static_cast<int>(textures.size())) {
+    cv.wait(lock);
+    for (auto &req : reqs) {
+      if (req.IsReady()) {
+        req.LoadTexture();
+      }
+    }
+  }
 
   return std::move(textures);
 }
@@ -375,8 +417,16 @@ int main(int argc, char* argv[] ) {
     assert ( uvLoc >= 0 );
     assert ( texLoc >= 0 );
 
+    std::chrono::time_point<std::chrono::system_clock> start, end;
+    start = std::chrono::system_clock::now();
     std::vector<std::unique_ptr<Texture> > texs =
-      LoadTextures(ctx, texLoc, posLoc, uvLoc, argv[1]);
+      LoadTextures(ctx, texLoc, posLoc, uvLoc, true, argv[1]);
+      // LoadTextures(ctx, texLoc, posLoc, uvLoc, false, argv[1]);
+    end = std::chrono::system_clock::now();
+    std::cout << "Loaded " << texs.size() << " texture"
+              << ((texs.size() == 1) ? "" : "s") << " in "
+              << std::chrono::duration<double>(end-start).count() << "s"
+              << std::endl;
     
     CHECK_GL(glPixelStorei, GL_UNPACK_ALIGNMENT, 1);
 
