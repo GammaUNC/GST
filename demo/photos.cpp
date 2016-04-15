@@ -187,7 +187,7 @@ GLuint LoadGTC(const std::unique_ptr<gpu::GPUContext> &ctx,
   std::vector<uint8_t> cmp_data(length);
   is.read(reinterpret_cast<char *>(cmp_data.data()), length);
 
-  GLuint id = GenTC::LoadCompressedDXT(ctx, cmp_data, NULL, pbo);
+  GLuint id = GenTC::LoadCompressedDXT(ctx, cmp_data, pbo);
   assert(is);
   is.close();
   return id;
