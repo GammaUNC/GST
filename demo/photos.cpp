@@ -35,6 +35,8 @@
 #include "config.h"
 #include "codec.h"
 
+#include "ctpl/ctpl_stl.h"
+
 #ifdef __APPLE__
 #  define GLFW_INCLUDE_GLCOREARB 1
 #  define GL_GLEXT_PROTOTYPES 1
@@ -277,6 +279,69 @@ public:
   }
 };
 
+class AsyncTexRequest {
+ public:
+  virtual ~AsyncTexRequest() { }
+  virtual bool IsReady() const = 0;
+  virtual GLuint TextureHandle() const = 0;
+  virtual void LoadTexture() = 0;
+};
+
+class AsyncGenTCReq : public AsyncTexRequest {
+ public:
+  AsyncGenTCReq(const GenTC::CompressedDXTAsyncRequest &r)
+    : AsyncTexRequest()
+    , _req(r) { }
+
+  virtual ~AsyncGenTCReq() { }
+
+  virtual bool IsReady() const override { return _req.IsReady(); }
+  virtual GLuint TextureHandle() const override { return _req.TextureHandle(); }
+  virtual void LoadTexture() override { return _req.LoadTexture(); }
+
+ private:
+  GenTC::CompressedDXTAsyncRequest _req;
+};
+
+class AsyncGenericReq : public AsyncTexRequest {
+ public:
+  AsyncGenericReq(GLuint id)
+    : AsyncTexRequest()
+    , _texID(id)
+    , _loaded(false) { }
+
+  virtual bool IsReady() const override { return _loaded; }
+  virtual GLuint TextureHandle() const override { return _texID; }
+  virtual void LoadTexture() override {
+    assert(this->_loaded);
+    assert(this->_n == 3);
+
+    // Initialize the texture...
+    CHECK_GL(glBindTexture, GL_TEXTURE_2D, _texID);
+    CHECK_GL(glTexImage2D, GL_TEXTURE_2D, 0, GL_RGB8, _x, _y, 0, GL_RGB, GL_UNSIGNED_BYTE, this->_data);
+    CHECK_GL(glTexParameteri, GL_TEXTURE_2D, GL_TEXTURE_BASE_LEVEL, 0);
+    CHECK_GL(glTexParameteri, GL_TEXTURE_2D, GL_TEXTURE_MAX_LEVEL, 0);
+    CHECK_GL(glTexParameteri, GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
+    CHECK_GL(glTexParameteri, GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
+    CHECK_GL(glTexParameteri, GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    CHECK_GL(glTexParameteri, GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
+    CHECK_GL(glBindTexture, GL_TEXTURE_2D, 0);
+  }
+
+  virtual void LoadFile(const std::string &filename) {
+    this->_data = stbi_load(filename.c_str(), &_x, &_y, &_n, 3);
+    assert(_n == 3);  // Only load RGB textures...
+    _n = 3;
+    this->_loaded = true;
+  }
+
+ private:
+  GLuint _texID;
+  int _x, _y, _n;
+  unsigned char *_data;
+  bool _loaded;
+};
+
 std::vector<std::unique_ptr<Texture> > LoadTextures(const std::unique_ptr<gpu::GPUContext> &ctx,
                                                     GLint texLoc, GLint posLoc, GLint uvLoc,
                                                     bool async, const char *dirname) {
@@ -299,13 +364,12 @@ std::vector<std::unique_ptr<Texture> > LoadTextures(const std::unique_ptr<gpu::G
   closedir(dir);
 
   std::vector<std::unique_ptr<Texture> > textures;
-  std::vector<GenTC::CompressedDXTAsyncRequest> reqs;
   textures.reserve(filenames.size());
-  reqs.reserve(filenames.size());
 
   std::atomic_int num_loaded; num_loaded = 0;
-  std::mutex m;
   std::condition_variable cv;
+
+  ctpl::thread_pool pool(std::thread::hardware_concurrency());
 
   GLuint pbo;
   if (!async) {
@@ -317,6 +381,7 @@ std::vector<std::unique_ptr<Texture> > LoadTextures(const std::unique_ptr<gpu::G
     num_loaded = static_cast<int>(filenames.size());
   }
 
+  std::vector<std::unique_ptr<AsyncTexRequest> > reqs;
   for (size_t i = 0; i < filenames.size(); ++i) {
 
 #ifndef NDEBUG
@@ -327,15 +392,30 @@ std::vector<std::unique_ptr<Texture> > LoadTextures(const std::unique_ptr<gpu::G
 
     GLuint texID;
     if (async) {
-      auto callback = [&cv, &num_loaded] {
-        num_loaded++;
-        cv.notify_one();
-      };
 
-      GenTC::CompressedDXTAsyncRequest req =
-        GenTC::LoadCompressedDXTAsync(ctx, cmp_data, callback);
-      texID = req.TextureHandle();
-      reqs.push_back(req);
+      size_t len = filenames[i].length();
+      assert(len >= 4);
+      if (strncmp(filenames[i].c_str() + len - 4, ".gtc", 4) == 0) {
+        auto callback = [&cv, &num_loaded] {
+          num_loaded++;
+          cv.notify_one();
+        };
+
+        GenTC::CompressedDXTAsyncRequest req =
+          GenTC::LoadCompressedDXTAsync(ctx, cmp_data, callback);
+        texID = req.TextureHandle();
+        reqs.push_back(std::unique_ptr<AsyncTexRequest>(new AsyncGenTCReq(req)));
+      } else {
+        CHECK_GL(glGenTextures, 1, &texID);
+        reqs.push_back(std::unique_ptr<AsyncTexRequest>(new AsyncGenericReq(texID)));
+        AsyncTexRequest *req = reqs.back().get();
+        std::string fname = filenames[i];
+        pool.push([&cv, &num_loaded, req, fname](int){
+            ((AsyncGenericReq *)req)->LoadFile(fname);
+            num_loaded++;
+            cv.notify_one();
+          });
+      }
     } else {
       texID = GenTC::LoadCompressedDXT(ctx, cmp_data, pbo);
     }
@@ -344,14 +424,19 @@ std::vector<std::unique_ptr<Texture> > LoadTextures(const std::unique_ptr<gpu::G
                        new Texture(texLoc, posLoc, uvLoc, texID, i, filenames.size())));
   }
 
+  std::mutex m;
   std::unique_lock<std::mutex> lock(m);
   while (num_loaded != static_cast<int>(textures.size())) {
     cv.wait(lock);
+
+    // Load GTC textures
     for (auto &req : reqs) {
-      if (req.IsReady()) {
-        req.LoadTexture();
+      if (req->IsReady()) {
+        req->LoadTexture();
       }
     }
+
+    // Load regular textures
   }
 
   if (!async) {
@@ -461,7 +546,6 @@ int main(int argc, char* argv[] ) {
       CHECK_GL(glViewport, 0, 0, width, height);
 
       CHECK_GL(glClear, GL_COLOR_BUFFER_BIT);
-
       CHECK_GL(glUseProgram, prog);
       for (const auto &tex : texs) {
         tex->Draw();
