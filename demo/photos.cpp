@@ -356,8 +356,15 @@ std::vector<std::unique_ptr<Texture> > LoadTextures(const std::unique_ptr<gpu::G
 
 int main(int argc, char* argv[] ) {
     if (argc <= 1) {
-      std::cerr << "Usage: " << argv[0] << " <directory>" << std::endl;
+      std::cerr << "Usage: " << argv[0] << " [-p] <directory>" << std::endl;
       exit(EXIT_FAILURE);
+    }
+
+    const char *dirname = argv[1];
+    bool profiling = false;
+    if (argc == 3 && strncmp(argv[1], "-p", 2) == 0) {
+      profiling = true;
+      dirname = argv[2];
     }
 
     glfwSetErrorCallback(error_callback);
@@ -420,8 +427,8 @@ int main(int argc, char* argv[] ) {
     std::chrono::time_point<std::chrono::system_clock> start, end;
     start = std::chrono::system_clock::now();
     std::vector<std::unique_ptr<Texture> > texs =
-      LoadTextures(ctx, texLoc, posLoc, uvLoc, true, argv[1]);
-      // LoadTextures(ctx, texLoc, posLoc, uvLoc, false, argv[1]);
+      LoadTextures(ctx, texLoc, posLoc, uvLoc, true, dirname);
+      // LoadTextures(ctx, texLoc, posLoc, uvLoc, false, dirname);
     end = std::chrono::system_clock::now();
     std::cout << "Loaded " << texs.size() << " texture"
               << ((texs.size() == 1) ? "" : "s") << " in "
@@ -454,6 +461,9 @@ int main(int argc, char* argv[] ) {
       }
 
       glfwSwapBuffers(window);
+      if (profiling) {
+        glfwSetWindowShouldClose(window, GL_TRUE);
+      }
 
       double end_time = glfwGetTime();
       frame_times[frame_time_idx] = (end_time - start_time) * 1000.0;
