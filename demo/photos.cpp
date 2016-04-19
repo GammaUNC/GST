@@ -351,6 +351,10 @@ std::vector<std::unique_ptr<Texture> > LoadTextures(const std::unique_ptr<gpu::G
     }
   }
 
+  if (!async) {
+    CHECK_GL(glDeleteBuffers, 1, &pbo);
+  }
+
   return std::move(textures);
 }
 
