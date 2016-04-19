@@ -7,9 +7,11 @@
 #  include <CL/cl.h>
 #  include <CL/cl_gl.h>
 #  include <CL/cl_ext.h>
+#  include <CL/cl_gl_ext.h>
 #else
 #  include <CL/cl_ext.h>
 #  include <CL/cl_gl.h>
+#  include <CL/cl_gl_ext.h>
 #endif
 
 #include "cl_guards.h"
