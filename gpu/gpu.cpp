@@ -168,7 +168,6 @@ static cl_platform_id GetCLPlatform() {
 #ifdef NDEBUG
   platform_idx = 0;
 #else
-  static bool print_once = false;
   if (platform_idx < 0) {
     std::cout << "OpenCL has " << nPlatforms << " platform"
       << ((nPlatforms != 1) ? "s" : "")
