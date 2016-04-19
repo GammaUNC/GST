@@ -2,6 +2,7 @@
 #define __TCAR_CODEC_H__
 
 #include <cstdint>
+#include <functional>
 #include <vector>
 
 #include "dxt_image.h"
@@ -37,12 +38,29 @@ namespace GenTC {
                          const std::vector<uint8_t> &cmp_data);
 
   void LoadCompressedDXTInto(const std::unique_ptr<gpu::GPUContext> &gpu_ctx,
-                             const std::vector<uint8_t> &cmp_data, cl_event *e,
-                             GLuint pbo, GLuint texID);
+                             const std::vector<uint8_t> &cmp_data, GLuint pbo, GLuint texID);
 
   GLuint LoadCompressedDXT(const std::unique_ptr<gpu::GPUContext> &gpu_ctx,
-                           const std::vector<uint8_t> &cmp_data, cl_event *e,
-                           GLuint pbo);
+                           const std::vector<uint8_t> &cmp_data, GLuint pbo);
+
+  struct AsyncCallbackData;
+  class CompressedDXTAsyncRequest {
+   public:
+    CompressedDXTAsyncRequest(const AsyncCallbackData &data);
+    bool IsReady() const;
+    GLuint TextureHandle() const;
+    void LoadTexture();
+   private:
+    std::shared_ptr<AsyncCallbackData> _data;
+    friend CompressedDXTAsyncRequest LoadCompressedDXTAsync(
+      const std::unique_ptr<gpu::GPUContext> &gpu_ctx,
+      const std::vector<uint8_t> &cmp_data,
+      std::function<void()> callback);
+  };
+
+  CompressedDXTAsyncRequest LoadCompressedDXTAsync(const std::unique_ptr<gpu::GPUContext> &gpu_ctx,
+                                                   const std::vector<uint8_t> &cmp_data,
+                                                   std::function<void()> callback);
 
   bool TestDXT(const std::unique_ptr<gpu::GPUContext> &gpu_ctx,
                const char *filename, const char *cmp_fn);
