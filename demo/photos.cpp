@@ -16,7 +16,11 @@
 #include <thread>
 #include <vector>
 
-#include "dirent.h"
+#ifdef _MSC_VER
+#include "win/dirent.h"
+#else // _MSC_VER
+#include <dirent.h>
+#endif
 
 #ifdef _MSC_VER
 #pragma warning( push )
