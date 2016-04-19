@@ -872,12 +872,18 @@ GLuint CompressedDXTAsyncRequest::TextureHandle() const {
 void CompressedDXTAsyncRequest::LoadTexture() {
   assert(_data->loaded);
 
-  // Copy to the newly created texture
+  // Initialize the texture...
   size_t dxt_size = (_data->width * _data->height) / 2;
   CHECK_GL(glBindBuffer, GL_PIXEL_UNPACK_BUFFER, _data->pbo);
   CHECK_GL(glBindTexture, GL_TEXTURE_2D, _data->texID);
-  CHECK_GL(glCompressedTexSubImage2D, GL_TEXTURE_2D, 0, 0, 0, _data->width, _data->height,
-                                      GL_COMPRESSED_RGB_S3TC_DXT1_EXT, dxt_size, 0);
+  CHECK_GL(glCompressedTexImage2D, GL_TEXTURE_2D, 1, GL_COMPRESSED_RGB_S3TC_DXT1_EXT,
+                                   _data->width, _data->height, 0, dxt_size, 0);
+  CHECK_GL(glTexParameteri, GL_TEXTURE_2D, GL_TEXTURE_BASE_LEVEL, 0);
+  CHECK_GL(glTexParameteri, GL_TEXTURE_2D, GL_TEXTURE_MAX_LEVEL, 0);
+  CHECK_GL(glTexParameteri, GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
+  CHECK_GL(glTexParameteri, GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
+  CHECK_GL(glTexParameteri, GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+  CHECK_GL(glTexParameteri, GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
 
 #ifndef NDEBUG
   GLint query;
@@ -916,16 +922,6 @@ CompressedDXTAsyncRequest LoadCompressedDXTAsync(
   GLuint texID;
   CHECK_GL(glGenTextures, 1, &texID);
 
-  // Initialize the texture...
-  CHECK_GL(glBindTexture, GL_TEXTURE_2D, texID);
-  CHECK_GL(glTexStorage2D, GL_TEXTURE_2D, 1, GL_COMPRESSED_RGB_S3TC_DXT1_EXT, width, height);
-  CHECK_GL(glTexParameteri, GL_TEXTURE_2D, GL_TEXTURE_BASE_LEVEL, 0);
-  CHECK_GL(glTexParameteri, GL_TEXTURE_2D, GL_TEXTURE_MAX_LEVEL, 0);
-  CHECK_GL(glTexParameteri, GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
-  CHECK_GL(glTexParameteri, GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
-  CHECK_GL(glTexParameteri, GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-  CHECK_GL(glTexParameteri, GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
-
   AsyncCallbackData data;
   data.width = width;
   data.height = height;
@@ -937,10 +933,6 @@ CompressedDXTAsyncRequest LoadCompressedDXTAsync(
 
   // Set the callback...
   CHECK_CL(clSetEventCallback, e, CL_COMPLETE, LoadTextureCallback, req._data.get());
-
-  // Unbind everything
-  CHECK_GL(glBindBuffer, GL_PIXEL_UNPACK_BUFFER, 0);
-  CHECK_GL(glBindTexture, GL_TEXTURE_2D, 0);
 
   // Release event
   CHECK_CL(clReleaseEvent, e);
