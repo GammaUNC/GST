@@ -180,19 +180,20 @@ static cl_platform_id GetCLPlatform() {
   platform_idx = 0;
 
   size_t strLen;
+  static const size_t kStrBufSz = 1024;
   for (cl_uint i = 0; i < nPlatforms; i++) {
-    char strBuf[256];
+    char strBuf[kStrBufSz];
 
     std::cout << std::endl;
     std::cout << "Platform " << i << " info:" << std::endl;
 
-    CHECK_CL(clGetPlatformInfo, platforms[i], CL_PLATFORM_PROFILE, 256, strBuf, &strLen);
+    CHECK_CL(clGetPlatformInfo, platforms[i], CL_PLATFORM_PROFILE, kStrBufSz, strBuf, &strLen);
     std::cout << "Platform profile: " << strBuf << std::endl;
 
-    CHECK_CL(clGetPlatformInfo, platforms[i], CL_PLATFORM_VERSION, 256, strBuf, &strLen);
+    CHECK_CL(clGetPlatformInfo, platforms[i], CL_PLATFORM_VERSION, kStrBufSz, strBuf, &strLen);
     std::cout << "Platform version: " << strBuf << std::endl;
 
-    CHECK_CL(clGetPlatformInfo, platforms[i], CL_PLATFORM_NAME, 256, strBuf, &strLen);
+    CHECK_CL(clGetPlatformInfo, platforms[i], CL_PLATFORM_NAME, kStrBufSz, strBuf, &strLen);
     std::cout << "Platform name: " << strBuf << std::endl;
 
     bool isCPUOnly = false;
@@ -200,8 +201,23 @@ static cl_platform_id GetCLPlatform() {
       isCPUOnly = true;
     }
 
-    CHECK_CL(clGetPlatformInfo, platforms[i], CL_PLATFORM_VENDOR, 256, strBuf, &strLen);
+    CHECK_CL(clGetPlatformInfo, platforms[i], CL_PLATFORM_VENDOR, kStrBufSz, strBuf, &strLen);
     std::cout << "Platform vendor: " << strBuf << std::endl;
+
+    CHECK_CL(clGetPlatformInfo, platforms[i], CL_PLATFORM_EXTENSIONS, kStrBufSz, strBuf, &strLen);
+    std::cout << "Platform extensions: " << std::endl;
+    for (size_t k = 0; k < strLen; ++k) {
+      if (strBuf[k] == ',' || strBuf[k] == ' ') {
+        strBuf[k] = '\0';
+      }
+    }
+
+    std::cout << "  " << strBuf << std::endl;
+    for (size_t k = 1; k < strLen; ++k) {
+      if (strBuf[k] == '\0' && k < strLen - 1) {
+        std::cout << "  " << (strBuf + k + 1) << std::endl;
+      }
+    }
 
     bool isIntel = false;
     if (strstr(strBuf, "Intel")) {
