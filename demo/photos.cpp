@@ -532,6 +532,7 @@ int main(int argc, char* argv[] ) {
     static const int kFrameTimeHistorySz = 8;
     double frame_times[kFrameTimeHistorySz] = { 0 };
     int frame_time_idx = 0;
+    double elapsed_since_refresh = 0.0;
 
     while (!glfwWindowShouldClose(window)) {
       double start_time = glfwGetTime();
@@ -559,15 +560,17 @@ int main(int argc, char* argv[] ) {
       double end_time = glfwGetTime();
       frame_times[frame_time_idx] = (end_time - start_time) * 1000.0;
       frame_time_idx = (frame_time_idx + 1) % kFrameTimeHistorySz;
+      elapsed_since_refresh += (end_time - start_time);
 
-      if (frame_time_idx % kFrameTimeHistorySz == 0) {
+      if (elapsed_since_refresh > 1.0) {
         double time = std::accumulate(frame_times, frame_times + kFrameTimeHistorySz, 0.0);
         double frame_time = time / static_cast<double>(kFrameTimeHistorySz);
         double fps = 1000.0 / frame_time;
-        std::cout << "\033[20D";
-        std::cout << "\033[K";
+
+        std::cout << '\r';
         std::cout << "FPS: " << fps;
         std::cout.flush();
+        elapsed_since_refresh = 0.0;
       }
     }
     std::cout << std::endl;
