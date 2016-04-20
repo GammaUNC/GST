@@ -367,10 +367,17 @@ std::unique_ptr<GPUContext> GPUContext::InitializeOpenCL(bool share_opengl) {
 
   // And the command queue...
   cl_int errCreateCommandQueue;
+  cl_command_queue_properties cq_props = CL_QUEUE_OUT_OF_ORDER_EXEC_MODE_ENABLE;
 #ifndef CL_VERSION_2_0
-  gpu_ctx->_command_queue = clCreateCommandQueue(ctx, gpu_ctx->_device, 0, &errCreateCommandQueue);
+  gpu_ctx->_command_queue = clCreateCommandQueue(ctx, gpu_ctx->_device, cq_props, &errCreateCommandQueue);
 #else
-  gpu_ctx->_command_queue = clCreateCommandQueueWithProperties(ctx, gpu_ctx->_device, 0, &errCreateCommandQueue);
+  cl_queue_properties cq_props_list[] = {
+    CL_QUEUE_PROPERTIES,
+    cq_props,
+    0
+  };
+
+  gpu_ctx->_command_queue = clCreateCommandQueueWithProperties(ctx, gpu_ctx->_device, cq_props_list, &errCreateCommandQueue);
 #endif
   CHECK_CL((cl_int), errCreateCommandQueue);
 
