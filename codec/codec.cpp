@@ -47,9 +47,6 @@ static std::vector<T> ReadBuffer(cl_command_queue queue, cl_mem buffer, size_t n
 
 static CLKernelResult DecodeANS(const std::unique_ptr<GPUContext> &gpu_ctx,
                                 cl_event init_event, const cl_uchar *data) {
-  cl_kernel build_table_kernel = gpu_ctx->GetOpenCLKernel(
-    ans::kANSOpenCLKernels[ans::eANSOpenCLKernel_BuildTable], "build_table");
-
   cl_context ctx = gpu_ctx->GetOpenCLContext();
 
   // First get the number of frequencies...
@@ -97,22 +94,14 @@ static CLKernelResult DecodeANS(const std::unique_ptr<GPUContext> &gpu_ctx,
   cl_mem cum_freqs_buffer = clCreateBuffer(ctx, flags, cum_freqs_buf_size, cum_freqs, &errCreateBuffer);
   CHECK_CL((cl_int), errCreateBuffer);
 
-  CHECK_CL(clSetKernelArg, build_table_kernel, 0,
-                           sizeof(freqs_buffer), &freqs_buffer);
-  CHECK_CL(clSetKernelArg, build_table_kernel, 1,
-                           sizeof(cum_freqs_buffer), &cum_freqs_buffer);
-  CHECK_CL(clSetKernelArg, build_table_kernel, 2, sizeof(cl_uint), &num_freqs);
-  CHECK_CL(clSetKernelArg, build_table_kernel, 3, sizeof(table), &table);
-
   cl_event build_table_event;
-  CHECK_CL(clEnqueueNDRangeKernel, gpu_ctx->GetCommandQueue(), build_table_kernel,
-                                   1, NULL, &M, NULL, 1, &init_event, &build_table_event);
+  gpu_ctx->EnqueueOpenCLKernel<1>(ans::kANSOpenCLKernels[ans::eANSOpenCLKernel_BuildTable], "build_table",
+                                  &M, NULL, 1, &init_event, &build_table_event,
+                                  freqs_buffer, cum_freqs_buffer, num_freqs, table);
 
   CHECK_CL(clReleaseMemObject, freqs_buffer);
   CHECK_CL(clReleaseMemObject, cum_freqs_buffer);
 
-  cl_kernel decode_kernel = gpu_ctx->GetOpenCLKernel(
-    ans::kANSOpenCLKernels[ans::eANSOpenCLKernel_ANSDecode], "ans_decode");
 
   // Load all of the offsets to the different data streams...
   cl_uint num_offsets = static_cast<cl_uint>(data[0]);
@@ -148,14 +137,18 @@ static CLKernelResult DecodeANS(const std::unique_ptr<GPUContext> &gpu_ctx,
                                  NULL, &errCreateBuffer);
   CHECK_CL((cl_int), errCreateBuffer);
 
-  // First, just set our table buffers...
-  CHECK_CL(clSetKernelArg, decode_kernel, 0, sizeof(table), &table);
-  CHECK_CL(clSetKernelArg, decode_kernel, 1, sizeof(data_buf), &data_buf);
-  CHECK_CL(clSetKernelArg, decode_kernel, 2, sizeof(result.output), &result.output);
+  gpu_ctx->EnqueueOpenCLKernel<1>(
+    // Kernel to run...
+    ans::kANSOpenCLKernels[ans::eANSOpenCLKernel_ANSDecode], "ans_decode",
 
-  CHECK_CL(clEnqueueNDRangeKernel, gpu_ctx->GetCommandQueue(), decode_kernel,
-                                   1, NULL, &total_streams, &streams_per_work_group,
-                                   1, &build_table_event, result.output_events);
+    // Work size (global and local)
+    &total_streams, &streams_per_work_group,
+
+    // Events to depend on and return
+    1, &build_table_event, result.output_events,
+
+    // Kernel arguments
+    table, data_buf, result.output);
 
   CHECK_CL(clReleaseMemObject, table);
   CHECK_CL(clReleaseMemObject, data_buf);
@@ -175,14 +168,6 @@ static CLKernelResult InverseWavelet(const std::unique_ptr<GPUContext> &gpu_ctx,
   size_t out_sz = width * height;
   size_t local_mem_sz = 8 * kWaveletBlockDim * kWaveletBlockDim;
 
-  cl_kernel wavelet_kernel = gpu_ctx->GetOpenCLKernel(
-    GenTC::kOpenCLKernels[GenTC::eOpenCLKernel_InverseWavelet], "inv_wavelet");
-
-  // First, setup our inputs
-  CHECK_CL(clSetKernelArg, wavelet_kernel, 0, sizeof(img.output), &img.output);
-  CHECK_CL(clSetKernelArg, wavelet_kernel, 1, sizeof(offset), &offset);
-  CHECK_CL(clSetKernelArg, wavelet_kernel, 2, local_mem_sz, NULL);
-
 #ifdef CL_VERSION_1_2
   cl_mem_flags out_flags = CL_MEM_READ_WRITE | CL_MEM_HOST_READ_ONLY;
 #else
@@ -193,7 +178,6 @@ static CLKernelResult InverseWavelet(const std::unique_ptr<GPUContext> &gpu_ctx,
   result.num_events = 1;
   result.output = clCreateBuffer(ctx, out_flags, out_sz, NULL, &errCreateBuffer);
   CHECK_CL((cl_int), errCreateBuffer);
-  CHECK_CL(clSetKernelArg, wavelet_kernel, 3, sizeof(result.output), &result.output);
 
 #ifndef NDEBUG
   // One thread per pixel, kWaveletBlockDim * kWaveletBlockDim threads
@@ -224,10 +208,21 @@ static CLKernelResult InverseWavelet(const std::unique_ptr<GPUContext> &gpu_ctx,
     static_cast<size_t>(kWaveletBlockDim / 2),
     static_cast<size_t>(kWaveletBlockDim) };
 
-  CHECK_CL(clEnqueueNDRangeKernel, gpu_ctx->GetCommandQueue(), wavelet_kernel,
-                                   2, NULL, global_work_size, local_work_size,
-                                   img.num_events, img.output_events,
-                                   result.output_events);
+  gpu::GPUContext::LocalMemoryKernelArg local_mem;
+  local_mem._local_mem_sz = local_mem_sz;
+
+  gpu_ctx->EnqueueOpenCLKernel<2>(
+    // Kernel to run...
+    GenTC::kOpenCLKernels[GenTC::eOpenCLKernel_InverseWavelet], "inv_wavelet",
+
+    // Work size (global and local)
+    global_work_size, local_work_size,
+
+    // Events to depend on and return
+    img.num_events, img.output_events, result.output_events,
+
+    // Kernel arguments
+    img.output, offset, local_mem, result.output);
 
   // No longer need image buffer
   CHECK_CL(clReleaseMemObject, img.output);
@@ -257,16 +252,6 @@ static cl_event CollectEndpoints(const std::unique_ptr<GPUContext> &gpu_ctx,
                                  cl_mem dst, size_t num_pixels, const CLKernelResult &y,
                                  const CLKernelResult &co, const CLKernelResult &cg,
                                  const cl_uint endpoint_index) {
-  cl_kernel ep_kernel = gpu_ctx->GetOpenCLKernel(
-    GenTC::kOpenCLKernels[GenTC::eOpenCLKernel_Endpoints], "collect_endpoints");
-
-  // First, setup our inputs
-  CHECK_CL(clSetKernelArg, ep_kernel, 0, sizeof(y.output), &y.output);
-  CHECK_CL(clSetKernelArg, ep_kernel, 1, sizeof(co.output), &co.output);
-  CHECK_CL(clSetKernelArg, ep_kernel, 2, sizeof(cg.output), &cg.output);
-  CHECK_CL(clSetKernelArg, ep_kernel, 3, sizeof(dst), &dst);
-  CHECK_CL(clSetKernelArg, ep_kernel, 4, sizeof(endpoint_index), &endpoint_index);
-
   assert(y.num_events == 1);
   assert(co.num_events == 1);
   assert(cg.num_events == 1);
@@ -277,9 +262,18 @@ static cl_event CollectEndpoints(const std::unique_ptr<GPUContext> &gpu_ctx,
   const size_t num_wait_events = sizeof(wait_events) / sizeof(wait_events[0]);
 
   cl_event e;
-  CHECK_CL(clEnqueueNDRangeKernel, gpu_ctx->GetCommandQueue(), ep_kernel,
-                                   1, NULL, &num_pixels, NULL,
-                                   num_wait_events, wait_events, &e);
+  gpu_ctx->EnqueueOpenCLKernel<1>(
+    // Kernel to run...
+    GenTC::kOpenCLKernels[GenTC::eOpenCLKernel_Endpoints], "collect_endpoints",
+
+    // Work size (global and local)
+    &num_pixels, NULL,
+
+    // Events to depend on and return
+    num_wait_events, wait_events, &e,
+
+    // Kernel arguments
+    y.output, co.output, cg.output, dst, endpoint_index);
 
   // Release events we don't need anymore
   for (size_t i = 0; i < num_wait_events; ++i) {
@@ -303,12 +297,6 @@ static cl_event DecodeIndices(const std::unique_ptr<GPUContext> &gpu_ctx, cl_mem
   CLKernelResult palette = DecodeANS(gpu_ctx, init_event, palette_cmp_data);
   CLKernelResult indices = DecodeANS(gpu_ctx, init_event, indices_cmp_data);
 
-  cl_kernel idx_kernel = gpu_ctx->GetOpenCLKernel(
-    GenTC::kOpenCLKernels[GenTC::eOpenCLKernel_DecodeIndices], "decode_indices");
-
-  CHECK_CL(clSetKernelArg, idx_kernel, 0, sizeof(indices.output), &indices.output);
-  CHECK_CL(clSetKernelArg, idx_kernel, 2, sizeof(dst), &dst);
-
   static const size_t kLocalScanSz = 128;
   static const size_t kLocalScanSzLog = 7;
   
@@ -323,7 +311,6 @@ static cl_event DecodeIndices(const std::unique_ptr<GPUContext> &gpu_ctx, cl_mem
   size_t num_vals = num_pixels;
   while (num_vals > 1) {
     stage++;
-    CHECK_CL(clSetKernelArg, idx_kernel, 1, sizeof(stage), &stage);
 
     cl_event next_event;
     cl_uint num_events = static_cast<cl_uint>(e.size()) - event_idx;
@@ -336,21 +323,24 @@ static cl_event DecodeIndices(const std::unique_ptr<GPUContext> &gpu_ctx, cl_mem
       CL_KERNEL_WORK_GROUP_SIZE));
 #endif
 
-    CHECK_CL(clEnqueueNDRangeKernel, gpu_ctx->GetCommandQueue(), idx_kernel,
-                                     1, NULL, &num_vals, &local_work_sz,
-                                     num_events, e.data() + event_idx,
-                                     &next_event);
+    gpu_ctx->EnqueueOpenCLKernel<1>(
+      // Kernel to run...
+      GenTC::kOpenCLKernels[GenTC::eOpenCLKernel_DecodeIndices], "decode_indices",
+
+      // Work size (global and local)
+      &num_vals, &local_work_sz,
+
+      // Events to depend on and return
+      num_events, e.data() + event_idx, &next_event,
+
+      // Kernel arguments
+      indices.output, stage, dst);
 
     num_vals >>= kLocalScanSzLog;
     event_idx += num_events;
     e.push_back(next_event);
   }
 
-  cl_kernel final_kernel = gpu_ctx->GetOpenCLKernel(
-    GenTC::kOpenCLKernels[GenTC::eOpenCLKernel_DecodeIndices], "collect_indices");
-
-  CHECK_CL(clSetKernelArg, final_kernel, 0, sizeof(palette.output), &palette.output);
-  CHECK_CL(clSetKernelArg, final_kernel, 2, sizeof(dst), &dst);
   for (size_t i = 0; i < palette.num_events; ++i) {
     e.push_back(palette.output_events[i]);
   }
@@ -365,11 +355,20 @@ static cl_event DecodeIndices(const std::unique_ptr<GPUContext> &gpu_ctx, cl_mem
 
     cl_event next_event;
     cl_uint num_events = static_cast<cl_uint>(e.size()) - event_idx;
-    CHECK_CL(clSetKernelArg, final_kernel, 1, sizeof(stage), &stage);
-    CHECK_CL(clEnqueueNDRangeKernel, gpu_ctx->GetCommandQueue(), final_kernel,
-                                     1, NULL, &num_vals, &kLocalScanSz,
-                                     num_events, e.data() + event_idx,
-                                     &next_event);
+
+    gpu_ctx->EnqueueOpenCLKernel<1>(
+      // Kernel to run...
+      GenTC::kOpenCLKernels[GenTC::eOpenCLKernel_DecodeIndices], "collect_indices",
+
+      // Work size (global and local)
+      &num_vals, &kLocalScanSz,
+
+      // Events to depend on and return
+      num_events, e.data() + event_idx, &next_event,
+
+      // Kernel arguments
+      palette.output, stage, dst);
+
     event_idx += num_events;
     e.push_back(next_event);
     stage--;
@@ -765,9 +764,11 @@ static void DecompressToPBO(const std::unique_ptr<gpu::GPUContext> &gpu_ctx,
 void LoadCompressedDXTInto(const std::unique_ptr<gpu::GPUContext> &gpu_ctx,
                            const std::vector<uint8_t> &cmp_data,
                            GLuint pbo, GLuint texID) {
-  uint32_t width, height;
-  PeekWidthHeight(cmp_data, &width, &height);
-  size_t dxt_size = (width * height) / 2;
+  uint32_t _width, _height;
+  PeekWidthHeight(cmp_data, &_width, &_height);
+  GLsizei width = static_cast<GLsizei>(_width);
+  GLsizei height = static_cast<GLsizei>(_height);
+  GLsizei dxt_size = (width * height) / 2;
 
   DecompressToPBO(gpu_ctx, cmp_data, NULL, pbo);
 
@@ -796,9 +797,11 @@ void LoadCompressedDXTInto(const std::unique_ptr<gpu::GPUContext> &gpu_ctx,
 
 GLuint LoadCompressedDXT(const std::unique_ptr<gpu::GPUContext> &gpu_ctx,
                          const std::vector<uint8_t> &cmp_data, GLuint pbo) {
-  uint32_t width, height;
-  PeekWidthHeight(cmp_data, &width, &height);
-  size_t dxt_size = (width * height) / 2;
+  uint32_t _width, _height;
+  PeekWidthHeight(cmp_data, &_width, &_height);
+  GLsizei width = static_cast<GLsizei>(_width);
+  GLsizei height = static_cast<GLsizei>(_height);
+  GLsizei dxt_size = (width * height) / 2;
 
   DecompressToPBO(gpu_ctx, cmp_data, NULL, pbo);
 
@@ -872,12 +875,15 @@ GLuint CompressedDXTAsyncRequest::TextureHandle() const {
 void CompressedDXTAsyncRequest::LoadTexture() {
   assert(_data->loaded);
 
+  GLsizei width = static_cast<GLsizei>(_data->width);
+  GLsizei height = static_cast<GLsizei>(_data->height);
+  GLsizei dxt_size = (width * height) / 2;
+
   // Initialize the texture...
-  size_t dxt_size = (_data->width * _data->height) / 2;
   CHECK_GL(glBindBuffer, GL_PIXEL_UNPACK_BUFFER, _data->pbo);
   CHECK_GL(glBindTexture, GL_TEXTURE_2D, _data->texID);
-  CHECK_GL(glCompressedTexImage2D, GL_TEXTURE_2D, 1, GL_COMPRESSED_RGB_S3TC_DXT1_EXT,
-                                   _data->width, _data->height, 0, dxt_size, 0);
+  CHECK_GL(glCompressedTexImage2D, GL_TEXTURE_2D, 0, GL_COMPRESSED_RGB_S3TC_DXT1_EXT,
+                                   width, height, 0, dxt_size, 0);
   CHECK_GL(glTexParameteri, GL_TEXTURE_2D, GL_TEXTURE_BASE_LEVEL, 0);
   CHECK_GL(glTexParameteri, GL_TEXTURE_2D, GL_TEXTURE_MAX_LEVEL, 0);
   CHECK_GL(glTexParameteri, GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
@@ -927,6 +933,7 @@ CompressedDXTAsyncRequest LoadCompressedDXTAsync(
   data.height = height;
   data.texID = texID;
   data.pbo = pbo;
+  data.loaded = false;
   data.user_fn = callback;
 
   CompressedDXTAsyncRequest req(data);

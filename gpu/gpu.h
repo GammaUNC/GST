@@ -66,9 +66,46 @@ namespace gpu {
       return reinterpret_cast<const T *>(ret_buffer)[0];
     }
 
+    struct LocalMemoryKernelArg {
+      size_t _local_mem_sz;
+    };
+
+    template<cl_uint WorkDim, typename... Args>
+    void EnqueueOpenCLKernel(const std::string &filename, const std::string &kernel,
+                             const size_t *global_sz, const size_t *local_sz,
+                             cl_uint num_events, const cl_event *events, cl_event *ret_event,
+                             Args... kernel_args) {
+      cl_kernel k = GetOpenCLKernel(filename, kernel);
+      SetArgument(k, 0, kernel_args...);
+      CHECK_CL(clEnqueueNDRangeKernel, GetCommandQueue(), k,
+                                       WorkDim, NULL, global_sz, local_sz,
+                                       num_events, events, ret_event);
+    }
+
   private:
     GPUContext() { }
     GPUContext(const GPUContext &);
+
+    void SetArgument(cl_kernel kernel, unsigned idx, LocalMemoryKernelArg mem) {
+      CHECK_CL(clSetKernelArg, kernel, idx, mem._local_mem_sz, NULL);
+    }
+
+    template<typename T>
+    void SetArgument(cl_kernel kernel, unsigned idx, T arg) {
+      CHECK_CL(clSetKernelArg, kernel, idx, sizeof(T), &arg);
+    }
+
+    template<typename T, typename... Args>
+    void SetArgument(cl_kernel kernel, unsigned idx, T arg, Args... rest) {
+      CHECK_CL(clSetKernelArg, kernel, idx, sizeof(T), &arg);
+      SetArgument(kernel, idx + 1, rest...);
+    }
+
+    template<typename... Args>
+    void SetArgument(cl_kernel kernel, unsigned idx, LocalMemoryKernelArg arg, Args... rest) {
+      CHECK_CL(clSetKernelArg, kernel, idx, arg._local_mem_sz, NULL);
+      SetArgument(kernel, idx + 1, rest...);
+    }
 
     cl_command_queue _command_queue;
     cl_device_id _device;
