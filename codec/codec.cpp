@@ -747,6 +747,7 @@ static void DecompressToPBO(const std::unique_ptr<gpu::GPUContext> &gpu_ctx,
   // Block if we don't have anyone to wait on us...
   if (e == NULL) {
     CHECK_CL(clWaitForEvents, 1, &release_event);
+    CHECK_CL(clReleaseEvent, release_event);
   }
 
   // Cleanup
@@ -755,10 +756,6 @@ static void DecompressToPBO(const std::unique_ptr<gpu::GPUContext> &gpu_ctx,
   }
   CHECK_CL(clReleaseMemObject, decmp.output);
   CHECK_CL(clReleaseEvent, acquire_event);
-
-  if (e == NULL) {
-    CHECK_CL(clReleaseEvent, release_event);
-  }
 }
 
 void LoadCompressedDXTInto(const std::unique_ptr<gpu::GPUContext> &gpu_ctx,
@@ -784,7 +781,7 @@ void LoadCompressedDXTInto(const std::unique_ptr<gpu::GPUContext> &gpu_ctx,
   assert ( query == GL_TRUE );
 
   CHECK_GL(glGetTexLevelParameteriv, GL_TEXTURE_2D, 0, GL_TEXTURE_COMPRESSED_IMAGE_SIZE, &query);
-  assert ( static_cast<size_t>(query) == dxt_size );
+  assert ( query == dxt_size );
 
   CHECK_GL(glGetTexLevelParameteriv, GL_TEXTURE_2D, 0, GL_TEXTURE_INTERNAL_FORMAT, &query);
   assert ( query == GL_COMPRESSED_RGB_S3TC_DXT1_EXT );
@@ -816,7 +813,7 @@ void InitializeDXTFromPBO(GLsizei w, GLsizei h, GLuint texID, GLuint pbo) {
   assert(query == GL_TRUE);
 
   CHECK_GL(glGetTexLevelParameteriv, GL_TEXTURE_2D, 0, GL_TEXTURE_COMPRESSED_IMAGE_SIZE, &query);
-  assert(static_cast<size_t>(query) == dxt_size);
+  assert(query == dxt_size);
 
   CHECK_GL(glGetTexLevelParameteriv, GL_TEXTURE_2D, 0, GL_TEXTURE_INTERNAL_FORMAT, &query);
   assert(query == GL_COMPRESSED_RGB_S3TC_DXT1_EXT);
