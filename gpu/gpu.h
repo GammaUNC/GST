@@ -19,6 +19,7 @@
 #include <cstdio>
 #include <cassert>
 #include <memory>
+#include <mutex>
 #include <vector>
 
 namespace gpu {
@@ -75,6 +76,7 @@ namespace gpu {
                              const size_t *global_sz, const size_t *local_sz,
                              cl_uint num_events, const cl_event *events, cl_event *ret_event,
                              Args... kernel_args) {
+      std::unique_lock<std::mutex> lock(_enqueue_mutex);
       cl_kernel k = GetOpenCLKernel(filename, kernel);
       SetArgument(k, 0, kernel_args...);
       CHECK_CL(clEnqueueNDRangeKernel, GetCommandQueue(), k,
@@ -110,6 +112,8 @@ namespace gpu {
     cl_command_queue _command_queue;
     cl_device_id _device;
     cl_context _ctx;
+
+    std::mutex _enqueue_mutex;
 
     EContextType _type;
   };

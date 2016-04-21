@@ -1,6 +1,7 @@
 #ifndef __GPU_KERNEL_CACHE_H__
 #define __GPU_KERNEL_CACHE_H__
 
+#include <mutex>
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -26,6 +27,8 @@ private:
   EContextType _ctx_ty;
 
   cl_device_id _device;
+
+  std::mutex _kernel_creation_mutex;
 
   struct GPUProgram {
     cl_program _prog;

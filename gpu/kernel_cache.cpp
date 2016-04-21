@@ -126,6 +126,7 @@ void GPUKernelCache::Clear() {
 }
 
 cl_kernel GPUKernelCache::GetKernel(const std::string &filename, const std::string &kernel) {
+  std::unique_lock<std::mutex> lock(_kernel_creation_mutex);
   if (_programs.find(filename) == _programs.end()) {
     _programs[filename]._prog =
       CompileProgram(filename.c_str(), _ctx, _ctx_ty, _device);

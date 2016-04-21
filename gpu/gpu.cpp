@@ -165,7 +165,8 @@ static cl_platform_id GetCLPlatform() {
   static int platform_idx = -1;
 
   CHECK_CL(clGetPlatformIDs, kMaxPlatforms, platforms, &nPlatforms);
-#ifdef NDEBUG
+#if 0
+//#ifdef NDEBUG
   platform_idx = 0;
 #else
   if (platform_idx < 0) {

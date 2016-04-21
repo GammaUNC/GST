@@ -122,7 +122,7 @@ static CLKernelResult DecodeANS(const std::unique_ptr<GPUContext> &gpu_ctx,
 
   cl_uint data_sz = reinterpret_cast<const cl_uint *>(data)[num_offsets - 1];
   cl_mem data_buf = clCreateBuffer(ctx, GetHostReadOnlyFlags(), data_sz,
-    const_cast<cl_uchar *>(data), &errCreateBuffer);
+                                   const_cast<cl_uchar *>(data), &errCreateBuffer);
   CHECK_CL((cl_int), errCreateBuffer);
 
   // Allocate 256 * num interleaved slots for result
@@ -795,22 +795,14 @@ void LoadCompressedDXTInto(const std::unique_ptr<gpu::GPUContext> &gpu_ctx,
   CHECK_GL(glBindTexture, GL_TEXTURE_2D, 0);
 }
 
-GLuint LoadCompressedDXT(const std::unique_ptr<gpu::GPUContext> &gpu_ctx,
-                         const std::vector<uint8_t> &cmp_data, GLuint pbo) {
-  uint32_t _width, _height;
-  PeekWidthHeight(cmp_data, &_width, &_height);
-  GLsizei width = static_cast<GLsizei>(_width);
-  GLsizei height = static_cast<GLsizei>(_height);
-  GLsizei dxt_size = (width * height) / 2;
-
-  DecompressToPBO(gpu_ctx, cmp_data, NULL, pbo);
-
-  GLuint texID;
-  CHECK_GL(glGenTextures, 1, &texID);
+void InitializeDXTFromPBO(GLsizei w, GLsizei h, GLuint texID, GLuint pbo) {
+  const GLsizei dxt_size = (w * h) / 2;
 
   // Initialize the texture...
+  CHECK_GL(glBindBuffer, GL_PIXEL_UNPACK_BUFFER, pbo);
   CHECK_GL(glBindTexture, GL_TEXTURE_2D, texID);
-  CHECK_GL(glTexStorage2D, GL_TEXTURE_2D, 1, GL_COMPRESSED_RGB_S3TC_DXT1_EXT, width, height);
+  CHECK_GL(glCompressedTexImage2D, GL_TEXTURE_2D, 0, GL_COMPRESSED_RGB_S3TC_DXT1_EXT, 
+                                   w, h, 0, dxt_size, 0);
   CHECK_GL(glTexParameteri, GL_TEXTURE_2D, GL_TEXTURE_BASE_LEVEL, 0);
   CHECK_GL(glTexParameteri, GL_TEXTURE_2D, GL_TEXTURE_MAX_LEVEL, 0);
   CHECK_GL(glTexParameteri, GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
@@ -818,33 +810,41 @@ GLuint LoadCompressedDXT(const std::unique_ptr<gpu::GPUContext> &gpu_ctx,
   CHECK_GL(glTexParameteri, GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
   CHECK_GL(glTexParameteri, GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
 
-  // Copy to the newly created texture
-  CHECK_GL(glBindBuffer, GL_PIXEL_UNPACK_BUFFER, pbo);
-  CHECK_GL(glCompressedTexSubImage2D, GL_TEXTURE_2D, 0, 0, 0, width, height,
-                                      GL_COMPRESSED_RGB_S3TC_DXT1_EXT, dxt_size, 0);
-  
 #ifndef NDEBUG
   GLint query;
   CHECK_GL(glGetTexLevelParameteriv, GL_TEXTURE_2D, 0, GL_TEXTURE_COMPRESSED, &query);
-  assert ( query == GL_TRUE );
+  assert(query == GL_TRUE);
 
   CHECK_GL(glGetTexLevelParameteriv, GL_TEXTURE_2D, 0, GL_TEXTURE_COMPRESSED_IMAGE_SIZE, &query);
-  assert ( static_cast<size_t>(query) == dxt_size );
+  assert(static_cast<size_t>(query) == dxt_size);
 
   CHECK_GL(glGetTexLevelParameteriv, GL_TEXTURE_2D, 0, GL_TEXTURE_INTERNAL_FORMAT, &query);
-  assert ( query == GL_COMPRESSED_RGB_S3TC_DXT1_EXT );
+  assert(query == GL_COMPRESSED_RGB_S3TC_DXT1_EXT);
 #endif
 
   // Unbind the textures
   CHECK_GL(glBindBuffer, GL_PIXEL_UNPACK_BUFFER, 0);
   CHECK_GL(glBindTexture, GL_TEXTURE_2D, 0);
+}
+
+GLuint LoadCompressedDXT(const std::unique_ptr<gpu::GPUContext> &gpu_ctx,
+                         const std::vector<uint8_t> &cmp_data, GLuint pbo) {
+  uint32_t _width, _height;
+  PeekWidthHeight(cmp_data, &_width, &_height);
+
+  DecompressToPBO(gpu_ctx, cmp_data, NULL, pbo);
+
+  GLuint texID;
+  CHECK_GL(glGenTextures, 1, &texID);
+
+  InitializeDXTFromPBO(static_cast<GLsizei>(_width), static_cast<GLsizei>(_height), texID, pbo);
 
   return texID;
 }
 
 struct AsyncCallbackData {
-  uint32_t width;
-  uint32_t height;
+  GLsizei width;
+  GLsizei height;
   GLuint texID;
   GLuint pbo;
 
@@ -860,9 +860,20 @@ void CL_CALLBACK LoadTextureCallback(cl_event e, cl_int status, void *data) {
   cbdata->user_fn();
 }
 
-CompressedDXTAsyncRequest::CompressedDXTAsyncRequest(const AsyncCallbackData &data)
-  : _data(new AsyncCallbackData(data))
-{ }
+CompressedDXTAsyncRequest::CompressedDXTAsyncRequest()
+  : _data(new AsyncCallbackData)
+{
+  _data->loaded = false;
+}
+
+void CompressedDXTAsyncRequest::SetData(GLuint pbo, GLuint texID, GLsizei w, GLsizei h, std::function<void()> callback) {
+  _data->width = w;
+  _data->height = h;
+  _data->texID = texID;
+  _data->pbo = pbo;
+  _data->loaded = false;
+  _data->user_fn = callback;
+}
 
 bool CompressedDXTAsyncRequest::IsReady() const {
   return _data->loaded;
@@ -877,74 +888,25 @@ void CompressedDXTAsyncRequest::LoadTexture() {
 
   GLsizei width = static_cast<GLsizei>(_data->width);
   GLsizei height = static_cast<GLsizei>(_data->height);
-  GLsizei dxt_size = (width * height) / 2;
-
-  // Initialize the texture...
-  CHECK_GL(glBindBuffer, GL_PIXEL_UNPACK_BUFFER, _data->pbo);
-  CHECK_GL(glBindTexture, GL_TEXTURE_2D, _data->texID);
-  CHECK_GL(glCompressedTexImage2D, GL_TEXTURE_2D, 0, GL_COMPRESSED_RGB_S3TC_DXT1_EXT,
-                                   width, height, 0, dxt_size, 0);
-  CHECK_GL(glTexParameteri, GL_TEXTURE_2D, GL_TEXTURE_BASE_LEVEL, 0);
-  CHECK_GL(glTexParameteri, GL_TEXTURE_2D, GL_TEXTURE_MAX_LEVEL, 0);
-  CHECK_GL(glTexParameteri, GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
-  CHECK_GL(glTexParameteri, GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
-  CHECK_GL(glTexParameteri, GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-  CHECK_GL(glTexParameteri, GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
-
-#ifndef NDEBUG
-  GLint query;
-  CHECK_GL(glGetTexLevelParameteriv, GL_TEXTURE_2D, 0, GL_TEXTURE_COMPRESSED, &query);
-  assert ( query == GL_TRUE );
-
-  CHECK_GL(glGetTexLevelParameteriv, GL_TEXTURE_2D, 0, GL_TEXTURE_COMPRESSED_IMAGE_SIZE, &query);
-  assert ( static_cast<size_t>(query) == dxt_size );
-
-  CHECK_GL(glGetTexLevelParameteriv, GL_TEXTURE_2D, 0, GL_TEXTURE_INTERNAL_FORMAT, &query);
-  assert ( query == GL_COMPRESSED_RGB_S3TC_DXT1_EXT );
-#endif
+  InitializeDXTFromPBO(width, height, _data->texID, _data->pbo);
 
   CHECK_GL(glDeleteBuffers, 1, &(_data->pbo));
   _data->loaded = false;
 }
 
-CompressedDXTAsyncRequest LoadCompressedDXTAsync(
+void LoadCompressedDXTAsync(
   const std::unique_ptr<gpu::GPUContext> &gpu_ctx,
   const std::vector<uint8_t> &cmp_data,
-  std::function<void()> callback) {
-
-  uint32_t width, height;
-  PeekWidthHeight(cmp_data, &width, &height);
-  size_t dxt_size = (width * height) / 2;
-
-  GLuint pbo;
-  CHECK_GL(glGenBuffers, 1, &pbo);
-  CHECK_GL(glBindBuffer, GL_PIXEL_UNPACK_BUFFER, pbo);
-  CHECK_GL(glBufferData, GL_PIXEL_UNPACK_BUFFER, dxt_size, NULL, GL_DYNAMIC_DRAW);
-  CHECK_GL(glBindBuffer, GL_PIXEL_UNPACK_BUFFER, 0);
+  const CompressedDXTAsyncRequest *req) {
 
   cl_event e;
-  DecompressToPBO(gpu_ctx, cmp_data, &e, pbo);
-
-  GLuint texID;
-  CHECK_GL(glGenTextures, 1, &texID);
-
-  AsyncCallbackData data;
-  data.width = width;
-  data.height = height;
-  data.texID = texID;
-  data.pbo = pbo;
-  data.loaded = false;
-  data.user_fn = callback;
-
-  CompressedDXTAsyncRequest req(data);
+  DecompressToPBO(gpu_ctx, cmp_data, &e, req->_data->pbo);
 
   // Set the callback...
-  CHECK_CL(clSetEventCallback, e, CL_COMPLETE, LoadTextureCallback, req._data.get());
+  CHECK_CL(clSetEventCallback, e, CL_COMPLETE, LoadTextureCallback, req->_data.get());
 
   // Release event
   CHECK_CL(clReleaseEvent, e);
-
-  return req;
 }
 
 }
