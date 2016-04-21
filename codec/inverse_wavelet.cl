@@ -56,7 +56,7 @@ void InverseWaveletOdd(__local int *src, __local int *scratch,
 // dictates how big the dimensions are of the 
 
 __kernel void inv_wavelet(const __global uchar *wavelet_data,
-					      const          int    value_offset,
+                          const          int    value_offset,
                                 __local  int   *local_data,
                                 __global char  *out_data)
 {

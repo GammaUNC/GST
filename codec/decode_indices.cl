@@ -4,14 +4,14 @@
 #define LOCAL_SCAN_SIZE 128
 
 __kernel void decode_indices(const __global uchar *index_data,
-							 int stage, __global int *out) {
+                             int stage, __global int *out) {
   __local int scratch[LOCAL_SCAN_SIZE];
 
   // First read in data
   uint idx_offset = (1 << (stage * LOCAL_SCAN_SIZE_LOG));
   uint gidx = idx_offset * (get_global_id(0) + 1) - 1;
   if (0 == stage) {
-	scratch[get_local_id(0)] = (int)(index_data[get_global_id(0)]) - 128;
+    scratch[get_local_id(0)] = (int)(index_data[get_global_id(0)]) - 128;
   } else {
     scratch[get_local_id(0)] = out[2 * gidx + 1];
   }
@@ -46,7 +46,7 @@ __kernel void decode_indices(const __global uchar *index_data,
 }
 
 __kernel void collect_indices(const __global int *palette,
-							  int stage, __global int *out) {
+                              int stage, __global int *out) {
   // !SPEED! This should really just be two separate kernels
   if (0 == stage) {
     uint idx = 2 * get_global_id(0) + 1;
