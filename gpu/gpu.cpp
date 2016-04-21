@@ -150,6 +150,28 @@ static std::vector<cl_context_properties> GetSharedCLGLProps() {
   return std::move(props);
 }
 
+std::vector<std::string> GetPlatformExtensions(cl_platform_id id) {
+  size_t strLen;
+  static const size_t kStrBufSz = 1024;
+  char strBuf[kStrBufSz];
+
+  std::vector<std::string> extensions;
+  CHECK_CL(clGetPlatformInfo, id, CL_PLATFORM_EXTENSIONS, kStrBufSz, strBuf, &strLen);
+  for (size_t k = 0; k < strLen; ++k) {
+    if (strBuf[k] == ',' || strBuf[k] == ' ') {
+      strBuf[k] = '\0';
+    }
+  }
+
+  for (size_t k = 1; k < strLen; ++k) {
+    if (strBuf[k] == '\0' && k < strLen - 1) {
+      extensions.push_back(std::string(strBuf + k + 1));
+    }
+  }
+
+  return std::move(extensions);
+}
+
 static void CreateCLContext(cl_context *result, const cl_context_properties *props,
                             cl_device_id device) {
   cl_int errCreateContext;
@@ -158,32 +180,36 @@ static void CreateCLContext(cl_context *result, const cl_context_properties *pro
   CHECK_CL((cl_int), errCreateContext);
 }
 
-static cl_platform_id GetCLPlatform() {
+static cl_platform_id GetCLPlatform(bool share_opengl) {
   const cl_uint kMaxPlatforms = 8;
   cl_platform_id platforms[kMaxPlatforms];
   cl_uint nPlatforms;
   static int platform_idx = -1;
 
   CHECK_CL(clGetPlatformIDs, kMaxPlatforms, platforms, &nPlatforms);
-#ifdef NDEBUG
-  platform_idx = 0;
-#else
-  if (platform_idx < 0) {
-    std::cout << "OpenCL has " << nPlatforms << " platform"
-      << ((nPlatforms != 1) ? "s" : "")
-      << " available. Querying... " << std::endl;
-  }
-  else {
-    return platforms[platform_idx];
-  }
-
-  platform_idx = 0;
 
   size_t strLen;
   static const size_t kStrBufSz = 1024;
-  for (cl_uint i = 0; i < nPlatforms; i++) {
-    char strBuf[kStrBufSz];
+  char strBuf[kStrBufSz];
 
+  if (platform_idx < 0) {
+#ifndef NDEBUG
+    std::cout << "OpenCL has " << nPlatforms << " platform"
+      << ((nPlatforms != 1) ? "s" : "")
+      << " available. Querying... " << std::endl;
+#endif
+  } else {
+    return platforms[platform_idx];
+  }
+
+#ifndef NDEBUG
+  std::vector<cl_uint> platform_priority;
+#endif
+
+  for (cl_uint i = 0; i < nPlatforms; i++) {
+    bool ok = true;
+
+#ifndef NDEBUG
     std::cout << std::endl;
     std::cout << "Platform " << i << " info:" << std::endl;
 
@@ -195,41 +221,70 @@ static cl_platform_id GetCLPlatform() {
 
     CHECK_CL(clGetPlatformInfo, platforms[i], CL_PLATFORM_NAME, kStrBufSz, strBuf, &strLen);
     std::cout << "Platform name: " << strBuf << std::endl;
-
-    bool isCPUOnly = false;
-    if (strstr(strBuf, "CPU Only")) {
-      isCPUOnly = true;
-    }
+#endif
 
     CHECK_CL(clGetPlatformInfo, platforms[i], CL_PLATFORM_VENDOR, kStrBufSz, strBuf, &strLen);
+
+    // Skip Intel platforms in release mode...
+    bool is_cpu = static_cast<bool>(strstr(strBuf, "Intel"));
+
+#ifndef NDEBUG
     std::cout << "Platform vendor: " << strBuf << std::endl;
+#else
+    ok = ok && !is_cpu;
+#endif
 
-    bool isIntel = false;
-    if (strstr(strBuf, "Intel")) {
-      isIntel = true;
-    }
-
-    CHECK_CL(clGetPlatformInfo, platforms[i], CL_PLATFORM_EXTENSIONS, kStrBufSz, strBuf, &strLen);
+    // Make sure that if we want to share opengl we have the extension
+    std::vector<std::string> extensions;
+    bool can_share_opengl = false;
+#ifndef NDEBUG
+    extensions = std::move(GetPlatformExtensions(platforms[i]));
     std::cout << "Platform extensions: " << std::endl;
-    for (size_t k = 0; k < strLen; ++k) {
-      if (strBuf[k] == ',' || strBuf[k] == ' ') {
-        strBuf[k] = '\0';
+    for (const auto &ext : extensions) {
+      std::cout << "  " << ext << std::endl;
+      if (share_opengl) {
+#else
+    if (share_opengl) {    
+      extensions = std::move(GetPlatformExtensions(platforms[i]));
+      for (const auto &ext : extensions) {
+#endif
+
+#ifdef __APPLE__
+        if (ext == std::string("cl_apple_gl_sharing")) {        
+#else
+        if (ext == std::string("cl_khr_gl_sharing")) {
+#endif
+          can_share_opengl = true;
+          break;
+        }
       }
     }
+    ok = ok && (!share_opengl || can_share_opengl);
 
-    std::cout << "  " << strBuf << std::endl;
-    for (size_t k = 1; k < strLen; ++k) {
-      if (strBuf[k] == '\0' && k < strLen - 1) {
-        std::cout << "  " << (strBuf + k + 1) << std::endl;
+    if (ok) {
+#ifndef NDEBUG
+      if (is_cpu) {
+        platform_priority.insert(platform_priority.begin(), i);
+      } else {
+        platform_priority.push_back(i);
       }
-    }
-
-    if (isCPUOnly && isIntel) {
+#else
       platform_idx = i;
+      break;
+#endif
     }
   }
-  std::cout << "Using platform " << platform_idx << std::endl;
+
+#ifndef NDEBUG
+  platform_idx = platform_priority[0];
+  std::cout << std::endl << "Using platform " << platform_idx << std::endl;
 #endif
+
+  if (platform_idx < 0) {
+    assert(false);
+    std::cerr << "No available OpenCL platform found!" << std::endl;
+    exit(1);
+  }
 
   return platforms[platform_idx];
 }
@@ -249,7 +304,7 @@ static cl_device_id GetDeviceForSharedContext(cl_context ctx) {
   getCtxInfoFunc = reinterpret_cast<CtxInfoFunc>(
     clGetExtensionFunctionAddress("clGetGLContextInfoKHR"));
 #else
-  cl_platform_id platform = GetCLPlatform();
+  cl_platform_id platform = GetCLPlatform(true);
   std::vector<cl_context_properties> extra_props = { CL_CONTEXT_PLATFORM, (cl_context_properties)platform };
   extra_props.insert(extra_props.end(), props.begin(), props.end());
   props = extra_props;
@@ -298,7 +353,7 @@ std::unique_ptr<GPUContext> GPUContext::InitializeOpenCL(bool share_opengl) {
   cl_device_id devices[kMaxDevices];
   cl_uint nDevices;
 
-  cl_platform_id platform = GetCLPlatform();
+  cl_platform_id platform = GetCLPlatform(share_opengl);
   CHECK_CL(clGetDeviceIDs, platform, CL_DEVICE_TYPE_ALL, kMaxDevices, devices, &nDevices);
 
   cl_device_type device_type;
