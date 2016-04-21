@@ -695,8 +695,8 @@ bool TestDXT(const std::unique_ptr<gpu::GPUContext> &gpu_ctx,
       reinterpret_cast<const PhysicalDXTBlock *>(decmp_data.data() + i * 8);
     if (memcmp(&blks[i], blk, 8) != 0) {
       std::cout << "Bad block: " << i << std::endl;
-      printf("Original block: 0x%lx\n", blks[i].dxt_block);
-      printf("Compressed block: 0x%lx\n", blk->dxt_block);
+      printf("Original block: 0x%lx\n", static_cast<unsigned long>(blks[i].dxt_block));
+      printf("Compressed block: 0x%lx\n", static_cast<unsigned long>(blk->dxt_block));
       return false;
     }
   }

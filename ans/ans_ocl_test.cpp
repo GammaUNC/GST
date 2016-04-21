@@ -75,7 +75,8 @@ TEST(ANS_OpenCL, Initialization) {
   for (size_t i = 0; i < normalized_F.size(); ++i) {
     for (uint32_t j = 0; j < normalized_F[i]; ++j) {
       expected_symbols[sum + j] = static_cast<cl_uchar>(i);
-      expected_frequencies[sum + j] = normalized_F[i];
+	  assert(normalized_F[i] < std::numeric_limits<cl_ushort>::max());
+      expected_frequencies[sum + j] = static_cast<cl_ushort>(normalized_F[i]);
       expected_cumulative_frequencies[sum + j] = sum;
     }
     sum += normalized_F[i];
@@ -119,7 +120,8 @@ TEST(ANS_OpenCL, TableRebuilding) {
   for (size_t i = 0; i < normalized_F.size(); ++i) {
     for (uint32_t j = 0; j < normalized_F[i]; ++j) {
       expected_symbols[sum + j] = static_cast<cl_uchar>(i);
-      expected_frequencies[sum + j] = normalized_F[i];
+	  assert(normalized_F[i] < std::numeric_limits<cl_ushort>::max());
+	  expected_frequencies[sum + j] = static_cast<cl_ushort>(normalized_F[i]);
       expected_cumulative_frequencies[sum + j] = sum;
     }
     sum += normalized_F[i];

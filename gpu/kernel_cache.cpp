@@ -9,7 +9,7 @@ static cl_int clUnloadCompiler11(cl_platform_id) {
 }
 #endif
 
-typedef cl_int(*clUnloadCompilerFunc)(cl_platform_id);
+typedef cl_int(STDCALL *clUnloadCompilerFunc)(cl_platform_id);
 
 #ifdef CL_VERSION_1_2
 static const clUnloadCompilerFunc gUnloadCompilerFunc = clUnloadPlatformCompiler;

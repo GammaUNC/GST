@@ -32,7 +32,6 @@
 #endif  // _MSC_VER
 
 #include "gpu.h"
-#include "config.h"
 #include "codec.h"
 
 #include "ctpl/ctpl_stl.h"
@@ -192,7 +191,7 @@ static std::vector<uint8_t> LoadFile(const std::string &filePath) {
   }
 
   is.seekg(0, is.end);
-  size_t length = is.tellg();
+  size_t length = static_cast<size_t>(is.tellg());
   is.seekg(0, is.beg);
 
   std::vector<uint8_t> cmp_data(length);

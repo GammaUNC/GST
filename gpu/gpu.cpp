@@ -17,7 +17,7 @@
 
 namespace gpu {
 
-static void ContextErrorCallback(const char *errinfo, const void *, size_t, void *) {
+static void STDCALL ContextErrorCallback(const char *errinfo, const void *, size_t, void *) {
   fprintf(stderr, "Context error: %s\n", errinfo);
   assert(false);
   exit(1);
@@ -226,7 +226,7 @@ static cl_platform_id GetCLPlatform(bool share_opengl) {
     CHECK_CL(clGetPlatformInfo, platforms[i], CL_PLATFORM_VENDOR, kStrBufSz, strBuf, &strLen);
 
     // Skip Intel platforms in release mode...
-    bool is_cpu = static_cast<bool>(strstr(strBuf, "Intel"));
+    bool is_cpu = strstr(strBuf, "Intel") != NULL;
 
 #ifndef NDEBUG
     std::cout << "Platform vendor: " << strBuf << std::endl;

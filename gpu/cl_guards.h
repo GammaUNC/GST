@@ -63,7 +63,8 @@ static inline const char *clErrMsg(cl_int err) {
 
     // extension errors
   case CL_INVALID_GL_SHAREGROUP_REFERENCE_KHR: errMsg = "Invalid GL sharegroup reference"; break;
-#ifdef _MSC_VER
+#if 0 // We don't need these yet, but I don't want to go digging if/when we do.
+//#ifdef _MSC_VER
   case CL_INVALID_D3D10_DEVICE_KHR:            errMsg = "Invalid D3D10 Device"; break;
   case CL_INVALID_D3D10_RESOURCE_KHR:          errMsg = "Invalid D3D10 Resource"; break;
   case CL_D3D10_RESOURCE_ALREADY_ACQUIRED_KHR: errMsg = "D3D10 Resource already acquired"; break;

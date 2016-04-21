@@ -124,7 +124,7 @@ void LoadGTC(const std::unique_ptr<gpu::GPUContext> &ctx,
   }
 
   is.seekg(0, is.end);
-  size_t length = is.tellg();
+  size_t length = static_cast<size_t>(is.tellg());
   is.seekg(0, is.beg);
 
   std::vector<uint8_t> cmp_data(length);

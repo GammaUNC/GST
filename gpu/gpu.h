@@ -14,6 +14,12 @@
 #  include <CL/cl_gl_ext.h>
 #endif
 
+#ifdef _MSC_VER
+#define STDCALL __stdcall
+#else
+#define STDCALL
+#endif
+
 #include "cl_guards.h"
 
 #include <cstdio>
