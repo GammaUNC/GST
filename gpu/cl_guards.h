@@ -54,6 +54,21 @@ static inline const char *clErrMsg(cl_int err) {
 #ifndef __APPLE__
   case CL_PLATFORM_NOT_FOUND_KHR:          errMsg = "Platform not found"; break;
 #endif
+
+  case CL_INVALID_PROPERTY:                errMsg = "Invalid Property"; break;
+  case CL_INVALID_IMAGE_DESCRIPTOR:        errMsg = "Invalid image descriptor"; break;
+  case CL_INVALID_COMPILER_OPTIONS:        errMsg = "Invalid compiler options"; break;
+  case CL_INVALID_LINKER_OPTIONS:          errMsg = "Invalid linker options"; break;
+  case CL_INVALID_DEVICE_PARTITION_COUNT:  errMsg = "Invalid device partition count"; break;
+
+    // extension errors
+  case CL_INVALID_GL_SHAREGROUP_REFERENCE_KHR: errMsg = "Invalid GL sharegroup reference"; break;
+#ifdef _MSC_VER
+  case CL_INVALID_D3D10_DEVICE_KHR:            errMsg = "Invalid D3D10 Device"; break;
+  case CL_INVALID_D3D10_RESOURCE_KHR:          errMsg = "Invalid D3D10 Resource"; break;
+  case CL_D3D10_RESOURCE_ALREADY_ACQUIRED_KHR: errMsg = "D3D10 Resource already acquired"; break;
+  case CL_D3D10_RESOURCE_NOT_ACQUIRED_KHR:     errMsg = "D3D10 Resource not acquired"; break;
+#endif
   }
 
   return errMsg;
