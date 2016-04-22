@@ -234,14 +234,14 @@ ByteEncoder::EncodeBytes::Run(const ByteEncoder::Base::ArgType &in) const {
   }
 
   DataStream hdr;
-  hdr.WriteByte(static_cast<uint8_t>(non_zero_counts));
+  hdr.WriteInt(static_cast<uint32_t>(non_zero_counts));
   for (auto c : counts) {
     assert(static_cast<uint64_t>(c) < (1ULL << 32));
     hdr.WriteInt(c);
   }
 
   assert(offsets.size() < 256);
-  hdr.WriteByte(static_cast<uint8_t>(offsets.size()));
+  hdr.WriteInt(static_cast<uint32_t>(offsets.size()));
   for (auto off : offsets) {
     assert(static_cast<uint64_t>(off) < (1ULL << 32));
     hdr.WriteInt(static_cast<uint32_t>(off));
@@ -257,7 +257,7 @@ ByteEncoder::EncodeBytes::Run(const ByteEncoder::Base::ArgType &in) const {
 ByteEncoder::Base::ReturnType
 ByteEncoder::DecodeBytes::Run(const ByteEncoder::Base::ArgType &in) const {
   DataStream hdr(*(in.get()));
-  uint8_t num_unique_symbols = hdr.ReadByte();
+  uint8_t num_unique_symbols = hdr.ReadInt();
 
   std::vector<uint32_t> counts;
   counts.reserve(num_unique_symbols);
@@ -266,7 +266,7 @@ ByteEncoder::DecodeBytes::Run(const ByteEncoder::Base::ArgType &in) const {
     counts.push_back(hdr.ReadInt());
   }
 
-  uint32_t num_offsets = hdr.ReadByte();
+  uint32_t num_offsets = hdr.ReadInt();
 
   std::vector<uint32_t> offsets;
   offsets.reserve(num_offsets);

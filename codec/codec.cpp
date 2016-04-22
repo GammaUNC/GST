@@ -50,15 +50,8 @@ static CLKernelResult DecodeANS(const std::unique_ptr<GPUContext> &gpu_ctx,
   cl_context ctx = gpu_ctx->GetOpenCLContext();
 
   // First get the number of frequencies...
-  cl_uint num_freqs = static_cast<cl_uint>(data[0]);
-
-  // Check for overflowed (i.e. the max number of symbols)
-  if (num_freqs == 0) {
-    num_freqs = 256;
-  }
-
-  // Advance the pointer
-  data++;
+  cl_uint num_freqs = reinterpret_cast<const cl_uint *>(data)[0];
+  data += sizeof(cl_uint);
 
   // Load all of the frequencies
   cl_uint freqs[256];
@@ -102,10 +95,9 @@ static CLKernelResult DecodeANS(const std::unique_ptr<GPUContext> &gpu_ctx,
   CHECK_CL(clReleaseMemObject, freqs_buffer);
   CHECK_CL(clReleaseMemObject, cum_freqs_buffer);
 
-
   // Load all of the offsets to the different data streams...
-  cl_uint num_offsets = static_cast<cl_uint>(data[0]);
-  data++;
+  cl_uint num_offsets = reinterpret_cast<const cl_uint *>(data)[0];
+  data += sizeof(cl_uint);
 
 #ifndef NDEBUG
   // Make sure we have enough space to use constant buffer...
@@ -532,7 +524,7 @@ static std::vector<uint8_t> CompressDXTImage(const DXTImage &dxt_img) {
   hdr.palette_cmp_sz = palette_cmp->size();
   hdr.indices_cmp_sz = idx_cmp->size();
 
-  std::vector<uint8_t> result(0, sizeof(hdr));
+  std::vector<uint8_t> result(sizeof(hdr), 0);
   memcpy(result.data(), &hdr, sizeof(hdr));
   result.insert(result.end(), ep1_y_cmp->begin(), ep1_y_cmp->end());
   result.insert(result.end(), ep1_co_cmp->begin(), ep1_co_cmp->end());
