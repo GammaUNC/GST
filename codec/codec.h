@@ -62,8 +62,8 @@ namespace GenTC {
   struct AsyncCallbackData;
   class CompressedDXTAsyncRequest {
    public:
-     CompressedDXTAsyncRequest();
-     void SetData(GLuint pbo, GLuint texID, GLsizei w, GLsizei h, std::function<void()> callback);
+    CompressedDXTAsyncRequest();
+    void SetData(GLuint pbo, GLuint texID, GLsizei w, GLsizei h, std::function<void()> callback);
     bool IsReady() const;
     GLuint TextureHandle() const;
     void LoadTexture();

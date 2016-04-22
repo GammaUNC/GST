@@ -51,59 +51,41 @@ static CLKernelResult DecodeANS(const std::unique_ptr<GPUContext> &gpu_ctx,
 
   // First get the number of frequencies...
   cl_uint num_freqs = reinterpret_cast<const cl_uint *>(data)[0];
-  data += sizeof(cl_uint);
-
-  // Load all of the frequencies
-  cl_uint freqs[256];
-  for (cl_uint i = 0; i < num_freqs; ++i) {
-    memcpy(freqs + i, data, sizeof(*freqs));
-    data += sizeof(*freqs);
-  }
-
   cl_mem_flags flags = GetHostReadOnlyFlags();
 
-  // Note: we could do this on the GPU as well, but the array size here is
-  // almost never more than about 256, so the CPU is actually much better
-  // at doing it. We can also stick it in constant memory, which makes the
-  // upload not that bad...
-  cl_uint cum_freqs[256];
-  memset(cum_freqs, 0, sizeof(cum_freqs));
-  std::partial_sum(freqs, freqs + num_freqs - 1, cum_freqs + 1);
-
-  size_t M = static_cast<size_t>(cum_freqs[num_freqs - 1] + freqs[num_freqs - 1]);
-  assert(M == ans::ocl::kANSTableSize);
+  const size_t M = ans::ocl::kANSTableSize;
+  size_t local_work_size = 256;
+  assert(local_work_size <= _gpu_ctx->GetKernelWGInfo<size_t>(
+    kANSOpenCLKernels[eANSOpenCLKernel_BuildTable], "build_table",
+    CL_KERNEL_WORK_GROUP_SIZE));
 
   cl_int errCreateBuffer;
-  cl_mem table = clCreateBuffer(gpu_ctx->GetOpenCLContext(),
-    CL_MEM_READ_WRITE, M * sizeof(AnsTableEntry), NULL, &errCreateBuffer);
+  cl_mem table = clCreateBuffer(gpu_ctx->GetOpenCLContext(), CL_MEM_READ_WRITE,
+                                M * sizeof(AnsTableEntry), NULL, &errCreateBuffer);
   CHECK_CL((cl_int), errCreateBuffer);
 
-  cl_mem freqs_buffer = clCreateBuffer(ctx, flags,
-                                       num_freqs * sizeof(freqs[0]),
-                                       freqs, &errCreateBuffer);
-  CHECK_CL((cl_int), errCreateBuffer);
-
-  const size_t cum_freqs_buf_size = num_freqs * sizeof(cum_freqs[0]);
-  cl_mem cum_freqs_buffer = clCreateBuffer(ctx, flags, cum_freqs_buf_size, cum_freqs, &errCreateBuffer);
+  cl_mem freqs_buffer = clCreateBuffer(ctx, flags, (num_freqs + 1) * 4,
+                                       const_cast<cl_uchar *>(data), &errCreateBuffer);
   CHECK_CL((cl_int), errCreateBuffer);
 
   cl_event build_table_event;
   gpu_ctx->EnqueueOpenCLKernel<1>(ans::kANSOpenCLKernels[ans::eANSOpenCLKernel_BuildTable], "build_table",
-                                  &M, NULL, 1, &init_event, &build_table_event,
-                                  freqs_buffer, cum_freqs_buffer, num_freqs, table);
+                                  &M, &local_work_size,
+                                  1, &init_event, &build_table_event,
+                                  freqs_buffer, table);
 
   CHECK_CL(clReleaseMemObject, freqs_buffer);
-  CHECK_CL(clReleaseMemObject, cum_freqs_buffer);
 
   // Load all of the offsets to the different data streams...
+  data += sizeof(cl_uint) + num_freqs * sizeof(cl_uint);
   cl_uint num_offsets = reinterpret_cast<const cl_uint *>(data)[0];
   data += sizeof(cl_uint);
 
-#ifndef NDEBUG
   // Make sure we have enough space to use constant buffer...
   assert( static_cast<cl_ulong>(M * sizeof(AnsTableEntry)) <
           gpu_ctx->GetDeviceInfo<cl_ulong>(CL_DEVICE_MAX_CONSTANT_BUFFER_SIZE) );
 
+#ifndef NDEBUG
   // Make sure that each offset is a multiple of four, otherwise we won't be getting
   // the values we're expecting in our kernel.
   const cl_uint *debug_offsets = reinterpret_cast<const cl_uint *>(data);

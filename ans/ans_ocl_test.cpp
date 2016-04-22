@@ -106,11 +106,12 @@ TEST(ANS_OpenCL, Initialization) {
 
 TEST(ANS_OpenCL, TableRebuilding) {
   std::vector<uint32_t> F = { 3, 2, 1, 4, 3, 406 };
-  std::vector<uint32_t> new_F = { 80, 300, 2, 14, 1, 1, 1, 20 };
-  std::vector<uint32_t> normalized_F = ans::GenerateHistogram(new_F, kANSTableSize);
-
   OpenCLDecoder decoder(gTestEnv->GetContext(), F, 1);
+
+  std::vector<uint32_t> new_F = { 80, 300, 2, 14, 1, 1, 1, 20 };
   decoder.RebuildTable(new_F);
+
+  std::vector<uint32_t> normalized_F = ans::GenerateHistogram(new_F, kANSTableSize);
 
   std::vector<cl_uchar> expected_symbols(kANSTableSize, 0);
   std::vector<cl_ushort> expected_frequencies(kANSTableSize, 0);

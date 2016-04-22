@@ -68,6 +68,7 @@ namespace ocl {
 
     cl_mem _table;
     cl_event _build_table_event;
+    bool _built_table;
 
     cl_mem_flags GetHostReadOnlyFlags() const {
       #ifdef CL_VERSION_1_2

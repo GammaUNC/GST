@@ -51,6 +51,7 @@ OpenCLDecoder::OpenCLDecoder(
   : _num_interleaved(num_interleaved)
   , _M(kANSTableSize)
   , _gpu_ctx(ctx)
+  , _built_table(false)
 {
   cl_int errCreateBuffer;
   _table = clCreateBuffer(_gpu_ctx->GetOpenCLContext(),
@@ -58,6 +59,7 @@ OpenCLDecoder::OpenCLDecoder(
   CHECK_CL((cl_int), errCreateBuffer);
 
   RebuildTable(F);
+  _built_table = true;
 }
 
 OpenCLDecoder::~OpenCLDecoder() {
@@ -110,48 +112,50 @@ void OpenCLDecoder::RebuildTable(const std::vector<uint32_t> &F) {
   std::vector<cl_uint> freqs = std::move(NormalizeFrequencies(F));
   assert(_M == std::accumulate(freqs.begin(), freqs.end(), 0U));
 
-  cl_kernel build_table_kernel = _gpu_ctx->GetOpenCLKernel(
-    kANSOpenCLKernels[eANSOpenCLKernel_BuildTable], "build_table");
-
-#ifndef NDEBUG
-  size_t work_group_size;
-  CHECK_CL(clGetKernelWorkGroupInfo, build_table_kernel, _gpu_ctx->GetDeviceID(), CL_KERNEL_WORK_GROUP_SIZE,
-    sizeof(size_t), &work_group_size, NULL);
-  assert(work_group_size >= 32);
-#endif
+  size_t work_group_size = 256;
+  assert(work_group_size <= _gpu_ctx->GetKernelWGInfo<size_t>(
+    kANSOpenCLKernels[eANSOpenCLKernel_BuildTable], "build_table",
+    CL_KERNEL_WORK_GROUP_SIZE));
 
   cl_mem_flags flags = GetHostReadOnlyFlags();
   cl_uint num_freqs = static_cast<cl_uint>(freqs.size());
-
-  // Note: we could do this on the GPU as well, but the array size here is almost never more than
-  // about 256, so the CPU is actually much better at doing it. We can also stick it in constant
-  // memory, which makes the upload not that bad...
-  std::vector<cl_uint> cum_freqs(num_freqs, 0);
-  std::partial_sum(freqs.begin(), freqs.end() - 1, cum_freqs.begin() + 1);
+  freqs.insert(freqs.begin(), num_freqs);
 
   cl_uint *freqs_ptr = const_cast<cl_uint *>(freqs.data());
-  cl_uint *cum_freqs_ptr = cum_freqs.data();
 
   cl_int errCreateBuffer;
   cl_mem freqs_buffer = clCreateBuffer(_gpu_ctx->GetOpenCLContext(), flags,
                                        freqs.size() * sizeof(freqs_ptr[0]), freqs_ptr, &errCreateBuffer);
   CHECK_CL((cl_int), errCreateBuffer);
 
-  const size_t cum_freqs_buf_size = cum_freqs.size() * sizeof(cum_freqs_ptr[0]);
-  cl_mem cum_freqs_buffer = clCreateBuffer(_gpu_ctx->GetOpenCLContext(), flags, cum_freqs_buf_size,
-                                           cum_freqs_ptr, &errCreateBuffer);
-  CHECK_CL((cl_int), errCreateBuffer);
+  cl_uint num_events = 0;
+  const cl_event *wait_for_event = NULL;
 
-  CHECK_CL(clSetKernelArg, build_table_kernel, 0, sizeof(freqs_buffer), &freqs_buffer);
-  CHECK_CL(clSetKernelArg, build_table_kernel, 1, sizeof(cum_freqs_buffer), &cum_freqs_buffer);
-  CHECK_CL(clSetKernelArg, build_table_kernel, 2, sizeof(cl_uint), &num_freqs);
-  CHECK_CL(clSetKernelArg, build_table_kernel, 3, sizeof(_table), &_table);
+  if (_built_table) {
+    num_events = 1;
+    wait_for_event = &_build_table_event;
+  }
 
-  CHECK_CL(clEnqueueNDRangeKernel, _gpu_ctx->GetCommandQueue(), build_table_kernel,
-                                   1, NULL, &_M, NULL, 0, NULL, &_build_table_event);
+  cl_event bt_event;
+  _gpu_ctx->EnqueueOpenCLKernel<1>(
+    // Kernel to run...
+    kANSOpenCLKernels[eANSOpenCLKernel_BuildTable], "build_table",
+
+    // Work size (global and local)
+    &_M, &work_group_size,
+
+    // Events to depend on and return
+    num_events, wait_for_event, &bt_event,
+
+    // Kernel arguments
+    freqs_buffer, _table);
+
+  if (_built_table) {
+    CHECK_CL(clReleaseEvent, _build_table_event);
+  }
+  _build_table_event = bt_event;
 
   CHECK_CL(clReleaseMemObject, freqs_buffer);
-  CHECK_CL(clReleaseMemObject, cum_freqs_buffer);
 }
 
 template<typename T>
