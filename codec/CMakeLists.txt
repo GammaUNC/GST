@@ -102,10 +102,10 @@ if (MSVC AND MSVC_VERSION EQUAL 1900)
 endif()
 
 FOREACH(TEST image wavelet)
-  ADD_EXECUTABLE(${TEST}_test ${TEST}_test.cpp)
-  TARGET_LINK_LIBRARIES(${TEST}_test gentc_codec)
+  ADD_EXECUTABLE(${TEST}_test "test/${TEST}_test.cpp")
 
-  IF ("${TEST}" STREQUAL "codec_ocl")
+  TARGET_LINK_LIBRARIES(${TEST}_test gentc_codec)
+  IF ("${TEST}" STREQUAL "codec")
     TARGET_LINK_LIBRARIES(${TEST}_test gentc_gpu)
   ENDIF()
   TARGET_LINK_LIBRARIES(${TEST}_test gtest_main)
