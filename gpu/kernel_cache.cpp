@@ -38,7 +38,8 @@ static cl_platform_id GetPlatformForContext(cl_context ctx) {
 }
 
 static cl_program CompileProgram(const char *source_filename, cl_context ctx,
-                                 EContextType ctx_ty, cl_device_id device) {
+                                 EContextType ctx_ty, EOpenCLVersion ver,
+                                 cl_device_id device) {
   std::ifstream progfs(source_filename, std::ifstream::in);
   if (!progfs) {
     assert(!"Error opening file!");
@@ -63,7 +64,7 @@ static cl_program CompileProgram(const char *source_filename, cl_context ctx,
 
   std::string args("-Werror ");
 
-  if (ctx_ty == eContextType_IntelCPU) {
+  if (ctx_ty == eContextType_IntelCPU && ver >= eOpenCLVersion_20) {
     args += std::string("-g -s \"");
     args += std::string(source_filename);
     args += std::string("\"");
@@ -93,9 +94,10 @@ static cl_program CompileProgram(const char *source_filename, cl_context ctx,
   return program;
 }
 
-GPUKernelCache *GPUKernelCache::Instance(cl_context ctx, EContextType ctx_ty, cl_device_id device) {
+GPUKernelCache *GPUKernelCache::Instance(cl_context ctx, EContextType ctx_ty,
+                                         EOpenCLVersion ctx_ver, cl_device_id device) {
   if (gKernelCache == nullptr) {
-    gKernelCache = new GPUKernelCache(ctx, ctx_ty, device);
+    gKernelCache = new GPUKernelCache(ctx, ctx_ty, ctx_ver, device);
   }
 
   // !FIXME! This comparison might not be cross-platform...
@@ -104,7 +106,7 @@ GPUKernelCache *GPUKernelCache::Instance(cl_context ctx, EContextType ctx_ty, cl
   }
 
   Clear();
-  gKernelCache = new GPUKernelCache(ctx, ctx_ty, device);
+  gKernelCache = new GPUKernelCache(ctx, ctx_ty, ctx_ver, device);
   return gKernelCache;
 }
 
@@ -129,7 +131,7 @@ cl_kernel GPUKernelCache::GetKernel(const std::string &filename, const std::stri
   std::unique_lock<std::mutex> lock(_kernel_creation_mutex);
   if (_programs.find(filename) == _programs.end()) {
     _programs[filename]._prog =
-      CompileProgram(filename.c_str(), _ctx, _ctx_ty, _device);
+      CompileProgram(filename.c_str(), _ctx, _ctx_ty, _ctx_ver, _device);
   }
 
   GPUProgram *program = &(_programs[filename]);

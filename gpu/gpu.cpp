@@ -343,7 +343,7 @@ static std::vector<cl_device_id> GetAllDevicesForContext(cl_context ctx) {
 
 
 GPUContext::~GPUContext() {
-  GPUKernelCache::Instance(_ctx, _type, _device)->Clear();
+  GPUKernelCache::Instance(_ctx, _type, _version, _device)->Clear();
   CHECK_CL(clReleaseCommandQueue, _command_queue);
   CHECK_CL(clReleaseContext, _ctx);
 }
@@ -409,6 +409,17 @@ std::unique_ptr<GPUContext> GPUContext::InitializeOpenCL(bool share_opengl) {
     gpu_ctx->_type = eContextType_GenericGPU;
   }
 
+  char version_string[256];
+  CHECK_CL(clGetDeviceInfo, devices[0], CL_DEVICE_VERSION, sizeof(version_string), version_string, NULL);
+  gpu_ctx->_version = eOpenCLVersion_10;
+  if (strstr(version_string, "OpenCL 1.1")) {
+    gpu_ctx->_version = eOpenCLVersion_11;
+  } else if (strstr(version_string, "OpenCL 1.2")) {
+    gpu_ctx->_version = eOpenCLVersion_12;
+  } else if (strstr(version_string, "OpenCL 2.0")) {
+    gpu_ctx->_version = eOpenCLVersion_20;
+  }
+
   // The device...
   if (share_opengl) {
     gpu_ctx->_device = GetDeviceForSharedContext(ctx);
@@ -432,7 +443,8 @@ std::unique_ptr<GPUContext> GPUContext::InitializeOpenCL(bool share_opengl) {
     0
   };
 
-  gpu_ctx->_command_queue = clCreateCommandQueueWithProperties(ctx, gpu_ctx->_device, cq_props_list, &errCreateCommandQueue);
+  gpu_ctx->_command_queue =
+    clCreateCommandQueueWithProperties(ctx, gpu_ctx->_device, cq_props_list, &errCreateCommandQueue);
 #endif
   CHECK_CL((cl_int), errCreateCommandQueue);
 
@@ -444,7 +456,7 @@ void GPUContext::PrintDeviceInfo() const {
 }
 
 cl_kernel GPUContext::GetOpenCLKernel(const std::string &filename, const std::string &kernel) const {
-  GPUKernelCache *cache = GPUKernelCache::Instance(_ctx, _type, _device);
+  GPUKernelCache *cache = GPUKernelCache::Instance(_ctx, _type, _version, _device);
   return cache->GetKernel(filename, kernel);
 }
 

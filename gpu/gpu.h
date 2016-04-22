@@ -35,6 +35,13 @@ namespace gpu {
     eContextType_IntelCPU
   };
 
+  enum EOpenCLVersion {
+    eOpenCLVersion_10,
+    eOpenCLVersion_11,
+    eOpenCLVersion_12,
+    eOpenCLVersion_20
+  };
+
   class GPUContext {
   public:
     ~GPUContext();
@@ -48,6 +55,7 @@ namespace gpu {
     void PrintDeviceInfo() const;
 
     EContextType Type() const { return _type; }
+    EOpenCLVersion Version() const { return _version; }
 
     template<typename T>
     T GetDeviceInfo(cl_device_info param) const {
@@ -122,6 +130,7 @@ namespace gpu {
     std::mutex _enqueue_mutex;
 
     EContextType _type;
+    EOpenCLVersion _version;
   };
 
 }  // namespace gpu
