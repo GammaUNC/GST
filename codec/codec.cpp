@@ -386,69 +386,32 @@ static cl_event DecodeIndices(const std::unique_ptr<GPUContext> &gpu_ctx, cl_mem
 }
 
 static void DecompressDXTImage(const std::unique_ptr<GPUContext> &gpu_ctx,
-                               const std::vector<uint8_t> &dxt_img,
+                               const std::vector<uint8_t> &cmp_data,
                                cl_event init_event, CLKernelResult *result) {
-  DataStream in(dxt_img);
-  uint32_t width = in.ReadInt();
-  uint32_t height = in.ReadInt();
-
-  uint32_t ep1_y_cmp_sz = in.ReadInt();
-  uint32_t ep1_co_cmp_sz = in.ReadInt();
-  uint32_t ep1_cg_cmp_sz = in.ReadInt();
-
-  uint32_t ep2_y_cmp_sz = in.ReadInt();
-  uint32_t ep2_co_cmp_sz = in.ReadInt();
-  uint32_t ep2_cg_cmp_sz = in.ReadInt();
-
+  GenTCHeader hdr;
+  memcpy(&hdr, cmp_data.data(), sizeof(hdr));
 #ifndef NDEBUG
-  uint32_t palette_sz = in.ReadInt();
-#else
-  in.ReadInt();
+  hdr.Print();
 #endif
+  size_t offset = sizeof(hdr);
+  assert((hdr.width & 0x3) == 0);
+  assert((hdr.height & 0x3) == 0);
 
-  uint32_t palette_cmp_sz = in.ReadInt();
+  const int blocks_x = static_cast<int>(hdr.width) >> 2;
+  const int blocks_y = static_cast<int>(hdr.height) >> 2;
 
-#ifndef NDEBUG
-  uint32_t indices_cmp_sz = in.ReadInt();
-#else
-  in.ReadInt();
-#endif
-
-#ifndef NDEBUG
-  std::cout << "Width: " << width << std::endl;
-  std::cout << "Height: " << height << std::endl;
-  std::cout << "Endpoint One Y compressed size: " << ep1_y_cmp_sz << std::endl;
-  std::cout << "Endpoint One Co compressed size: " << ep1_co_cmp_sz << std::endl;
-  std::cout << "Endpoint One Cg compressed size: " << ep1_cg_cmp_sz << std::endl;
-  std::cout << "Endpoint Two Y compressed size: " << ep2_y_cmp_sz << std::endl;
-  std::cout << "Endpoint Two Co compressed size: " << ep2_co_cmp_sz << std::endl;
-  std::cout << "Endpoint Two Cg compressed size: " << ep2_cg_cmp_sz << std::endl;
-  std::cout << "Palette size: " << palette_sz << std::endl;
-  std::cout << "Palette size compressed: " << palette_cmp_sz << std::endl;
-  std::cout << "Palette index deltas compressed: " << indices_cmp_sz << std::endl;
-#endif
-
-  const std::vector<uint8_t> &cmp_data = in.GetData();
-  size_t offset = in.BytesRead();
-
-  assert((width & 0x3) == 0);
-  assert((height & 0x3) == 0);
-
-  const int blocks_x = static_cast<int>(width) >> 2;
-  const int blocks_y = static_cast<int>(height) >> 2;
-
-  CLKernelResult ep1_y = DecompressEndpoints(gpu_ctx, cmp_data, ep1_y_cmp_sz,
+  CLKernelResult ep1_y = DecompressEndpoints(gpu_ctx, cmp_data, hdr.ep1_y_cmp_sz,
                                              &offset, init_event, -128, blocks_x, blocks_y);
-  CLKernelResult ep1_co = DecompressEndpoints(gpu_ctx, cmp_data, ep1_co_cmp_sz,
+  CLKernelResult ep1_co = DecompressEndpoints(gpu_ctx, cmp_data, hdr.ep1_co_cmp_sz,
                                               &offset, init_event, -128, blocks_x, blocks_y);
-  CLKernelResult ep1_cg = DecompressEndpoints(gpu_ctx, cmp_data, ep1_cg_cmp_sz,
+  CLKernelResult ep1_cg = DecompressEndpoints(gpu_ctx, cmp_data, hdr.ep1_cg_cmp_sz,
                                               &offset, init_event, -128, blocks_x, blocks_y);
 
-  CLKernelResult ep2_y = DecompressEndpoints(gpu_ctx, cmp_data, ep2_y_cmp_sz,
+  CLKernelResult ep2_y = DecompressEndpoints(gpu_ctx, cmp_data, hdr.ep2_y_cmp_sz,
                                              &offset, init_event, -128, blocks_x, blocks_y);
-  CLKernelResult ep2_co = DecompressEndpoints(gpu_ctx, cmp_data, ep2_co_cmp_sz,
+  CLKernelResult ep2_co = DecompressEndpoints(gpu_ctx, cmp_data, hdr.ep2_co_cmp_sz,
                                               &offset, init_event, -128, blocks_x, blocks_y);
-  CLKernelResult ep2_cg = DecompressEndpoints(gpu_ctx, cmp_data, ep2_cg_cmp_sz,
+  CLKernelResult ep2_cg = DecompressEndpoints(gpu_ctx, cmp_data, hdr.ep2_cg_cmp_sz,
                                               &offset, init_event, -128, blocks_x, blocks_y);
 
   result->num_events = 3;
@@ -459,7 +422,7 @@ static void DecompressDXTImage(const std::unique_ptr<GPUContext> &gpu_ctx,
     CollectEndpoints(gpu_ctx, result->output, num_blocks, ep2_y, ep2_co, ep2_cg, 1);
 
   result->output_events[2] = DecodeIndices(gpu_ctx, result->output, init_event, cmp_data,
-                                           offset, num_blocks, palette_cmp_sz);
+                                           offset, num_blocks, hdr.palette_cmp_sz);
 }
 
 template <typename T> std::unique_ptr<std::vector<uint8_t> >
@@ -506,38 +469,28 @@ static std::vector<uint8_t> CompressDXTImage(const DXTImage &dxt_img) {
   auto ep1_planes = initial_endpoint_pipeline->Run(endpoint_one);
   auto ep2_planes = initial_endpoint_pipeline->Run(endpoint_two);
 
-  DataStream out;
-  out.WriteInt(dxt_img.Width());
-  out.WriteInt(dxt_img.Height());
-
   std::cout << "Compressing Y plane for EP 1... ";
   auto ep1_y_cmp = RunDXTEndpointPipeline(std::get<0>(*ep1_planes));
-  out.WriteInt(static_cast<uint32_t>(ep1_y_cmp->size()));
   std::cout << "Done: " << ep1_y_cmp->size() << " bytes" << std::endl;
 
   std::cout << "Compressing Co plane for EP 1... ";
   auto ep1_co_cmp = RunDXTEndpointPipeline(std::get<1>(*ep1_planes));
-  out.WriteInt(static_cast<uint32_t>(ep1_co_cmp->size()));
   std::cout << "Done: " << ep1_co_cmp->size() << " bytes" << std::endl;
 
   std::cout << "Compressing Cg plane for EP 1... ";
   auto ep1_cg_cmp = RunDXTEndpointPipeline(std::get<2>(*ep1_planes));
-  out.WriteInt(static_cast<uint32_t>(ep1_cg_cmp->size()));
   std::cout << "Done: " << ep1_cg_cmp->size() << " bytes" << std::endl;
 
   std::cout << "Compressing Y plane for EP 2... ";
   auto ep2_y_cmp = RunDXTEndpointPipeline(std::get<0>(*ep2_planes));
-  out.WriteInt(static_cast<uint32_t>(ep2_y_cmp->size()));
   std::cout << "Done: " << ep2_y_cmp->size() << " bytes" << std::endl;
 
   std::cout << "Compressing Co plane for EP 2... ";
   auto ep2_co_cmp = RunDXTEndpointPipeline(std::get<1>(*ep2_planes));
-  out.WriteInt(static_cast<uint32_t>(ep2_co_cmp->size()));
   std::cout << "Done: " << ep2_co_cmp->size() << " bytes" << std::endl;
 
   std::cout << "Compressing Cg plane for EP 2... ";
   auto ep2_cg_cmp = RunDXTEndpointPipeline(std::get<2>(*ep2_planes));
-  out.WriteInt(static_cast<uint32_t>(ep2_cg_cmp->size()));
   std::cout << "Done: " << ep2_cg_cmp->size() << " bytes" << std::endl;
 
   auto index_pipeline =
@@ -556,8 +509,6 @@ static std::vector<uint8_t> CompressDXTImage(const DXTImage &dxt_img) {
 
   std::cout << "Compressing index palette... ";
   auto palette_cmp = index_pipeline->Run(palette_data);
-  out.WriteInt(static_cast<uint32_t>(padding));
-  out.WriteInt(static_cast<uint32_t>(palette_cmp->size()));
   std::cout << "Done: " << palette_cmp->size() << " bytes" << std::endl;
 
   std::unique_ptr<std::vector<uint8_t> > idx_data(
@@ -566,17 +517,29 @@ static std::vector<uint8_t> CompressDXTImage(const DXTImage &dxt_img) {
   std::cout << "Original index differences size: " << idx_data->size() << std::endl;
   std::cout << "Compressing index differences... ";
   auto idx_cmp = index_pipeline->Run(idx_data);
-  out.WriteInt(static_cast<uint32_t>(idx_cmp->size()));
-  std::cout << "Done: " << idx_cmp->size()<< " bytes" << std::endl;
+  std::cout << "Done: " << idx_cmp->size() << " bytes" << std::endl;
   
-  std::vector<uint8_t> result = out.GetData();
+  GenTCHeader hdr;
+  hdr.width = dxt_img.Width();
+  hdr.height = dxt_img.Height();
+  hdr.ep1_y_cmp_sz = ep1_y_cmp->size();
+  hdr.ep1_co_cmp_sz = ep1_co_cmp->size();
+  hdr.ep1_cg_cmp_sz = ep1_cg_cmp->size();
+  hdr.ep2_y_cmp_sz = ep2_y_cmp->size();
+  hdr.ep2_co_cmp_sz = ep2_co_cmp->size();
+  hdr.ep2_cg_cmp_sz = ep2_cg_cmp->size();
+  hdr.palette_data_sz = palette_data->size();
+  hdr.palette_cmp_sz = palette_cmp->size();
+  hdr.indices_cmp_sz = idx_cmp->size();
+
+  std::vector<uint8_t> result(0, sizeof(hdr));
+  memcpy(result.data(), &hdr, sizeof(hdr));
   result.insert(result.end(), ep1_y_cmp->begin(), ep1_y_cmp->end());
   result.insert(result.end(), ep1_co_cmp->begin(), ep1_co_cmp->end());
   result.insert(result.end(), ep1_cg_cmp->begin(), ep1_cg_cmp->end());
   result.insert(result.end(), ep2_y_cmp->begin(), ep2_y_cmp->end());
   result.insert(result.end(), ep2_co_cmp->begin(), ep2_co_cmp->end());
   result.insert(result.end(), ep2_cg_cmp->begin(), ep2_cg_cmp->end());
-
   result.insert(result.end(), palette_cmp->begin(), palette_cmp->end());
   result.insert(result.end(), idx_cmp->begin(), idx_cmp->end());
 
@@ -702,6 +665,20 @@ bool TestDXT(const std::unique_ptr<gpu::GPUContext> &gpu_ctx,
   }
   
   return true;
+}
+
+void GenTCHeader::Print() const {
+  std::cout << "Width: " << width << std::endl;
+  std::cout << "Height: " << height << std::endl;
+  std::cout << "Endpoint One Y compressed size: " << ep1_y_cmp_sz << std::endl;
+  std::cout << "Endpoint One Co compressed size: " << ep1_co_cmp_sz << std::endl;
+  std::cout << "Endpoint One Cg compressed size: " << ep1_cg_cmp_sz << std::endl;
+  std::cout << "Endpoint Two Y compressed size: " << ep2_y_cmp_sz << std::endl;
+  std::cout << "Endpoint Two Co compressed size: " << ep2_co_cmp_sz << std::endl;
+  std::cout << "Endpoint Two Cg compressed size: " << ep2_cg_cmp_sz << std::endl;
+  std::cout << "Palette size: " << palette_data_sz << std::endl;
+  std::cout << "Palette size compressed: " << palette_cmp_sz << std::endl;
+  std::cout << "Palette index deltas compressed: " << indices_cmp_sz << std::endl;
 }
 
 static void PeekWidthHeight(const std::vector<uint8_t> &cmp_data,

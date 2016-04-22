@@ -43,6 +43,22 @@ namespace GenTC {
   GLuint LoadCompressedDXT(const std::unique_ptr<gpu::GPUContext> &gpu_ctx,
                            const std::vector<uint8_t> &cmp_data, GLuint pbo);
 
+  struct GenTCHeader {
+    uint32_t width;
+    uint32_t height;
+    uint32_t ep1_y_cmp_sz;
+    uint32_t ep1_co_cmp_sz;
+    uint32_t ep1_cg_cmp_sz;
+    uint32_t ep2_y_cmp_sz;
+    uint32_t ep2_co_cmp_sz;
+    uint32_t ep2_cg_cmp_sz;
+    uint32_t palette_data_sz;
+    uint32_t palette_cmp_sz;
+    uint32_t indices_cmp_sz;
+
+    void Print() const;
+  };
+
   struct AsyncCallbackData;
   class CompressedDXTAsyncRequest {
    public:
