@@ -38,6 +38,11 @@ struct CLKernelResult {
   cl_event output_events[8];
 };
 
+struct CLSubRegion {
+  size_t origin;
+  size_t size;
+};
+
 template<typename T>
 static std::vector<T> ReadBuffer(cl_command_queue queue, cl_mem buffer, size_t num_elements, cl_event e) {
   std::vector<T> host_mem(num_elements);
@@ -45,18 +50,17 @@ static std::vector<T> ReadBuffer(cl_command_queue queue, cl_mem buffer, size_t n
   return std::move(host_mem);
 }
 
+namespace GenTC {
+
 static CLKernelResult DecodeANS(const std::unique_ptr<GPUContext> &gpu_ctx,
-                                cl_event init_event, const cl_uchar *data) {
-  cl_context ctx = gpu_ctx->GetOpenCLContext();
-
+                                cl_mem input, size_t offset, const GenTCHeader::rANSInfo &info,
+                                cl_event init_event) {
   // First get the number of frequencies...
-  cl_uint num_freqs = reinterpret_cast<const cl_uint *>(data)[0];
-  cl_mem_flags flags = GetHostReadOnlyFlags();
-
+  cl_uint num_freqs = info.num_freqs;
   const size_t M = ans::ocl::kANSTableSize;
-  size_t local_work_size = 256;
-  assert(local_work_size <= _gpu_ctx->GetKernelWGInfo<size_t>(
-    kANSOpenCLKernels[eANSOpenCLKernel_BuildTable], "build_table",
+  size_t build_table_local_work_size = 256;
+  assert(build_table_local_work_size <= gpu_ctx->GetKernelWGInfo<size_t>(
+    ans::kANSOpenCLKernels[ans::eANSOpenCLKernel_BuildTable], "build_table",
     CL_KERNEL_WORK_GROUP_SIZE));
 
   cl_int errCreateBuffer;
@@ -64,39 +68,35 @@ static CLKernelResult DecodeANS(const std::unique_ptr<GPUContext> &gpu_ctx,
                                 M * sizeof(AnsTableEntry), NULL, &errCreateBuffer);
   CHECK_CL((cl_int), errCreateBuffer);
 
-  cl_mem freqs_buffer = clCreateBuffer(ctx, flags, (num_freqs + 1) * 4,
-                                       const_cast<cl_uchar *>(data), &errCreateBuffer);
+  CLSubRegion freqs_sub_region;
+  freqs_sub_region.origin = offset;
+  freqs_sub_region.size = (num_freqs + 1) * 4;
+
+  cl_mem freqs_buffer = clCreateSubBuffer(input, CL_MEM_READ_ONLY, CL_BUFFER_CREATE_TYPE_REGION,
+                                          &freqs_sub_region, &errCreateBuffer);
   CHECK_CL((cl_int), errCreateBuffer);
 
   cl_event build_table_event;
   gpu_ctx->EnqueueOpenCLKernel<1>(ans::kANSOpenCLKernels[ans::eANSOpenCLKernel_BuildTable], "build_table",
-                                  &M, &local_work_size,
+                                  &M, &build_table_local_work_size,
                                   1, &init_event, &build_table_event,
                                   freqs_buffer, table);
 
   CHECK_CL(clReleaseMemObject, freqs_buffer);
 
   // Load all of the offsets to the different data streams...
-  data += sizeof(cl_uint) + num_freqs * sizeof(cl_uint);
-  cl_uint num_offsets = reinterpret_cast<const cl_uint *>(data)[0];
-  data += sizeof(cl_uint);
+  cl_uint num_offsets = info.num_offsets;
 
   // Make sure we have enough space to use constant buffer...
   assert( static_cast<cl_ulong>(M * sizeof(AnsTableEntry)) <
           gpu_ctx->GetDeviceInfo<cl_ulong>(CL_DEVICE_MAX_CONSTANT_BUFFER_SIZE) );
 
-#ifndef NDEBUG
-  // Make sure that each offset is a multiple of four, otherwise we won't be getting
-  // the values we're expecting in our kernel.
-  const cl_uint *debug_offsets = reinterpret_cast<const cl_uint *>(data);
-  for (cl_uint i = 0; i < num_offsets; ++i) {
-    assert((debug_offsets[i] & 0x3) == 0);
-  }
-#endif
+  CLSubRegion data_sub_region;
+  data_sub_region.origin = offset + (num_freqs + 2) * 4;
+  data_sub_region.size = info.sz - (num_freqs + 2) * 4;
 
-  cl_uint data_sz = reinterpret_cast<const cl_uint *>(data)[num_offsets - 1];
-  cl_mem data_buf = clCreateBuffer(ctx, GetHostReadOnlyFlags(), data_sz,
-                                   const_cast<cl_uchar *>(data), &errCreateBuffer);
+  cl_mem data_buf = clCreateSubBuffer(input, CL_MEM_READ_ONLY, CL_BUFFER_CREATE_TYPE_REGION,
+                                      &data_sub_region, &errCreateBuffer);
   CHECK_CL((cl_int), errCreateBuffer);
 
   // Allocate 256 * num interleaved slots for result
@@ -107,8 +107,8 @@ static CLKernelResult DecodeANS(const std::unique_ptr<GPUContext> &gpu_ctx,
 
   CLKernelResult result;
   result.num_events = 1;
-  result.output = clCreateBuffer(ctx, CL_MEM_READ_WRITE, total_encoded,
-                                 NULL, &errCreateBuffer);
+  result.output = clCreateBuffer(gpu_ctx->GetOpenCLContext(), CL_MEM_READ_WRITE,
+                                 total_encoded, NULL, &errCreateBuffer);
   CHECK_CL((cl_int), errCreateBuffer);
 
   gpu_ctx->EnqueueOpenCLKernel<1>(
@@ -207,19 +207,14 @@ static CLKernelResult InverseWavelet(const std::unique_ptr<GPUContext> &gpu_ctx,
   return result;
 }
 
-namespace GenTC {
-
 static CLKernelResult DecompressEndpoints(const std::unique_ptr<GPUContext> &gpu_ctx,
-                                          const std::vector<uint8_t> &cmp_data,
-                                          int32_t data_sz, size_t *data_offset,
-                                          cl_event init_event, cl_int val_offset,
+                                          cl_mem cmp_data, const GenTCHeader::rANSInfo &rANS_info,
+                                          size_t *data_offset, cl_event init_event, cl_int val_offset,
                                           int width, int height) {
-  const cl_uchar *ep_cmp_data = reinterpret_cast<const cl_uchar *>(cmp_data.data());
-  ep_cmp_data += *data_offset;
-  *data_offset += data_sz;
-
-  return InverseWavelet(gpu_ctx, DecodeANS(gpu_ctx, init_event, ep_cmp_data),
-                        val_offset, width, height);
+  size_t offset = *data_offset;
+  *data_offset += rANS_info.sz;
+  CLKernelResult decoded_ans = DecodeANS(gpu_ctx, cmp_data, offset, rANS_info, init_event);
+  return InverseWavelet(gpu_ctx, decoded_ans, val_offset, width, height);
 }
 
 static cl_event CollectEndpoints(const std::unique_ptr<GPUContext> &gpu_ctx,
@@ -261,15 +256,12 @@ static cl_event CollectEndpoints(const std::unique_ptr<GPUContext> &gpu_ctx,
 }
 
 static cl_event DecodeIndices(const std::unique_ptr<GPUContext> &gpu_ctx, cl_mem dst,
-                              cl_event init_event,
-                              const std::vector<uint8_t> &cmp_data, size_t offset,
-                              size_t num_pixels, uint32_t palette_cmp_sz) {
-  const cl_uchar *palette_cmp_data =
-    reinterpret_cast<const cl_uchar *>(cmp_data.data()) + offset;
-  const cl_uchar *indices_cmp_data = palette_cmp_data + palette_cmp_sz;
+                              cl_event init_event, cl_mem cmp_buf, size_t offset, size_t num_pixels,
+                              const GenTCHeader::rANSInfo &palette_info,
+                              const GenTCHeader::rANSInfo &indices_info) {
 
-  CLKernelResult palette = DecodeANS(gpu_ctx, init_event, palette_cmp_data);
-  CLKernelResult indices = DecodeANS(gpu_ctx, init_event, indices_cmp_data);
+  CLKernelResult palette = DecodeANS(gpu_ctx, cmp_buf, offset, palette_info, init_event);
+  CLKernelResult indices = DecodeANS(gpu_ctx, cmp_buf, offset + palette_info.sz, indices_info, init_event);
 
   static const size_t kLocalScanSz = 128;
   static const size_t kLocalScanSzLog = 7;
@@ -374,18 +366,24 @@ static void DecompressDXTImage(const std::unique_ptr<GPUContext> &gpu_ctx,
   const int blocks_x = static_cast<int>(hdr.width) >> 2;
   const int blocks_y = static_cast<int>(hdr.height) >> 2;
 
-  CLKernelResult ep1_y = DecompressEndpoints(gpu_ctx, cmp_data, hdr.ep1_y.sz,
+  cl_int errCreateBuffer;
+  cl_mem cmp_buf = clCreateBuffer(gpu_ctx->GetOpenCLContext(), GetHostReadOnlyFlags(),
+                                  cmp_data.size(), const_cast<uint8_t *>(cmp_data.data()),
+                                  &errCreateBuffer);
+  CHECK_CL((cl_int), errCreateBuffer);  
+
+  CLKernelResult ep1_y = DecompressEndpoints(gpu_ctx, cmp_buf, hdr.ep1_y,
                                              &offset, init_event, -128, blocks_x, blocks_y);
-  CLKernelResult ep1_co = DecompressEndpoints(gpu_ctx, cmp_data, hdr.ep1_co.sz,
+  CLKernelResult ep1_co = DecompressEndpoints(gpu_ctx, cmp_buf, hdr.ep1_co,
                                               &offset, init_event, -128, blocks_x, blocks_y);
-  CLKernelResult ep1_cg = DecompressEndpoints(gpu_ctx, cmp_data, hdr.ep1_cg.sz,
+  CLKernelResult ep1_cg = DecompressEndpoints(gpu_ctx, cmp_buf, hdr.ep1_cg,
                                               &offset, init_event, -128, blocks_x, blocks_y);
 
-  CLKernelResult ep2_y = DecompressEndpoints(gpu_ctx, cmp_data, hdr.ep2_y.sz,
+  CLKernelResult ep2_y = DecompressEndpoints(gpu_ctx, cmp_buf, hdr.ep2_y,
                                              &offset, init_event, -128, blocks_x, blocks_y);
-  CLKernelResult ep2_co = DecompressEndpoints(gpu_ctx, cmp_data, hdr.ep2_co.sz,
+  CLKernelResult ep2_co = DecompressEndpoints(gpu_ctx, cmp_buf, hdr.ep2_co,
                                               &offset, init_event, -128, blocks_x, blocks_y);
-  CLKernelResult ep2_cg = DecompressEndpoints(gpu_ctx, cmp_data, hdr.ep2_cg.sz,
+  CLKernelResult ep2_cg = DecompressEndpoints(gpu_ctx, cmp_buf, hdr.ep2_cg,
                                               &offset, init_event, -128, blocks_x, blocks_y);
 
   result->num_events = 3;
@@ -395,8 +393,10 @@ static void DecompressDXTImage(const std::unique_ptr<GPUContext> &gpu_ctx,
   result->output_events[1] =
     CollectEndpoints(gpu_ctx, result->output, num_blocks, ep2_y, ep2_co, ep2_cg, 1);
 
-  result->output_events[2] = DecodeIndices(gpu_ctx, result->output, init_event, cmp_data,
-                                           offset, num_blocks, hdr.palette.sz);
+  result->output_events[2] = DecodeIndices(gpu_ctx, result->output, init_event, cmp_buf,
+                                           offset, num_blocks, hdr.palette, hdr.indices);
+
+  CHECK_CL(clReleaseMemObject, cmp_buf);
 }
 
 template <typename T> std::unique_ptr<std::vector<uint8_t> >
