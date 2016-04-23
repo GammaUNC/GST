@@ -129,10 +129,63 @@ void LoadGTC(const std::unique_ptr<gpu::GPUContext> &ctx,
 
   std::vector<uint8_t> cmp_data(length);
   is.read(reinterpret_cast<char *>(cmp_data.data()), length);
-
-  GenTC::LoadCompressedDXTInto(ctx, cmp_data, pbo, texID);
   assert(is);
   is.close();
+
+  // Grab the header from the data
+  GenTC::GenTCHeader hdr;
+  hdr.LoadFrom(cmp_data.data());
+
+  // Create the data for OpenCL
+  cl_int errCreateBuffer;
+  static const size_t kHeaderSz = sizeof(hdr);
+  cl_mem_flags flags = CL_MEM_READ_ONLY | CL_MEM_COPY_HOST_PTR | CL_MEM_HOST_NO_ACCESS;
+  cl_mem cmp_buf = clCreateBuffer(ctx->GetOpenCLContext(), flags, cmp_data.size() - kHeaderSz,
+                                  const_cast<uint8_t *>(cmp_data.data() + kHeaderSz),
+                                  &errCreateBuffer);
+  CHECK_CL((cl_int), errCreateBuffer);
+
+  // Create an OpenGL handle to our pbo
+  // !SPEED! We don't need to recreate this every time....
+  cl_mem output = clCreateFromGLBuffer(ctx->GetOpenCLContext(), CL_MEM_READ_WRITE, pbo,
+                                       &errCreateBuffer);
+  CHECK_CL((cl_int), errCreateBuffer);
+
+  // Acquire the PBO
+  cl_event acquire_event;
+  CHECK_CL(clEnqueueAcquireGLObjects, ctx->GetCommandQueue(),
+                                      1, &output, 0, NULL, &acquire_event);
+
+  // Load it
+  std::vector<cl_event> cmp_events =
+    std::move(GenTC::LoadCompressedDXT(ctx, hdr, cmp_buf, output, &acquire_event));
+
+  // Release the PBO
+  cl_event release_event;
+  CHECK_CL(clEnqueueReleaseGLObjects, ctx->GetCommandQueue(),
+                                      1, &output,
+                                      cmp_events.size(), cmp_events.data(), &release_event);
+
+  // Wait on the release
+  CHECK_CL(clWaitForEvents, 1, &release_event);
+
+  // Cleanup CL
+  CHECK_CL(clReleaseMemObject, cmp_buf);
+  CHECK_CL(clReleaseMemObject, output);
+  CHECK_CL(clReleaseEvent, acquire_event);
+  CHECK_CL(clReleaseEvent, release_event);
+  for (auto event : cmp_events) {
+    CHECK_CL(clReleaseEvent, event);
+  }
+
+  // Copy the texture over
+  GLsizei width = static_cast<GLsizei>(hdr.width);
+  GLsizei height = static_cast<GLsizei>(hdr.height);
+  GLsizei dxt_size = (width * height) / 2;
+  CHECK_GL(glBindBuffer, GL_PIXEL_UNPACK_BUFFER, pbo);
+  CHECK_GL(glBindTexture, GL_TEXTURE_2D, texID);
+  CHECK_GL(glCompressedTexSubImage2D, GL_TEXTURE_2D, 0, 0, 0, hdr.width, hdr.height,
+                                      GL_COMPRESSED_RGB_S3TC_DXT1_EXT, dxt_size, 0);
 }
 
 int main(int argc, char* argv[])
@@ -282,7 +335,7 @@ int main(int argc, char* argv[])
         stream << (((gFrameNumber + 1) / i) % 10);
       }
       stream << ".gtc";
-      LoadGTC(ctx, pbo,texID, stream.str());
+      LoadGTC(ctx, pbo, texID, stream.str());
 
       glActiveTexture(GL_TEXTURE0);
       glBindTexture(GL_TEXTURE_2D, texID);

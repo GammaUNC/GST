@@ -37,12 +37,6 @@ namespace GenTC {
   DXTImage DecompressDXT(const std::unique_ptr<gpu::GPUContext> &gpu_ctx,
                          const std::vector<uint8_t> &cmp_data);
 
-  void LoadCompressedDXTInto(const std::unique_ptr<gpu::GPUContext> &gpu_ctx,
-                             const std::vector<uint8_t> &cmp_data, GLuint pbo, GLuint texID);
-
-  GLuint LoadCompressedDXT(const std::unique_ptr<gpu::GPUContext> &gpu_ctx,
-                           const std::vector<uint8_t> &cmp_data, GLuint pbo);
-
   struct GenTCHeader {
     struct rANSInfo {
       uint32_t sz;
@@ -62,27 +56,12 @@ namespace GenTC {
     rANSInfo indices;
 
     void Print() const;
+    void LoadFrom(const uint8_t *buf);
   };
 
-  struct AsyncCallbackData;
-  class CompressedDXTAsyncRequest {
-   public:
-    CompressedDXTAsyncRequest();
-    void SetData(GLuint pbo, GLuint texID, GLsizei w, GLsizei h, std::function<void()> callback);
-    bool IsReady() const;
-    GLuint TextureHandle() const;
-    void LoadTexture();
-   private:
-    std::shared_ptr<AsyncCallbackData> _data;
-    friend void LoadCompressedDXTAsync(
-      const std::unique_ptr<gpu::GPUContext> &gpu_ctx,
-      const std::vector<uint8_t> &cmp_data,
-      const CompressedDXTAsyncRequest *req);
-  };
-
-  void LoadCompressedDXTAsync(const std::unique_ptr<gpu::GPUContext> &gpu_ctx,
-                              const std::vector<uint8_t> &cmp_data,
-                              const CompressedDXTAsyncRequest *req);
+  std::vector<cl_event> LoadCompressedDXT(const std::unique_ptr<gpu::GPUContext> &gpu_ctx,
+                                          const GenTCHeader &hdr, cl_mem cmp_data, cl_mem output,
+                                          cl_event *init);
 
   bool TestDXT(const std::unique_ptr<gpu::GPUContext> &gpu_ctx,
                const char *filename, const char *cmp_fn);

@@ -52,6 +52,190 @@ static std::vector<T> ReadBuffer(cl_command_queue queue, cl_mem buffer, size_t n
 
 namespace GenTC {
 
+////////////////////////////////////////////////////////////////////////////////
+//
+// Encoder
+//
+////////////////////////////////////////////////////////////////////////////////
+
+template <typename T> std::unique_ptr<std::vector<uint8_t> >
+RunDXTEndpointPipeline(const std::unique_ptr<Image<T> > &img) {
+  static_assert(PixelTraits::NumChannels<T>::value,
+    "This should operate on each DXT endpoing channel separately");
+
+  const bool kIsSixBits = PixelTraits::BitsUsed<T>::value == 6;
+  typedef typename WaveletResultTy<T, kIsSixBits>::DstTy WaveletSignedTy;
+  typedef typename PixelTraits::UnsignedForSigned<WaveletSignedTy>::Ty WaveletUnsignedTy;
+
+  auto pipeline = Pipeline<Image<T>, Image<WaveletSignedTy> >
+    ::Create(FWavelet2D<T, kWaveletBlockDim>::New())
+    ->Chain(MakeUnsigned<WaveletSignedTy>::New())
+    ->Chain(Linearize<WaveletUnsignedTy>::New())
+    ->Chain(RearrangeStream<WaveletUnsignedTy>::New(img->Width(), kWaveletBlockDim))
+    ->Chain(ReducePrecision<WaveletUnsignedTy, uint8_t>::New())
+    ->Chain(ByteEncoder::Encoder(ans::ocl::kNumEncodedSymbols));
+
+  return std::move(pipeline->Run(img));
+}
+
+static GenTCHeader::rANSInfo GetCompressedInfo(const std::unique_ptr<std::vector<uint8_t> > &cmp) {
+  const uint32_t *data_as_ints = reinterpret_cast<const uint32_t *>(cmp->data());
+
+  GenTCHeader::rANSInfo info;
+  info.sz = cmp->size();
+  info.num_freqs = data_as_ints[0];
+  info.num_offsets = data_as_ints[1 + info.num_freqs];
+  return info;
+}
+
+static std::vector<uint8_t> CompressDXTImage(const DXTImage &dxt_img) {
+  // Otherwise we can't really compress this...
+  assert((dxt_img.Width() % 128) == 0);
+  assert((dxt_img.Height() % 128) == 0);
+
+  std::cout << "Original DXT size: " <<
+    (dxt_img.Width() * dxt_img.Height()) / 2 << std::endl;
+  std::cout << "Half original DXT size: " <<
+    (dxt_img.Width() * dxt_img.Height()) / 4 << std::endl;
+
+  auto endpoint_one = dxt_img.EndpointOneValues();
+  auto endpoint_two = dxt_img.EndpointTwoValues();
+
+  assert(endpoint_one->Width() == endpoint_two->Width());
+  assert(endpoint_one->Height() == endpoint_two->Height());
+
+  auto initial_endpoint_pipeline =
+    Pipeline<RGB565Image, YCoCg667Image>
+    ::Create(RGB565toYCoCg667::New())
+    ->Chain(std::move(ImageSplit<YCoCg667>::New()));
+
+  auto ep1_planes = initial_endpoint_pipeline->Run(endpoint_one);
+  auto ep2_planes = initial_endpoint_pipeline->Run(endpoint_two);
+
+  std::cout << "Compressing Y plane for EP 1... ";
+  auto ep1_y_cmp = RunDXTEndpointPipeline(std::get<0>(*ep1_planes));
+  std::cout << "Done: " << ep1_y_cmp->size() << " bytes" << std::endl;
+
+  std::cout << "Compressing Co plane for EP 1... ";
+  auto ep1_co_cmp = RunDXTEndpointPipeline(std::get<1>(*ep1_planes));
+  std::cout << "Done: " << ep1_co_cmp->size() << " bytes" << std::endl;
+
+  std::cout << "Compressing Cg plane for EP 1... ";
+  auto ep1_cg_cmp = RunDXTEndpointPipeline(std::get<2>(*ep1_planes));
+  std::cout << "Done: " << ep1_cg_cmp->size() << " bytes" << std::endl;
+
+  std::cout << "Compressing Y plane for EP 2... ";
+  auto ep2_y_cmp = RunDXTEndpointPipeline(std::get<0>(*ep2_planes));
+  std::cout << "Done: " << ep2_y_cmp->size() << " bytes" << std::endl;
+
+  std::cout << "Compressing Co plane for EP 2... ";
+  auto ep2_co_cmp = RunDXTEndpointPipeline(std::get<1>(*ep2_planes));
+  std::cout << "Done: " << ep2_co_cmp->size() << " bytes" << std::endl;
+
+  std::cout << "Compressing Cg plane for EP 2... ";
+  auto ep2_cg_cmp = RunDXTEndpointPipeline(std::get<2>(*ep2_planes));
+  std::cout << "Done: " << ep2_cg_cmp->size() << " bytes" << std::endl;
+
+  auto index_pipeline =
+    Pipeline<std::vector<uint8_t>, std::vector<uint8_t> >
+    ::Create(ByteEncoder::Encoder(ans::ocl::kNumEncodedSymbols));
+
+  std::unique_ptr<std::vector<uint8_t> > palette_data(
+    new std::vector<uint8_t>(std::move(dxt_img.PaletteData())));
+  size_t palette_data_size = palette_data->size();
+  std::cout << "Original palette data size: " << palette_data_size << std::endl;
+  static const size_t f =
+    ans::ocl::kNumEncodedSymbols * ans::ocl::kThreadsPerEncodingGroup;
+  size_t padding = ((palette_data_size + (f - 1)) / f) * f;
+  std::cout << "Padded palette data size: " << padding << std::endl;
+  palette_data->resize(padding, 0);
+
+  std::cout << "Compressing index palette... ";
+  auto palette_cmp = index_pipeline->Run(palette_data);
+  std::cout << "Done: " << palette_cmp->size() << " bytes" << std::endl;
+
+  std::unique_ptr<std::vector<uint8_t> > idx_data(
+    new std::vector<uint8_t>(dxt_img.IndexDiffs()));
+
+  std::cout << "Original index differences size: " << idx_data->size() << std::endl;
+  std::cout << "Compressing index differences... ";
+  auto idx_cmp = index_pipeline->Run(idx_data);
+  std::cout << "Done: " << idx_cmp->size() << " bytes" << std::endl;
+
+  GenTCHeader hdr;
+  hdr.width = dxt_img.Width();
+  hdr.height = dxt_img.Height();
+  hdr.ep1_y = GetCompressedInfo(ep1_y_cmp);
+  hdr.ep1_co = GetCompressedInfo(ep1_co_cmp);
+  hdr.ep1_cg = GetCompressedInfo(ep1_cg_cmp);
+  hdr.ep2_y = GetCompressedInfo(ep2_y_cmp);
+  hdr.ep2_co = GetCompressedInfo(ep2_co_cmp);
+  hdr.ep2_cg = GetCompressedInfo(ep2_cg_cmp);
+  hdr.palette = GetCompressedInfo(palette_cmp);
+  hdr.indices = GetCompressedInfo(idx_cmp);
+
+  std::vector<uint8_t> result(sizeof(hdr), 0);
+  memcpy(result.data(), &hdr, sizeof(hdr));
+  result.insert(result.end(), ep1_y_cmp->begin(), ep1_y_cmp->end());
+  result.insert(result.end(), ep1_co_cmp->begin(), ep1_co_cmp->end());
+  result.insert(result.end(), ep1_cg_cmp->begin(), ep1_cg_cmp->end());
+  result.insert(result.end(), ep2_y_cmp->begin(), ep2_y_cmp->end());
+  result.insert(result.end(), ep2_co_cmp->begin(), ep2_co_cmp->end());
+  result.insert(result.end(), ep2_cg_cmp->begin(), ep2_cg_cmp->end());
+  result.insert(result.end(), palette_cmp->begin(), palette_cmp->end());
+  result.insert(result.end(), idx_cmp->begin(), idx_cmp->end());
+
+#if 0
+  std::cout << "Interpolation value stats:" << std::endl;
+  std::cout << "Uncompressed Size of 2-bit symbols: " <<
+    (idx_img->size() * 2) / 8 << std::endl;
+
+  std::vector<size_t> F(256, 0);
+  for (auto it = idx_img->begin(); it != idx_img->end(); ++it) {
+    F[*it]++;
+  }
+  size_t M = std::accumulate(F.begin(), F.end(), 0ULL);
+
+  double H = 0;
+  for (auto f : F) {
+    if (f == 0)
+      continue;
+
+    double Ps = static_cast<double>(f);
+    H -= Ps * log2(Ps);
+  }
+  H = log2(static_cast<double>(M)) + (H / static_cast<double>(M));
+
+  std::cout << "H: " << H << std::endl;
+  std::cout << "Expected num bytes: " << H*(idx_img->size() / 8) << std::endl;
+  std::cout << "Actual num bytes: " << idx_cmp->size() << std::endl;
+#endif
+
+  double bpp = static_cast<double>(result.size() * 8) /
+    static_cast<double>(dxt_img.Width() * dxt_img.Height());
+  std::cout << "Compressed DXT size: " << result.size()
+            << " (" << bpp << " bpp)" << std::endl;
+
+  return std::move(result);
+}
+
+std::vector<uint8_t> CompressDXT(const char *filename, const char *cmp_fn) {
+  DXTImage dxt_img(filename, cmp_fn);
+  return std::move(CompressDXTImage(dxt_img));
+}
+
+std::vector<uint8_t> CompressDXT(int width, int height, const std::vector<uint8_t> &rgb_data,
+                                 const std::vector<uint8_t> &dxt_data) {
+  DXTImage dxt_img(width, height, rgb_data, dxt_data);
+  return std::move(CompressDXTImage(dxt_img));
+}
+
+////////////////////////////////////////////////////////////////////////////////
+//
+// Decoder
+//
+////////////////////////////////////////////////////////////////////////////////
+
 static CLKernelResult DecodeANS(const std::unique_ptr<GPUContext> &gpu_ctx,
                                 cl_mem input, const size_t offset, const GenTCHeader::rANSInfo &info,
                                 cl_event init_event) {
@@ -358,25 +542,12 @@ static cl_event DecodeIndices(const std::unique_ptr<GPUContext> &gpu_ctx, cl_mem
 }
 
 static void DecompressDXTImage(const std::unique_ptr<GPUContext> &gpu_ctx,
-                               const std::vector<uint8_t> &cmp_data,
+                               const GenTCHeader &hdr, cl_mem cmp_buf,
                                cl_event init_event, CLKernelResult *result) {
-  GenTCHeader hdr;
-  memcpy(&hdr, cmp_data.data(), sizeof(hdr));
-#ifndef NDEBUG
-  hdr.Print();
-#endif
   assert((hdr.width & 0x3) == 0);
   assert((hdr.height & 0x3) == 0);
-
   const int blocks_x = static_cast<int>(hdr.width) >> 2;
   const int blocks_y = static_cast<int>(hdr.height) >> 2;
-
-  static const size_t kHeaderSz = sizeof(hdr);
-  cl_int errCreateBuffer;
-  cl_mem cmp_buf = clCreateBuffer(gpu_ctx->GetOpenCLContext(), GetHostReadOnlyFlags(),
-                                  cmp_data.size() - kHeaderSz, const_cast<uint8_t *>(cmp_data.data() + kHeaderSz),
-                                  &errCreateBuffer);
-  CHECK_CL((cl_int), errCreateBuffer);  
 
   size_t offset = 0;
   CLKernelResult ep1_y = DecompressEndpoints(gpu_ctx, cmp_buf, hdr.ep1_y,
@@ -406,190 +577,36 @@ static void DecompressDXTImage(const std::unique_ptr<GPUContext> &gpu_ctx,
   CHECK_CL(clReleaseMemObject, cmp_buf);
 }
 
-template <typename T> std::unique_ptr<std::vector<uint8_t> >
-RunDXTEndpointPipeline(const std::unique_ptr<Image<T> > &img) {
-  static_assert(PixelTraits::NumChannels<T>::value,
-    "This should operate on each DXT endpoing channel separately");
+cl_mem UploadData(const std::unique_ptr<GPUContext> &gpu_ctx,
+                  const std::vector<uint8_t> &cmp_data, GenTCHeader *hdr) {
+  hdr->LoadFrom(cmp_data.data());
 
-  const bool kIsSixBits = PixelTraits::BitsUsed<T>::value == 6;
-  typedef typename WaveletResultTy<T, kIsSixBits>::DstTy WaveletSignedTy;
-  typedef typename PixelTraits::UnsignedForSigned<WaveletSignedTy>::Ty WaveletUnsignedTy;
-
-  auto pipeline = Pipeline<Image<T>, Image<WaveletSignedTy> >
-    ::Create(FWavelet2D<T, kWaveletBlockDim>::New())
-    ->Chain(MakeUnsigned<WaveletSignedTy>::New())
-    ->Chain(Linearize<WaveletUnsignedTy>::New())
-    ->Chain(RearrangeStream<WaveletUnsignedTy>::New(img->Width(), kWaveletBlockDim))
-    ->Chain(ReducePrecision<WaveletUnsignedTy, uint8_t>::New())
-    ->Chain(ByteEncoder::Encoder(ans::ocl::kNumEncodedSymbols));
-
-  return std::move(pipeline->Run(img));
-}
-
-static GenTCHeader::rANSInfo GetCompressedInfo(const std::unique_ptr<std::vector<uint8_t> > &cmp) {
-  const uint32_t *data_as_ints = reinterpret_cast<const uint32_t *>(cmp->data());
-
-  GenTCHeader::rANSInfo info;
-  info.sz = cmp->size();
-  info.num_freqs = data_as_ints[0];
-  info.num_offsets = data_as_ints[1 + info.num_freqs];
-  return info;
-}
-
-static std::vector<uint8_t> CompressDXTImage(const DXTImage &dxt_img) {
-  // Otherwise we can't really compress this...
-  assert((dxt_img.Width() % 128) == 0);
-  assert((dxt_img.Height() % 128) == 0);
-
-  std::cout << "Original DXT size: " <<
-    (dxt_img.Width() * dxt_img.Height()) / 2 << std::endl;
-  std::cout << "Half original DXT size: " <<
-    (dxt_img.Width() * dxt_img.Height()) / 4 << std::endl;
-
-  auto endpoint_one = dxt_img.EndpointOneValues();
-  auto endpoint_two = dxt_img.EndpointTwoValues();
-
-  assert(endpoint_one->Width() == endpoint_two->Width());
-  assert(endpoint_one->Height() == endpoint_two->Height());
-
-  auto initial_endpoint_pipeline =
-    Pipeline<RGB565Image, YCoCg667Image>
-    ::Create(RGB565toYCoCg667::New())
-    ->Chain(std::move(ImageSplit<YCoCg667>::New()));
-
-  auto ep1_planes = initial_endpoint_pipeline->Run(endpoint_one);
-  auto ep2_planes = initial_endpoint_pipeline->Run(endpoint_two);
-
-  std::cout << "Compressing Y plane for EP 1... ";
-  auto ep1_y_cmp = RunDXTEndpointPipeline(std::get<0>(*ep1_planes));
-  std::cout << "Done: " << ep1_y_cmp->size() << " bytes" << std::endl;
-
-  std::cout << "Compressing Co plane for EP 1... ";
-  auto ep1_co_cmp = RunDXTEndpointPipeline(std::get<1>(*ep1_planes));
-  std::cout << "Done: " << ep1_co_cmp->size() << " bytes" << std::endl;
-
-  std::cout << "Compressing Cg plane for EP 1... ";
-  auto ep1_cg_cmp = RunDXTEndpointPipeline(std::get<2>(*ep1_planes));
-  std::cout << "Done: " << ep1_cg_cmp->size() << " bytes" << std::endl;
-
-  std::cout << "Compressing Y plane for EP 2... ";
-  auto ep2_y_cmp = RunDXTEndpointPipeline(std::get<0>(*ep2_planes));
-  std::cout << "Done: " << ep2_y_cmp->size() << " bytes" << std::endl;
-
-  std::cout << "Compressing Co plane for EP 2... ";
-  auto ep2_co_cmp = RunDXTEndpointPipeline(std::get<1>(*ep2_planes));
-  std::cout << "Done: " << ep2_co_cmp->size() << " bytes" << std::endl;
-
-  std::cout << "Compressing Cg plane for EP 2... ";
-  auto ep2_cg_cmp = RunDXTEndpointPipeline(std::get<2>(*ep2_planes));
-  std::cout << "Done: " << ep2_cg_cmp->size() << " bytes" << std::endl;
-
-  auto index_pipeline =
-    Pipeline<std::vector<uint8_t>, std::vector<uint8_t> >
-    ::Create(ByteEncoder::Encoder(ans::ocl::kNumEncodedSymbols));
-
-  std::unique_ptr<std::vector<uint8_t> > palette_data(
-    new std::vector<uint8_t>(std::move(dxt_img.PaletteData())));
-  size_t palette_data_size = palette_data->size();
-  std::cout << "Original palette data size: " << palette_data_size << std::endl;
-  static const size_t f =
-    ans::ocl::kNumEncodedSymbols * ans::ocl::kThreadsPerEncodingGroup;
-  size_t padding = ((palette_data_size + (f - 1)) / f) * f;
-  std::cout << "Padded palette data size: " << padding << std::endl;
-  palette_data->resize(padding, 0);
-
-  std::cout << "Compressing index palette... ";
-  auto palette_cmp = index_pipeline->Run(palette_data);
-  std::cout << "Done: " << palette_cmp->size() << " bytes" << std::endl;
-
-  std::unique_ptr<std::vector<uint8_t> > idx_data(
-    new std::vector<uint8_t>(dxt_img.IndexDiffs()));
-
-  std::cout << "Original index differences size: " << idx_data->size() << std::endl;
-  std::cout << "Compressing index differences... ";
-  auto idx_cmp = index_pipeline->Run(idx_data);
-  std::cout << "Done: " << idx_cmp->size() << " bytes" << std::endl;
-  
-  GenTCHeader hdr;
-  hdr.width = dxt_img.Width();
-  hdr.height = dxt_img.Height();
-  hdr.ep1_y = GetCompressedInfo(ep1_y_cmp);
-  hdr.ep1_co = GetCompressedInfo(ep1_co_cmp);
-  hdr.ep1_cg = GetCompressedInfo(ep1_cg_cmp);
-  hdr.ep2_y = GetCompressedInfo(ep2_y_cmp);
-  hdr.ep2_co = GetCompressedInfo(ep2_co_cmp);
-  hdr.ep2_cg = GetCompressedInfo(ep2_cg_cmp);
-  hdr.palette = GetCompressedInfo(palette_cmp);
-  hdr.indices = GetCompressedInfo(idx_cmp);
-
-  std::vector<uint8_t> result(sizeof(hdr), 0);
-  memcpy(result.data(), &hdr, sizeof(hdr));
-  result.insert(result.end(), ep1_y_cmp->begin(), ep1_y_cmp->end());
-  result.insert(result.end(), ep1_co_cmp->begin(), ep1_co_cmp->end());
-  result.insert(result.end(), ep1_cg_cmp->begin(), ep1_cg_cmp->end());
-  result.insert(result.end(), ep2_y_cmp->begin(), ep2_y_cmp->end());
-  result.insert(result.end(), ep2_co_cmp->begin(), ep2_co_cmp->end());
-  result.insert(result.end(), ep2_cg_cmp->begin(), ep2_cg_cmp->end());
-  result.insert(result.end(), palette_cmp->begin(), palette_cmp->end());
-  result.insert(result.end(), idx_cmp->begin(), idx_cmp->end());
-
-#if 0
-  std::cout << "Interpolation value stats:" << std::endl;
-  std::cout << "Uncompressed Size of 2-bit symbols: " <<
-    (idx_img->size() * 2) / 8 << std::endl;
-
-  std::vector<size_t> F(256, 0);
-  for (auto it = idx_img->begin(); it != idx_img->end(); ++it) {
-    F[*it]++;
-  }
-  size_t M = std::accumulate(F.begin(), F.end(), 0ULL);
-
-  double H = 0;
-  for (auto f : F) {
-    if (f == 0)
-      continue;
-
-    double Ps = static_cast<double>(f);
-    H -= Ps * log2(Ps);
-  }
-  H = log2(static_cast<double>(M)) + (H / static_cast<double>(M));
-
-  std::cout << "H: " << H << std::endl;
-  std::cout << "Expected num bytes: " << H*(idx_img->size() / 8) << std::endl;
-  std::cout << "Actual num bytes: " << idx_cmp->size() << std::endl;
-#endif
-
-  double bpp = static_cast<double>(result.size() * 8) /
-    static_cast<double>(dxt_img.Width() * dxt_img.Height());
-  std::cout << "Compressed DXT size: " << result.size()
-            << " (" << bpp << " bpp)" << std::endl;
-
-  return std::move(result);
-}
-
-std::vector<uint8_t> CompressDXT(const char *filename, const char *cmp_fn) {
-  DXTImage dxt_img(filename, cmp_fn);
-  return std::move(CompressDXTImage(dxt_img));
-}
-
-std::vector<uint8_t> CompressDXT(int width, int height, const std::vector<uint8_t> &rgb_data,
-                                 const std::vector<uint8_t> &dxt_data) {
-  DXTImage dxt_img(width, height, rgb_data, dxt_data);
-  return std::move(CompressDXTImage(dxt_img));  
+  // Upload everything but the header
+  cl_int errCreateBuffer;
+  static const size_t kHeaderSz = sizeof(*hdr);
+  cl_mem cmp_buf = clCreateBuffer(gpu_ctx->GetOpenCLContext(), GetHostReadOnlyFlags(),
+                                  cmp_data.size() - kHeaderSz, const_cast<uint8_t *>(cmp_data.data() + kHeaderSz),
+                                  &errCreateBuffer);
+  CHECK_CL((cl_int), errCreateBuffer);
+  return cmp_buf;
 }
   
 std::vector<uint8_t>  DecompressDXTBuffer(const std::unique_ptr<GPUContext> &gpu_ctx,
-                                          const std::vector<uint8_t> &cmp_data,
-                                          uint32_t width, uint32_t height) {
-  cl_int errCreateBuffer;
-  CLKernelResult decmp;
+                                          const std::vector<uint8_t> &cmp_data) {
 
+  GenTCHeader hdr;
+  cl_mem cmp_buf = UploadData(gpu_ctx, cmp_data, &hdr);
+
+  // Setup output
 #ifdef CL_VERSION_1_2
   cl_mem_flags out_flags = CL_MEM_READ_WRITE | CL_MEM_HOST_READ_ONLY;
 #else
   cl_mem_flags out_flags = CL_MEM_READ_WRITE;
 #endif
-  size_t dxt_size = (width * height) / 2;
+  CLKernelResult decmp;
+
+  cl_int errCreateBuffer;
+  size_t dxt_size = (hdr.width * hdr.height) / 2;
   decmp.output = clCreateBuffer(gpu_ctx->GetOpenCLContext(),
                                 out_flags, dxt_size, NULL, &errCreateBuffer);
   CHECK_CL((cl_int), errCreateBuffer);
@@ -602,10 +619,8 @@ std::vector<uint8_t>  DecompressDXTBuffer(const std::unique_ptr<GPUContext> &gpu
   CHECK_CL(clEnqueueMarker, gpu_ctx->GetCommandQueue(), &init_event);
 #endif
 
-  std::cout << "Decompressing DXT Image..." << std::endl;
-
   // Queue the decompression...
-  DecompressDXTImage(gpu_ctx, cmp_data, init_event, &decmp);
+  DecompressDXTImage(gpu_ctx, hdr, cmp_buf, init_event, &decmp);
 
   // Block on read
   std::vector<uint8_t> decmp_data(dxt_size, 0xFF);
@@ -623,24 +638,19 @@ std::vector<uint8_t>  DecompressDXTBuffer(const std::unique_ptr<GPUContext> &gpu
 
 DXTImage DecompressDXT(const std::unique_ptr<GPUContext> &gpu_ctx,
                        const std::vector<uint8_t> &cmp_data) {
-  DataStream in(cmp_data);
-  uint32_t width = in.ReadInt();
-  uint32_t height = in.ReadInt();
+  GenTCHeader hdr;
+  hdr.LoadFrom(cmp_data.data());
 
-  std::vector<uint8_t> decmp_data =
-    std::move(DecompressDXTBuffer(gpu_ctx, cmp_data, width, height));
-  return DXTImage(width, height, decmp_data);
+  std::vector<uint8_t> decmp_data = std::move(DecompressDXTBuffer(gpu_ctx, cmp_data));
+  return DXTImage(hdr.width, hdr.height, decmp_data);
 }
 
 bool TestDXT(const std::unique_ptr<gpu::GPUContext> &gpu_ctx,
              const char *filename, const char *cmp_fn) {
   DXTImage dxt_img(filename, cmp_fn);
-  int width = dxt_img.Width();
-  int height = dxt_img.Height();
   
   std::vector<uint8_t> cmp_img = std::move(CompressDXTImage(dxt_img));
-  std::vector<uint8_t> decmp_data =
-    std::move(DecompressDXTBuffer(gpu_ctx, cmp_img, width, height));
+  std::vector<uint8_t> decmp_data = std::move(DecompressDXTBuffer(gpu_ctx, cmp_img));
 
   const std::vector<PhysicalDXTBlock> &blks = dxt_img.PhysicalBlocks();
   for (size_t i = 0; i < blks.size(); ++i) {
@@ -657,6 +667,38 @@ bool TestDXT(const std::unique_ptr<gpu::GPUContext> &gpu_ctx,
   return true;
 }
 
+std::vector<cl_event> LoadCompressedDXT(const std::unique_ptr<gpu::GPUContext> &gpu_ctx,
+                                        const GenTCHeader &hdr, cl_mem cmp_data, cl_mem output,
+                                        cl_event *init) {
+  // Set a dummy event
+  cl_event init_event;
+#ifdef CL_VERSION_1_2
+  CHECK_CL(clEnqueueMarkerWithWaitList, gpu_ctx->GetCommandQueue(), 0, NULL, &init_event);
+#else
+  CHECK_CL(clEnqueueMarker, gpu_ctx->GetCommandQueue(), &init_event);
+#endif
+
+  // If there's an actual event, switch to it instead
+  if (NULL != init) {
+    CHECK_CL(clReleaseEvent, init_event);
+    init_event = *init;
+  }
+
+  // Queue the decompression...
+  CLKernelResult decmp;
+  decmp.output = output;
+  DecompressDXTImage(gpu_ctx, hdr, cmp_data, init_event, &decmp);
+
+  // Send back the events...
+  std::vector<cl_event> events;
+  events.reserve(decmp.num_events);
+  for (size_t i = 0; i < decmp.num_events; ++i) {
+    events.push_back(decmp.output_events[i]);
+  }
+
+  return std::move(events);
+}
+
 void GenTCHeader::Print() const {
   std::cout << "Width: " << width << std::endl;
   std::cout << "Height: " << height << std::endl;
@@ -670,206 +712,12 @@ void GenTCHeader::Print() const {
   std::cout << "Palette index deltas compressed: " << indices.sz << std::endl;
 }
 
-static void PeekWidthHeight(const std::vector<uint8_t> &cmp_data,
-                            uint32_t *width, uint32_t *height) {
-  DataStream in(cmp_data);
-  *width = in.ReadInt();
-  *height = in.ReadInt();
-}
-
-static void DecompressToPBO(const std::unique_ptr<gpu::GPUContext> &gpu_ctx,
-                            const std::vector<uint8_t> &cmp_data, cl_event *e,
-                            GLuint pbo) {
-  CLKernelResult decmp;
-
-  uint32_t width, height;
-  PeekWidthHeight(cmp_data, &width, &height);
-
-  // Get an OpenCL handle to pbo memory
-  cl_int errCreateFromGL;
-  decmp.output = clCreateFromGLBuffer(gpu_ctx->GetOpenCLContext(), CL_MEM_READ_WRITE,
-                                      pbo, &errCreateFromGL);
-  CHECK_CL((cl_int), errCreateFromGL);
-
-  // Acquire lock on GL objects...
-  cl_event acquire_event;
-  CHECK_CL(clEnqueueAcquireGLObjects, gpu_ctx->GetCommandQueue(),
-                                      1, &decmp.output, 0, NULL, &acquire_event);
-
-  // Queue the decompression...
-  DecompressDXTImage(gpu_ctx, cmp_data, acquire_event, &decmp);
-
-  // Release lock on GL objects...
-  cl_event release_event;
-  cl_event *resulting_event = &release_event;
-  if (e != NULL) {
-    resulting_event = e;
-  }
-  CHECK_CL(clEnqueueReleaseGLObjects, gpu_ctx->GetCommandQueue(),
-                                      1, &decmp.output,
-                                      decmp.num_events, decmp.output_events,
-                                      resulting_event);
-
-  // Block if we don't have anyone to wait on us...
-  if (e == NULL) {
-    CHECK_CL(clWaitForEvents, 1, &release_event);
-    CHECK_CL(clReleaseEvent, release_event);
-  }
-
-  // Cleanup
-  for (size_t i = 0; i < decmp.num_events; ++i) {
-    CHECK_CL(clReleaseEvent, decmp.output_events[i]);
-  }
-  CHECK_CL(clReleaseMemObject, decmp.output);
-  CHECK_CL(clReleaseEvent, acquire_event);
-}
-
-void LoadCompressedDXTInto(const std::unique_ptr<gpu::GPUContext> &gpu_ctx,
-                           const std::vector<uint8_t> &cmp_data,
-                           GLuint pbo, GLuint texID) {
-  uint32_t _width, _height;
-  PeekWidthHeight(cmp_data, &_width, &_height);
-  GLsizei width = static_cast<GLsizei>(_width);
-  GLsizei height = static_cast<GLsizei>(_height);
-  GLsizei dxt_size = (width * height) / 2;
-
-  DecompressToPBO(gpu_ctx, cmp_data, NULL, pbo);
-
-  // Copy to the newly created texture
-  CHECK_GL(glBindBuffer, GL_PIXEL_UNPACK_BUFFER, pbo);
-  CHECK_GL(glBindTexture, GL_TEXTURE_2D, texID);
-  CHECK_GL(glCompressedTexSubImage2D, GL_TEXTURE_2D, 0, 0, 0, width, height,
-                                      GL_COMPRESSED_RGB_S3TC_DXT1_EXT, dxt_size, 0);
-  
+void GenTCHeader::LoadFrom(const uint8_t *buf) {
+  // Read the header
+  memcpy(this, buf, sizeof(*this));
 #ifndef NDEBUG
-  GLint query;
-  CHECK_GL(glGetTexLevelParameteriv, GL_TEXTURE_2D, 0, GL_TEXTURE_COMPRESSED, &query);
-  assert ( query == GL_TRUE );
-
-  CHECK_GL(glGetTexLevelParameteriv, GL_TEXTURE_2D, 0, GL_TEXTURE_COMPRESSED_IMAGE_SIZE, &query);
-  assert ( query == dxt_size );
-
-  CHECK_GL(glGetTexLevelParameteriv, GL_TEXTURE_2D, 0, GL_TEXTURE_INTERNAL_FORMAT, &query);
-  assert ( query == GL_COMPRESSED_RGB_S3TC_DXT1_EXT );
+  Print();
 #endif
-
-  // Unbind the textures
-  CHECK_GL(glBindBuffer, GL_PIXEL_UNPACK_BUFFER, 0);
-  CHECK_GL(glBindTexture, GL_TEXTURE_2D, 0);
-}
-
-void InitializeDXTFromPBO(GLsizei w, GLsizei h, GLuint texID, GLuint pbo) {
-  const GLsizei dxt_size = (w * h) / 2;
-
-  // Initialize the texture...
-  CHECK_GL(glBindBuffer, GL_PIXEL_UNPACK_BUFFER, pbo);
-  CHECK_GL(glBindTexture, GL_TEXTURE_2D, texID);
-  CHECK_GL(glCompressedTexImage2D, GL_TEXTURE_2D, 0, GL_COMPRESSED_RGB_S3TC_DXT1_EXT, 
-                                   w, h, 0, dxt_size, 0);
-  CHECK_GL(glTexParameteri, GL_TEXTURE_2D, GL_TEXTURE_BASE_LEVEL, 0);
-  CHECK_GL(glTexParameteri, GL_TEXTURE_2D, GL_TEXTURE_MAX_LEVEL, 0);
-  CHECK_GL(glTexParameteri, GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
-  CHECK_GL(glTexParameteri, GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
-  CHECK_GL(glTexParameteri, GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-  CHECK_GL(glTexParameteri, GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
-
-#ifndef NDEBUG
-  GLint query;
-  CHECK_GL(glGetTexLevelParameteriv, GL_TEXTURE_2D, 0, GL_TEXTURE_COMPRESSED, &query);
-  assert(query == GL_TRUE);
-
-  CHECK_GL(glGetTexLevelParameteriv, GL_TEXTURE_2D, 0, GL_TEXTURE_COMPRESSED_IMAGE_SIZE, &query);
-  assert(query == dxt_size);
-
-  CHECK_GL(glGetTexLevelParameteriv, GL_TEXTURE_2D, 0, GL_TEXTURE_INTERNAL_FORMAT, &query);
-  assert(query == GL_COMPRESSED_RGB_S3TC_DXT1_EXT);
-#endif
-
-  // Unbind the textures
-  CHECK_GL(glBindBuffer, GL_PIXEL_UNPACK_BUFFER, 0);
-  CHECK_GL(glBindTexture, GL_TEXTURE_2D, 0);
-}
-
-GLuint LoadCompressedDXT(const std::unique_ptr<gpu::GPUContext> &gpu_ctx,
-                         const std::vector<uint8_t> &cmp_data, GLuint pbo) {
-  uint32_t _width, _height;
-  PeekWidthHeight(cmp_data, &_width, &_height);
-
-  DecompressToPBO(gpu_ctx, cmp_data, NULL, pbo);
-
-  GLuint texID;
-  CHECK_GL(glGenTextures, 1, &texID);
-
-  InitializeDXTFromPBO(static_cast<GLsizei>(_width), static_cast<GLsizei>(_height), texID, pbo);
-
-  return texID;
-}
-
-struct AsyncCallbackData {
-  GLsizei width;
-  GLsizei height;
-  GLuint texID;
-  GLuint pbo;
-
-  bool loaded;
-  std::function<void()> user_fn;
-};
-
-void CL_CALLBACK LoadTextureCallback(cl_event e, cl_int status, void *data) {
-  CHECK_CL((cl_int), status);
-
-  AsyncCallbackData *cbdata = reinterpret_cast<AsyncCallbackData *>(data);
-  cbdata->loaded = true;
-  cbdata->user_fn();
-}
-
-CompressedDXTAsyncRequest::CompressedDXTAsyncRequest()
-  : _data(new AsyncCallbackData)
-{
-  _data->loaded = false;
-}
-
-void CompressedDXTAsyncRequest::SetData(GLuint pbo, GLuint texID, GLsizei w, GLsizei h, std::function<void()> callback) {
-  _data->width = w;
-  _data->height = h;
-  _data->texID = texID;
-  _data->pbo = pbo;
-  _data->loaded = false;
-  _data->user_fn = callback;
-}
-
-bool CompressedDXTAsyncRequest::IsReady() const {
-  return _data->loaded;
-}
-
-GLuint CompressedDXTAsyncRequest::TextureHandle() const {
-  return _data->texID;
-}
-
-void CompressedDXTAsyncRequest::LoadTexture() {
-  assert(_data->loaded);
-
-  GLsizei width = static_cast<GLsizei>(_data->width);
-  GLsizei height = static_cast<GLsizei>(_data->height);
-  InitializeDXTFromPBO(width, height, _data->texID, _data->pbo);
-
-  CHECK_GL(glDeleteBuffers, 1, &(_data->pbo));
-  _data->loaded = false;
-}
-
-void LoadCompressedDXTAsync(
-  const std::unique_ptr<gpu::GPUContext> &gpu_ctx,
-  const std::vector<uint8_t> &cmp_data,
-  const CompressedDXTAsyncRequest *req) {
-
-  cl_event e;
-  DecompressToPBO(gpu_ctx, cmp_data, &e, req->_data->pbo);
-
-  // Set the callback...
-  CHECK_CL(clSetEventCallback, e, CL_COMPLETE, LoadTextureCallback, req->_data.get());
-
-  // Release event
-  CHECK_CL(clReleaseEvent, e);
 }
 
 }

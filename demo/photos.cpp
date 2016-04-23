@@ -201,12 +201,6 @@ static std::vector<uint8_t> LoadFile(const std::string &filePath) {
   return std::move(cmp_data);
 }
 
-GLuint LoadGTC(const std::unique_ptr<gpu::GPUContext> &ctx,
-               GLuint pbo, const std::string &filePath) {
-  std::vector<uint8_t> cmp_data = std::move(LoadFile(filePath));
-  return GenTC::LoadCompressedDXT(ctx, cmp_data, pbo);
-}
-
 class Texture {
 private:
   GLuint _id;
@@ -286,17 +280,115 @@ class AsyncTexRequest {
   virtual void LoadTexture() = 0;
 };
 
+static void CL_CALLBACK MarkLoadedCallback(cl_event e, cl_int status, void *data);
+
 class AsyncGenTCReq : public AsyncTexRequest {
  public:
-  AsyncGenTCReq(): AsyncTexRequest() { }
+  AsyncGenTCReq(const std::unique_ptr<gpu::GPUContext> &ctx, GLuint id)
+    : AsyncTexRequest()
+    , _ctx(ctx)
+    , _texID(id)
+    , _loaded(false)
+  { }
   virtual ~AsyncGenTCReq() { }
 
-  virtual bool IsReady() const override { return _req.IsReady(); }
-  virtual GLuint TextureHandle() const override { return _req.TextureHandle(); }
-  virtual void LoadTexture() override { return _req.LoadTexture(); }
+  virtual bool IsReady() const override { return _loaded; }
+  virtual GLuint TextureHandle() const override { return _texID; }
+  virtual void LoadTexture() override {
+    // Initialize the texture...
+    GLsizei dxt_size = (_width * _height) / 2;
+    CHECK_GL(glBindBuffer, GL_PIXEL_UNPACK_BUFFER, _pbo);
+    CHECK_GL(glBindTexture, GL_TEXTURE_2D, _texID);
+    CHECK_GL(glCompressedTexImage2D, GL_TEXTURE_2D, 0, GL_COMPRESSED_RGB_S3TC_DXT1_EXT,
+                                     _width, _height, 0, dxt_size, 0);
+    CHECK_GL(glTexParameteri, GL_TEXTURE_2D, GL_TEXTURE_BASE_LEVEL, 0);
+    CHECK_GL(glTexParameteri, GL_TEXTURE_2D, GL_TEXTURE_MAX_LEVEL, 0);
+    CHECK_GL(glTexParameteri, GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
+    CHECK_GL(glTexParameteri, GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
+    CHECK_GL(glTexParameteri, GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    CHECK_GL(glTexParameteri, GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
 
-  GenTC::CompressedDXTAsyncRequest _req;
+    CHECK_GL(glBindBuffer, GL_PIXEL_UNPACK_BUFFER, 0);
+    CHECK_GL(glBindTexture, GL_TEXTURE_2D, 0);
+
+    // We don't need the PBO anymore
+    CHECK_GL(glDeleteBuffers, 1, &_pbo);
+  }
+
+  virtual void MarkLoaded() {
+    _loaded = true;
+    _user_fn();
+  }
+
+  virtual void QueueDXT(const std::vector<uint8_t> &cmp_data, GLuint pbo, std::function<void()> user_fn) {
+    // Grab the header from the data
+    GenTC::GenTCHeader hdr;
+    hdr.LoadFrom(cmp_data.data());
+    _width = static_cast<GLsizei>(hdr.width);
+    _height = static_cast<GLsizei>(hdr.height);
+
+    // Create the data for OpenCL
+    cl_int errCreateBuffer;
+    static const size_t kHeaderSz = sizeof(hdr);
+    cl_mem_flags flags = CL_MEM_READ_ONLY | CL_MEM_COPY_HOST_PTR | CL_MEM_HOST_NO_ACCESS;
+    cl_mem cmp_buf = clCreateBuffer(_ctx->GetOpenCLContext(), flags, cmp_data.size() - kHeaderSz,
+                                    const_cast<uint8_t *>(cmp_data.data() + kHeaderSz),
+                                    &errCreateBuffer);
+    CHECK_CL((cl_int), errCreateBuffer);
+
+    // Create an OpenGL handle to our pbo
+    // !SPEED! We don't need to recreate this every time....
+    cl_mem output = clCreateFromGLBuffer(_ctx->GetOpenCLContext(), CL_MEM_READ_WRITE, pbo,
+                                         &errCreateBuffer);
+    CHECK_CL((cl_int), errCreateBuffer);
+
+    // Acquire the PBO
+    cl_event acquire_event;
+    CHECK_CL(clEnqueueAcquireGLObjects, _ctx->GetCommandQueue(),
+                                        1, &output, 0, NULL, &acquire_event);
+
+    // Load it
+    std::vector<cl_event> cmp_events =
+      std::move(GenTC::LoadCompressedDXT(_ctx, hdr, cmp_buf, output, &acquire_event));
+
+    // Release the PBO
+    cl_event release_event;
+    CHECK_CL(clEnqueueReleaseGLObjects, _ctx->GetCommandQueue(),
+                                        1, &output,
+                                        cmp_events.size(), cmp_events.data(), &release_event);
+
+    // Set the event callback
+    CHECK_CL(clSetEventCallback, release_event, CL_COMPLETE, MarkLoadedCallback, this);
+
+    // Cleanup
+    CHECK_CL(clReleaseMemObject, cmp_buf);
+    CHECK_CL(clReleaseMemObject, output);
+    CHECK_CL(clReleaseEvent, acquire_event);
+    CHECK_CL(clReleaseEvent, release_event);
+    for (auto event : cmp_events) {
+      CHECK_CL(clReleaseEvent, event);
+    }
+
+    _pbo = pbo;
+    _user_fn = user_fn;
+  }
+
+ private:
+  const std::unique_ptr<gpu::GPUContext> &_ctx;
+  GLuint _texID;
+  bool _loaded;
+
+  GLsizei _width, _height;
+  GLuint _pbo;
+  std::function<void()> _user_fn;
 };
+
+static void CL_CALLBACK MarkLoadedCallback(cl_event e, cl_int status, void *data) {
+  CHECK_CL((cl_int), status);
+
+  AsyncGenTCReq *cbdata = reinterpret_cast<AsyncGenTCReq *>(data);
+  cbdata->MarkLoaded();
+}
 
 class AsyncGenericReq : public AsyncTexRequest {
  public:
@@ -424,7 +516,7 @@ std::vector<std::unique_ptr<Texture> > LoadTextures(const std::unique_ptr<gpu::G
     size_t len = filenames[i].length();
     assert(len >= 4);
     if (strncmp(filenames[i].c_str() + len - 4, ".gtc", 4) == 0) {
-      reqs.push_back(std::unique_ptr<AsyncTexRequest>(new AsyncGenTCReq()));
+      reqs.push_back(std::unique_ptr<AsyncTexRequest>(new AsyncGenTCReq(ctx, texID)));
       AsyncTexRequest *req = reqs.back().get();
       const std::string &fname = filenames[i];
       pool.push([&loading_cv, &num_loaded, req, &fname, texID, &ctx,
@@ -457,14 +549,11 @@ std::vector<std::unique_ptr<Texture> > LoadTextures(const std::unique_ptr<gpu::G
           pbo_cv.wait(lock);
         }
 
-        // At this point, we should have a valid PBO...
         AsyncGenTCReq *gtc_req = reinterpret_cast<AsyncGenTCReq *>(req);
-        gtc_req->_req.SetData(pbo, texID, width, height, [&loading_cv, &num_loaded] {
+        gtc_req->QueueDXT(cmp_data, pbo, [&loading_cv, &num_loaded] {
           num_loaded++;
           loading_cv.notify_one();
         });
-
-        GenTC::LoadCompressedDXTAsync(ctx, cmp_data, &gtc_req->_req);
       });
     } else {
       reqs.push_back(std::unique_ptr<AsyncTexRequest>(new AsyncGenericReq(texID)));
