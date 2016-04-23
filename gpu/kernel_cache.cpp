@@ -1,5 +1,6 @@
 #include "kernel_cache.h"
 
+#include <cstring>
 #include <iostream>
 #include <fstream>
 

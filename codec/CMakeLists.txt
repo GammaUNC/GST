@@ -10,10 +10,6 @@ include_directories("${GenTC_SOURCE_DIR}/lib/vptree/include")
 include_directories("${GenTC_SOURCE_DIR}/lib")
 INCLUDE_DIRECTORIES( ${OPENCL_INCLUDE_DIRS} )
 
-if ("${OPENGL_INCLUDE_DIR}")
-  include_directories("${OPENGL_INCLUDE_DIR}")
-endif()
-
 SET( INVERSE_WAVELET_KERNEL_PATH ${GenTC_SOURCE_DIR}/codec/inverse_wavelet.cl )
 SET( ENDPOINT_KERNEL_PATH ${GenTC_SOURCE_DIR}/codec/collect_endpoints.cl )
 SET( DECODE_INDICES_KERNEL_PATH ${GenTC_SOURCE_DIR}/codec/decode_indices.cl )
@@ -58,29 +54,10 @@ SET( SOURCES
 SOURCE_GROUP(OpenCL FILES ${KERNELS})
 ADD_LIBRARY(gentc_codec ${HEADERS} ${SOURCES} ${KERNELS})
 TARGET_LINK_LIBRARIES( gentc_codec ans)
-TARGET_LINK_LIBRARIES( gentc_codec ${GLFW_LIBRARIES} )
 TARGET_LINK_LIBRARIES( gentc_codec gentc_gpu )
 TARGET_LINK_LIBRARIES( gentc_codec ${OPENCL_LIBRARIES} )
-TARGET_LINK_LIBRARIES( gentc_codec ${OPENGL_gl_LIBRARY} )
-TARGET_LINK_LIBRARIES( gentc_codec ${OPENGL_glu_LIBRARY} )
 TARGET_LINK_LIBRARIES( gentc_codec vptree)
 TARGET_LINK_LIBRARIES( gentc_codec squish)
-
-IF ( MSVC )
-  IF( ${CMAKE_SIZEOF_VOID_P} EQUAL 8 )
-    TARGET_LINK_LIBRARIES( gentc_codec ${GenTC_SOURCE_DIR}/lib/x64/glew32.lib )
-    add_custom_command(TARGET gentc_codec POST_BUILD      # Adds a post-build event to MyTest
-    COMMAND ${CMAKE_COMMAND} -E copy_if_different         # which executes "cmake - E copy_if_different..."
-    "${PROJECT_SOURCE_DIR}/lib/bin/x64/glew32.dll"        # <--this is in-file
-    $<TARGET_FILE_DIR:gentc_codec>)                       # <--this is out-file path
-  ELSE (${CMAKE_SIZEOF_VOID_P} EQUAL 8)
-    TARGET_LINK_LIBRARIES( gentc_codec ${GenTC_SOURCE_DIR}/lib/Win32/glew32.lib )
-    add_custom_command(TARGET gentc_codec POST_BUILD      # Adds a post-build event to MyTest
-    COMMAND ${CMAKE_COMMAND} -E copy_if_different         # which executes "cmake - E copy_if_different..."
-    "${PROJECT_SOURCE_DIR}/lib/bin/Win32/glew32.dll"      # <--this is in-file
-    $<TARGET_FILE_DIR:gentc_codec>)                       # <--this is out-file path
-  ENDIF( ${CMAKE_SIZEOF_VOID_P} EQUAL 8 )
-ENDIF()
 
 ADD_EXECUTABLE(gentenc encoder.cpp)
 TARGET_LINK_LIBRARIES( gentenc gentc_codec )

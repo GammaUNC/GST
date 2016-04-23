@@ -17,7 +17,7 @@ INCLUDE_DIRECTORIES( ${OPENCL_INCLUDE_DIRS} )
 ADD_EXECUTABLE(photos "photos.cpp")
 ADD_EXECUTABLE(demo "demo.cpp")
 
-FOREACH(prg "photos" "demo")
+FOREACH(prg photos demo)
   TARGET_LINK_LIBRARIES( ${prg} glfw )
   TARGET_LINK_LIBRARIES( ${prg} ${GLFW_LIBRARIES} )
   TARGET_LINK_LIBRARIES( ${prg} gentc_gpu )
