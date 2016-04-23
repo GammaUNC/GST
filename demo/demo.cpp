@@ -164,7 +164,8 @@ void LoadGTC(const std::unique_ptr<gpu::GPUContext> &ctx,
   cl_event release_event;
   CHECK_CL(clEnqueueReleaseGLObjects, ctx->GetCommandQueue(),
                                       1, &output,
-                                      cmp_events.size(), cmp_events.data(), &release_event);
+                                      static_cast<cl_uint>(cmp_events.size()),
+                                      cmp_events.data(), &release_event);
 
   // Wait on the release
   CHECK_CL(clWaitForEvents, 1, &release_event);

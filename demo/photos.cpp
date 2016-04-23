@@ -355,7 +355,8 @@ class AsyncGenTCReq : public AsyncTexRequest {
     cl_event release_event;
     CHECK_CL(clEnqueueReleaseGLObjects, _ctx->GetCommandQueue(),
                                         1, &output,
-                                        cmp_events.size(), cmp_events.data(), &release_event);
+                                        static_cast<cl_uint>(cmp_events.size()), 
+                                        cmp_events.data(), &release_event);
 
     // Set the event callback
     CHECK_CL(clSetEventCallback, release_event, CL_COMPLETE, MarkLoadedCallback, this);

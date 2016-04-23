@@ -82,7 +82,7 @@ static GenTCHeader::rANSInfo GetCompressedInfo(const std::unique_ptr<std::vector
   const uint32_t *data_as_ints = reinterpret_cast<const uint32_t *>(cmp->data());
 
   GenTCHeader::rANSInfo info;
-  info.sz = cmp->size();
+  info.sz = static_cast<uint32_t>(cmp->size());
   info.num_freqs = data_as_ints[0];
   info.num_offsets = data_as_ints[1 + info.num_freqs];
   return info;

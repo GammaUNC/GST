@@ -65,9 +65,12 @@ static cl_program CompileProgram(const char *source_filename, cl_context ctx,
   std::string args("-Werror ");
 
   if (ctx_ty == eContextType_IntelCPU && ver >= eOpenCLVersion_20) {
-    args += std::string("-g -s \"");
+    // !FIXME! Currently crashes build_table kernel
+    if (!strstr(source_filename, "build_table.cl"))
+      args += std::string("-g ");
+    args += std::string("-s \"");
     args += std::string(source_filename);
-    args += std::string("\"");
+    args += std::string("\" ");
   }
 
   if (clBuildProgram(program, 1, &device, args.c_str(), NULL, NULL) != CL_SUCCESS) {
