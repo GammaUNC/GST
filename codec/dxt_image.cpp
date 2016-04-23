@@ -388,7 +388,7 @@ DXTImage::DXTImage(const char *orig_fn, const char *cmp_fn) {
     std::ifstream ifs(cmp_fname.c_str(), std::ifstream::binary | std::ifstream::ate);
     std::ifstream::pos_type pos = ifs.tellg();
 
-    std::vector<uint8_t> crn(pos);
+    std::vector<uint8_t> crn(static_cast<unsigned int>(pos));
 
     ifs.seekg(0, std::ifstream::beg);
     ifs.read(reinterpret_cast<char *>(crn.data()), pos);
@@ -957,7 +957,7 @@ static std::vector<LogicalDXTBlock> KMeansBlocks(const std::vector<PhysicalDXTBl
   clusters.reserve(num_clusters);
 
   std::default_random_engine gen(
-    std::chrono::system_clock::now().time_since_epoch().count());
+    static_cast<unsigned int>(std::chrono::system_clock::now().time_since_epoch().count()));
   std::uniform_int_distribution<unsigned> dist(0, blocks.size() - 1);
 
   std::vector<std::pair<uint32_t, size_t> > counted_indices = CountBlocks(blocks);

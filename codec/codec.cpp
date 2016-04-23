@@ -573,8 +573,6 @@ static void DecompressDXTImage(const std::unique_ptr<GPUContext> &gpu_ctx,
 
   result->output_events[2] = DecodeIndices(gpu_ctx, result->output, init_event, cmp_buf,
                                            offset, num_blocks, hdr.palette, hdr.indices);
-
-  CHECK_CL(clReleaseMemObject, cmp_buf);
 }
 
 cl_mem UploadData(const std::unique_ptr<GPUContext> &gpu_ctx,

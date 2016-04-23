@@ -313,6 +313,7 @@ class AsyncGenTCReq : public AsyncTexRequest {
 
     // We don't need the PBO anymore
     CHECK_GL(glDeleteBuffers, 1, &_pbo);
+	_loaded = false;
   }
 
   virtual void MarkLoaded() {
