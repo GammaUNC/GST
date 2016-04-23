@@ -53,7 +53,7 @@ static std::vector<T> ReadBuffer(cl_command_queue queue, cl_mem buffer, size_t n
 namespace GenTC {
 
 static CLKernelResult DecodeANS(const std::unique_ptr<GPUContext> &gpu_ctx,
-                                cl_mem input, size_t offset, const GenTCHeader::rANSInfo &info,
+                                cl_mem input, const size_t offset, const GenTCHeader::rANSInfo &info,
                                 cl_event init_event) {
   // First get the number of frequencies...
   cl_uint num_freqs = info.num_freqs;
@@ -96,7 +96,8 @@ static CLKernelResult DecodeANS(const std::unique_ptr<GPUContext> &gpu_ctx,
 
   CLSubRegion data_sub_region;
   data_sub_region.origin = offset + (num_freqs + 2) * 4;
-  data_sub_region.size = info.sz - (num_freqs + 2) * 4;
+  data_sub_region.origin = ((data_sub_region.origin + 511) / 512) * 512;
+  data_sub_region.size = (offset + info.sz) - data_sub_region.origin;
 
   assert((data_sub_region.origin % (gpu_ctx->GetDeviceInfo<cl_uint>(CL_DEVICE_MEM_BASE_ADDR_ALIGN) / 8)) == 0);
 
