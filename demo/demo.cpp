@@ -132,6 +132,9 @@ void LoadGTC(const std::unique_ptr<gpu::GPUContext> &ctx,
   assert(is);
   is.close();
 
+  glFlush();
+  glFinish();
+
   // Grab the header from the data
   GenTC::GenTCHeader hdr;
   hdr.LoadFrom(cmp_data.data());

@@ -359,6 +359,8 @@ class AsyncGenTCReq : public AsyncTexRequest {
                                         cmp_events.data(), &release_event);
 
     // Set the event callback
+    _pbo = pbo;
+    _user_fn = user_fn;
     CHECK_CL(clSetEventCallback, release_event, CL_COMPLETE, MarkLoadedCallback, this);
 
     // Cleanup
@@ -369,9 +371,6 @@ class AsyncGenTCReq : public AsyncTexRequest {
     for (auto event : cmp_events) {
       CHECK_CL(clReleaseEvent, event);
     }
-
-    _pbo = pbo;
-    _user_fn = user_fn;
   }
 
  private:
