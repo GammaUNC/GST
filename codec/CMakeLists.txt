@@ -101,7 +101,14 @@ if (MSVC AND MSVC_VERSION EQUAL 1900)
   add_definitions(/D _SCL_SECURE_NO_WARNINGS)
 endif()
 
-FOREACH(TEST image wavelet)
+SET(CODEC_TEST_DIR "${GenTC_SOURCE_DIR}/codec/test")
+CONFIGURE_FILE(
+  "test/test_config.h.in"
+  "test/test_config.h"
+)
+INCLUDE_DIRECTORIES(${GenTC_BINARY_DIR}/codec/test)
+
+FOREACH(TEST image wavelet codec)
   ADD_EXECUTABLE(${TEST}_test "test/${TEST}_test.cpp")
 
   TARGET_LINK_LIBRARIES(${TEST}_test gentc_codec)

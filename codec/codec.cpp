@@ -72,6 +72,9 @@ static CLKernelResult DecodeANS(const std::unique_ptr<GPUContext> &gpu_ctx,
   freqs_sub_region.origin = offset;
   freqs_sub_region.size = (num_freqs + 1) * 4;
 
+  assert((0x7 & gpu_ctx->GetDeviceInfo<cl_uint>(CL_DEVICE_MEM_BASE_ADDR_ALIGN)) == 0);
+  assert((freqs_sub_region.origin % (gpu_ctx->GetDeviceInfo<cl_uint>(CL_DEVICE_MEM_BASE_ADDR_ALIGN) / 8)) == 0);
+
   cl_mem freqs_buffer = clCreateSubBuffer(input, CL_MEM_READ_ONLY, CL_BUFFER_CREATE_TYPE_REGION,
                                           &freqs_sub_region, &errCreateBuffer);
   CHECK_CL((cl_int), errCreateBuffer);
@@ -94,6 +97,8 @@ static CLKernelResult DecodeANS(const std::unique_ptr<GPUContext> &gpu_ctx,
   CLSubRegion data_sub_region;
   data_sub_region.origin = offset + (num_freqs + 2) * 4;
   data_sub_region.size = info.sz - (num_freqs + 2) * 4;
+
+  assert((data_sub_region.origin % (gpu_ctx->GetDeviceInfo<cl_uint>(CL_DEVICE_MEM_BASE_ADDR_ALIGN) / 8)) == 0);
 
   cl_mem data_buf = clCreateSubBuffer(input, CL_MEM_READ_ONLY, CL_BUFFER_CREATE_TYPE_REGION,
                                       &data_sub_region, &errCreateBuffer);
@@ -359,19 +364,20 @@ static void DecompressDXTImage(const std::unique_ptr<GPUContext> &gpu_ctx,
 #ifndef NDEBUG
   hdr.Print();
 #endif
-  size_t offset = sizeof(hdr);
   assert((hdr.width & 0x3) == 0);
   assert((hdr.height & 0x3) == 0);
 
   const int blocks_x = static_cast<int>(hdr.width) >> 2;
   const int blocks_y = static_cast<int>(hdr.height) >> 2;
 
+  static const size_t kHeaderSz = sizeof(hdr);
   cl_int errCreateBuffer;
   cl_mem cmp_buf = clCreateBuffer(gpu_ctx->GetOpenCLContext(), GetHostReadOnlyFlags(),
-                                  cmp_data.size(), const_cast<uint8_t *>(cmp_data.data()),
+                                  cmp_data.size() - kHeaderSz, const_cast<uint8_t *>(cmp_data.data() + kHeaderSz),
                                   &errCreateBuffer);
   CHECK_CL((cl_int), errCreateBuffer);  
 
+  size_t offset = 0;
   CLKernelResult ep1_y = DecompressEndpoints(gpu_ctx, cmp_buf, hdr.ep1_y,
                                              &offset, init_event, -128, blocks_x, blocks_y);
   CLKernelResult ep1_co = DecompressEndpoints(gpu_ctx, cmp_buf, hdr.ep1_co,

@@ -1,0 +1,6 @@
+#ifndef __GENTC_CODEC_TEST_CONFIG_H__
+#define __GENTC_CODEC_TEST_CONFIG_H__
+
+#cmakedefine CODEC_TEST_DIR "${CODEC_TEST_DIR}"
+
+#endif  // __GENTC_CODEC_TEST_CONFIG_H__

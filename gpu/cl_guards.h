@@ -75,20 +75,20 @@ static inline const char *clErrMsg(cl_int err) {
   return errMsg;
 }
 
-#  define CHECK_CL(fn, ...)                                                     \
-  do {                                                                          \
-    cl_int err = fn(__VA_ARGS__);                                               \
-    if(CL_SUCCESS != err) {                                                     \
-      const char *errMsg = clErrMsg(err);                                       \
-      if (NULL != errMsg) {                                                     \
-        fprintf(stderr, "OpenCL error (%s : %d): %s\n",                         \
-          __FILE__, __LINE__, errMsg);                                          \
-      } else {                                                                  \
-        fprintf(stderr, "Unknown OpenCL error (%s : %d): 0x%x\n",               \
-          __FILE__, __LINE__, err);                                             \
-      }                                                                         \
-      assert (false);                                                           \
-    }                                                                           \
+#  define CHECK_CL(fn, ...)                                             \
+  do {                                                                  \
+    cl_int err = fn(__VA_ARGS__);                                       \
+    if(CL_SUCCESS != err) {                                             \
+      const char *errMsg = clErrMsg(err);                               \
+      if (NULL != errMsg) {                                             \
+        fprintf(stderr, "OpenCL error (%s: %d): %s\n",                  \
+                __FILE__, __LINE__, errMsg);                            \
+      } else {                                                          \
+        fprintf(stderr, "Unknown OpenCL error (%s: %d): %d\n",          \
+                __FILE__, __LINE__, err);                               \
+      }                                                                 \
+      assert (false);                                                   \
+    }                                                                   \
   } while(0)
 #else
 #  define CHECK_CL(fn, ...) do { (void)(fn(__VA_ARGS__)); } while(0)
