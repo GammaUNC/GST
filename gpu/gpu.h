@@ -47,7 +47,7 @@ namespace gpu {
     ~GPUContext();
     static std::unique_ptr<GPUContext> InitializeOpenCL(bool share_opengl);
 
-    cl_command_queue GetCommandQueue() const { return _command_queue; }
+    cl_command_queue GetDefaultCommandQueue() const { return _command_queue; }
     cl_device_id GetDeviceID() const { return _device;  }
     cl_context GetOpenCLContext() const { return _ctx; }
 
@@ -86,14 +86,15 @@ namespace gpu {
     };
 
     template<cl_uint WorkDim, typename... Args>
-    void EnqueueOpenCLKernel(const std::string &filename, const std::string &kernel,
+    void EnqueueOpenCLKernel(cl_command_queue queue,
+                             const std::string &filename, const std::string &kernel,
                              const size_t *global_sz, const size_t *local_sz,
                              cl_uint num_events, const cl_event *events, cl_event *ret_event,
                              Args... kernel_args) {
       std::unique_lock<std::mutex> lock(_enqueue_mutex);
       cl_kernel k = GetOpenCLKernel(filename, kernel);
       SetArgument(k, 0, kernel_args...);
-      CHECK_CL(clEnqueueNDRangeKernel, GetCommandQueue(), k,
+      CHECK_CL(clEnqueueNDRangeKernel, queue, k,
                                        WorkDim, NULL, global_sz, local_sz,
                                        num_events, events, ret_event);
     }

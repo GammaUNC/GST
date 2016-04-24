@@ -105,8 +105,8 @@ int main(int argc, char **argv) {
 
   // cv::imwrite("img_dxt_interp_dft.png", dft_opencv(interp_img));
 
-  clFlush(ctx->GetCommandQueue());
-  clFinish(ctx->GetCommandQueue());
+  clFlush(ctx->GetDefaultCommandQueue());
+  clFinish(ctx->GetDefaultCommandQueue());
   gpu::GPUKernelCache::Clear();
 
   return 0;

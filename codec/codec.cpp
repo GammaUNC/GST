@@ -264,10 +264,17 @@ static CLKernelResult DecodeANS(const std::unique_ptr<GPUContext> &gpu_ctx,
   CHECK_CL((cl_int), errCreateBuffer);
 
   cl_event build_table_event;
-  gpu_ctx->EnqueueOpenCLKernel<1>(ans::kANSOpenCLKernels[ans::eANSOpenCLKernel_BuildTable], "build_table",
-                                  &M, &build_table_local_work_size,
-                                  1, &init_event, &build_table_event,
-                                  freqs_buffer, table);
+  gpu_ctx->EnqueueOpenCLKernel<1>(
+    // Queue to run on
+    gpu_ctx->GetDefaultCommandQueue(),
+
+    ans::kANSOpenCLKernels[ans::eANSOpenCLKernel_BuildTable], "build_table",
+
+    &M, &build_table_local_work_size,
+    
+    1, &init_event, &build_table_event,
+    
+    freqs_buffer, table);
 
   CHECK_CL(clReleaseMemObject, freqs_buffer);
 
@@ -302,6 +309,9 @@ static CLKernelResult DecodeANS(const std::unique_ptr<GPUContext> &gpu_ctx,
   CHECK_CL((cl_int), errCreateBuffer);
 
   gpu_ctx->EnqueueOpenCLKernel<1>(
+    // Queue to run on
+    gpu_ctx->GetDefaultCommandQueue(),
+
     // Kernel to run...
     ans::kANSOpenCLKernels[ans::eANSOpenCLKernel_ANSDecode], "ans_decode",
 
@@ -376,6 +386,9 @@ static CLKernelResult InverseWavelet(const std::unique_ptr<GPUContext> &gpu_ctx,
   local_mem._local_mem_sz = local_mem_sz;
 
   gpu_ctx->EnqueueOpenCLKernel<2>(
+    // Queue to run on
+    gpu_ctx->GetDefaultCommandQueue(),
+
     // Kernel to run...
     GenTC::kOpenCLKernels[GenTC::eOpenCLKernel_InverseWavelet], "inv_wavelet",
 
@@ -422,6 +435,9 @@ static cl_event CollectEndpoints(const std::unique_ptr<GPUContext> &gpu_ctx,
 
   cl_event e;
   gpu_ctx->EnqueueOpenCLKernel<1>(
+    // Queue to run on
+    gpu_ctx->GetDefaultCommandQueue(),
+
     // Kernel to run...
     GenTC::kOpenCLKernels[GenTC::eOpenCLKernel_Endpoints], "collect_endpoints",
 
@@ -480,6 +496,9 @@ static cl_event DecodeIndices(const std::unique_ptr<GPUContext> &gpu_ctx, cl_mem
 #endif
 
     gpu_ctx->EnqueueOpenCLKernel<1>(
+      // Queue to run on
+      gpu_ctx->GetDefaultCommandQueue(),
+
       // Kernel to run...
       GenTC::kOpenCLKernels[GenTC::eOpenCLKernel_DecodeIndices], "decode_indices",
 
@@ -513,6 +532,9 @@ static cl_event DecodeIndices(const std::unique_ptr<GPUContext> &gpu_ctx, cl_mem
     cl_uint num_events = static_cast<cl_uint>(e.size()) - event_idx;
 
     gpu_ctx->EnqueueOpenCLKernel<1>(
+      // Queue to run on
+      gpu_ctx->GetDefaultCommandQueue(),
+
       // Kernel to run...
       GenTC::kOpenCLKernels[GenTC::eOpenCLKernel_DecodeIndices], "collect_indices",
 
@@ -612,7 +634,7 @@ std::vector<uint8_t>  DecompressDXTBuffer(const std::unique_ptr<GPUContext> &gpu
   // Set a dummy event
   cl_event init_event;
 #ifdef CL_VERSION_1_2
-  CHECK_CL(clEnqueueMarkerWithWaitList, gpu_ctx->GetCommandQueue(), 0, NULL, &init_event);
+  CHECK_CL(clEnqueueMarkerWithWaitList, gpu_ctx->GetDefaultCommandQueue(), 0, NULL, &init_event);
 #else
   CHECK_CL(clEnqueueMarker, gpu_ctx->GetCommandQueue(), &init_event);
 #endif
@@ -622,7 +644,7 @@ std::vector<uint8_t>  DecompressDXTBuffer(const std::unique_ptr<GPUContext> &gpu
 
   // Block on read
   std::vector<uint8_t> decmp_data(dxt_size, 0xFF);
-  CHECK_CL(clEnqueueReadBuffer, gpu_ctx->GetCommandQueue(),
+  CHECK_CL(clEnqueueReadBuffer, gpu_ctx->GetDefaultCommandQueue(),
                                 decmp.output, CL_TRUE, 0, dxt_size, decmp_data.data(),
                                 decmp.num_events, decmp.output_events, NULL);
 
@@ -671,9 +693,9 @@ std::vector<cl_event> LoadCompressedDXT(const std::unique_ptr<gpu::GPUContext> &
   // Set a dummy event
   cl_event init_event;
 #ifdef CL_VERSION_1_2
-  CHECK_CL(clEnqueueMarkerWithWaitList, gpu_ctx->GetCommandQueue(), 0, NULL, &init_event);
+  CHECK_CL(clEnqueueMarkerWithWaitList, gpu_ctx->GetDefaultCommandQueue(), 0, NULL, &init_event);
 #else
-  CHECK_CL(clEnqueueMarker, gpu_ctx->GetCommandQueue(), &init_event);
+  CHECK_CL(clEnqueueMarker, gpu_ctx->GetDefaultCommandQueue(), &init_event);
 #endif
 
   // If there's an actual event, switch to it instead

@@ -174,7 +174,7 @@ void LoadGTC(const std::unique_ptr<gpu::GPUContext> &ctx,
 
   // Acquire the PBO
   cl_event acquire_event;
-  CHECK_CL(clEnqueueAcquireGLObjects, ctx->GetCommandQueue(),
+  CHECK_CL(clEnqueueAcquireGLObjects, ctx->GetDefaultCommandQueue(),
                                       1, &output, 0, NULL, &acquire_event);
 
   // Load it
@@ -183,7 +183,7 @@ void LoadGTC(const std::unique_ptr<gpu::GPUContext> &ctx,
 
   // Release the PBO
   cl_event release_event;
-  CHECK_CL(clEnqueueReleaseGLObjects, ctx->GetCommandQueue(),
+  CHECK_CL(clEnqueueReleaseGLObjects, ctx->GetDefaultCommandQueue(),
                                       1, &output,
                                       static_cast<cl_uint>(cmp_events.size()),
                                       cmp_events.data(), &release_event);
@@ -398,8 +398,8 @@ int main(int argc, char* argv[])
     std::cout << std::endl;
 
     // Finish GPU things
-    clFlush(ctx->GetCommandQueue());
-    clFinish(ctx->GetCommandQueue());
+    clFlush(ctx->GetDefaultCommandQueue());
+    clFinish(ctx->GetDefaultCommandQueue());
     glFlush();
     glFinish();
 
