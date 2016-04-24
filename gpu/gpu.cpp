@@ -114,6 +114,22 @@ static void PrintDeviceInfo(cl_device_id device_id) {
   }
 }
 
+static int GetGLSharingDevice(cl_device_id *devices, cl_uint num_devices) {
+  size_t strLen;
+  const size_t kStrBufSz = 1024;
+  char strBuf[kStrBufSz];
+
+  for (cl_uint didx = 0; didx < num_devices; didx++) {
+    CHECK_CL(clGetDeviceInfo, devices[didx], CL_DEVICE_EXTENSIONS, kStrBufSz, strBuf, &strLen);
+    if (strstr(strBuf, "")) {
+      return static_cast<int>(didx);
+    }
+  }
+
+  return -1;
+}
+
+
 static std::vector<cl_context_properties> GetSharedCLGLProps() {
   std::vector<cl_context_properties> props;
 #ifdef __APPLE__
@@ -259,6 +275,17 @@ static cl_platform_id GetCLPlatform(bool share_opengl) {
         }
       }
     }
+
+    // If we can't share opengl and we need it, then just check
+    // the GPU device for the extension string, too...
+    if (share_opengl && !can_share_opengl) {
+      static const cl_uint kMaxNumDevices = 8;
+      cl_device_id devices[kMaxNumDevices];
+      cl_uint nDevices;
+      CHECK_CL(clGetDeviceIDs, platforms[i], CL_DEVICE_TYPE_ALL, kMaxNumDevices, devices, &nDevices);
+      can_share_opengl = GetGLSharingDevice(devices, nDevices) >= 0;
+    }
+
     ok = ok && (!share_opengl || can_share_opengl);
 
     if (ok) {
