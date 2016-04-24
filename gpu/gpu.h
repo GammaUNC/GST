@@ -22,6 +22,7 @@
 
 #include "cl_guards.h"
 
+#include <atomic>
 #include <cstdio>
 #include <cassert>
 #include <memory>
@@ -48,6 +49,10 @@ namespace gpu {
     static std::unique_ptr<GPUContext> InitializeOpenCL(bool share_opengl);
 
     cl_command_queue GetDefaultCommandQueue() const { return _command_queue; }
+    cl_command_queue GetNextQueue() const {
+      int next = _next_in_order_queue++;
+      return _in_order_queues[next % kNumInOrderQueues];
+    }
     cl_device_id GetDeviceID() const { return _device;  }
     cl_context GetOpenCLContext() const { return _ctx; }
 
@@ -100,8 +105,8 @@ namespace gpu {
     }
 
   private:
-    GPUContext() { }
-    GPUContext(const GPUContext &);
+    GPUContext() : _next_in_order_queue(0) { }
+    GPUContext(const GPUContext &) { }
 
     void SetArgument(cl_kernel kernel, unsigned idx, LocalMemoryKernelArg mem) {
       CHECK_CL(clSetKernelArg, kernel, idx, mem._local_mem_sz, NULL);
@@ -127,6 +132,10 @@ namespace gpu {
     cl_command_queue _command_queue;
     cl_device_id _device;
     cl_context _ctx;
+
+    static const int kNumInOrderQueues = 32;
+    mutable std::atomic_int _next_in_order_queue;
+    cl_command_queue _in_order_queues[kNumInOrderQueues];
 
     std::mutex _enqueue_mutex;
 

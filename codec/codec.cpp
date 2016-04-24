@@ -352,7 +352,7 @@ static CLKernelResult InverseWavelet(const std::unique_ptr<GPUContext> &gpu_ctx,
 #ifndef NDEBUG
   // One thread per pixel, kWaveletBlockDim * kWaveletBlockDim threads
   // per group...
-  size_t threads_per_group = (kWaveletBlockDim / 2) * kWaveletBlockDim;
+  size_t threads_per_group = (kWaveletBlockDim / 2) * (kWaveletBlockDim / 2);
 
   // Make sure that we can launch enough kernels per group
   assert(threads_per_group <=
@@ -571,16 +571,7 @@ static void DecompressDXTImage(const std::unique_ptr<GPUContext> &gpu_ctx,
   // Create a few in-order queues
   CommandQueueList queue_list;
   for (int i = 0; i < kCommandQueueListSz; ++i) {
-    cl_int errCreateCommandQueue;
-#ifndef CL_VERSION_2_0
-    queue_list[i] = clCreateCommandQueue(
-      gpu_ctx->GetOpenCLContext(), gpu_ctx->GetDeviceID(), 0, &errCreateCommandQueue);
-#else
-    queue_list[i] = clCreateCommandQueueWithProperties(
-      gpu_ctx->GetOpenCLContext(), gpu_ctx->GetDeviceID(), NULL, &errCreateCommandQueue);
-#endif
-    CHECK_CL((cl_int), errCreateCommandQueue);
-
+    queue_list[i] = gpu_ctx->GetNextQueue();
     CHECK_CL(clEnqueueMarkerWithWaitList, queue_list[i], 1, &init_event, NULL);
   }
 
@@ -616,11 +607,6 @@ static void DecompressDXTImage(const std::unique_ptr<GPUContext> &gpu_ctx,
 
   result->output_events[2] = DecodeIndices(gpu_ctx, queue_list + 6, result->output, cmp_buf,
                                            offset, num_blocks, hdr.palette, hdr.indices);
-
-  // Release all of the queues...
-  for (int i = 0; i < kCommandQueueListSz; ++i) {
-    CHECK_CL(clReleaseCommandQueue, queue_list[i]);
-  }
 }
 
 cl_mem UploadData(const std::unique_ptr<GPUContext> &gpu_ctx,

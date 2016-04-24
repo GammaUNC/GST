@@ -739,13 +739,14 @@ int main(int argc, char* argv[] ) {
     // Finish GPU things
     clFlush(ctx->GetDefaultCommandQueue());
     clFinish(ctx->GetDefaultCommandQueue());
+
+    // Delete OpenCL crap before we destroy everything else...
+    ctx = nullptr;
+
     CHECK_GL(glFlush);
     CHECK_GL(glFinish);
 
     CHECK_GL(glDeleteProgram, prog);
-
-    // Delete OpenCL crap before we destroy everything else...
-    ctx = nullptr;
 
     glfwDestroyWindow(window);
 

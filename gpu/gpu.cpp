@@ -372,6 +372,9 @@ static std::vector<cl_device_id> GetAllDevicesForContext(cl_context ctx) {
 GPUContext::~GPUContext() {
   GPUKernelCache::Instance(_ctx, _type, _version, _device)->Clear();
   CHECK_CL(clReleaseCommandQueue, _command_queue);
+  for (int i = 0; i < kNumInOrderQueues; ++i) {
+    CHECK_CL(clReleaseCommandQueue, _in_order_queues[i]);
+  }
   CHECK_CL(clReleaseContext, _ctx);
 }
 
@@ -463,6 +466,13 @@ std::unique_ptr<GPUContext> GPUContext::InitializeOpenCL(bool share_opengl) {
   cl_command_queue_properties cq_props = CL_QUEUE_OUT_OF_ORDER_EXEC_MODE_ENABLE;
 #ifndef CL_VERSION_2_0
   gpu_ctx->_command_queue = clCreateCommandQueue(ctx, gpu_ctx->_device, cq_props, &errCreateCommandQueue);
+  CHECK_CL((cl_int), errCreateCommandQueue);
+
+  for (int i = 0; i < kNumInOrderQueues; ++i) {
+    gpu_ctx->_in_order_queues[i] =
+      clCreateCommandQueueWithProperties(ctx, gpu_ctx->_device, 0, &errCreateCommandQueue);
+    CHECK_CL((cl_int), errCreateCommandQueue);
+  }
 #else
   cl_queue_properties cq_props_list[] = {
     CL_QUEUE_PROPERTIES,
@@ -472,8 +482,14 @@ std::unique_ptr<GPUContext> GPUContext::InitializeOpenCL(bool share_opengl) {
 
   gpu_ctx->_command_queue =
     clCreateCommandQueueWithProperties(ctx, gpu_ctx->_device, cq_props_list, &errCreateCommandQueue);
-#endif
   CHECK_CL((cl_int), errCreateCommandQueue);
+
+  for (int i = 0; i < kNumInOrderQueues; ++i) {
+    gpu_ctx->_in_order_queues[i] =
+      clCreateCommandQueueWithProperties(ctx, gpu_ctx->_device, NULL, &errCreateCommandQueue);
+    CHECK_CL((cl_int), errCreateCommandQueue);
+  }
+#endif
 
   return std::move(gpu_ctx);
 }
