@@ -272,15 +272,55 @@ public:
   }
 };
 
+// Requesting thread sets sz to a size, dst to a valid pointer, and waits on the cv
+// Producing thread sets sz to zero, places a requested pbo in dst, and then notifies the cv.
+struct PBORequest {
+  size_t sz;
+  GLuint pbo;
+  cl_mem dst_buf;
+  cl_event acquire_event;
+
+  void SetupPBO() {
+    assert(sz > 0);
+    CHECK_GL(glGenBuffers, 1, &pbo);
+    CHECK_GL(glBindBuffer, GL_PIXEL_UNPACK_BUFFER, pbo);
+    CHECK_GL(glBufferData, GL_PIXEL_UNPACK_BUFFER, sz, NULL, GL_DYNAMIC_DRAW);
+    CHECK_GL(glBindBuffer, GL_PIXEL_UNPACK_BUFFER, 0);    
+  }
+
+  void CreateCLBuffer(const std::unique_ptr<gpu::GPUContext> &ctx) {
+    // Create an OpenGL handle to our pbo
+    // !SPEED! We don't need to recreate this every time....
+    cl_int errCreateBuffer;
+    dst_buf = clCreateFromGLBuffer(ctx->GetOpenCLContext(), CL_MEM_READ_WRITE, pbo,
+                                   &errCreateBuffer);
+    CHECK_CL((cl_int), errCreateBuffer);
+  }
+};
+
 class AsyncTexRequest {
  public:
   virtual ~AsyncTexRequest() { }
-  virtual bool IsReady() const = 0;
-  virtual GLuint TextureHandle() const = 0;
-  virtual void LoadTexture() = 0;
-};
+  bool Run(std::function<void()> *ret) {
+    if (_fns.empty()) {
+      return false;
+    }
 
-static void CL_CALLBACK MarkLoadedCallback(cl_event e, cl_int status, void *data);
+    *ret = _fns.front();
+    _fns.pop();
+    return true;
+  }
+
+  void QueueWork(std::function<void()> fn) {
+    _fns.push(fn);
+  }
+
+  virtual GLuint TextureHandle() const = 0;
+  virtual bool NeedsPBO(PBORequest **ret) = 0;
+  virtual void LoadTexture() const = 0;
+ private:
+  std::queue<std::function<void()> > _fns;
+};
 
 class AsyncGenTCReq : public AsyncTexRequest {
  public:
@@ -288,19 +328,23 @@ class AsyncGenTCReq : public AsyncTexRequest {
     : AsyncTexRequest()
     , _ctx(ctx)
     , _texID(id)
-    , _loaded(false)
   { }
   virtual ~AsyncGenTCReq() { }
 
-  virtual bool IsReady() const override { return _loaded; }
   virtual GLuint TextureHandle() const override { return _texID; }
-  virtual void LoadTexture() override {
+
+  virtual bool NeedsPBO(PBORequest **ret) override {
+    *ret = &_pbo;
+    return true;
+  }
+
+  virtual void LoadTexture() const override {
     // Initialize the texture...
-    GLsizei dxt_size = (_width * _height) / 2;
-    CHECK_GL(glBindBuffer, GL_PIXEL_UNPACK_BUFFER, _pbo);
+    CHECK_GL(glBindBuffer, GL_PIXEL_UNPACK_BUFFER, _pbo.pbo);
     CHECK_GL(glBindTexture, GL_TEXTURE_2D, _texID);
     CHECK_GL(glCompressedTexImage2D, GL_TEXTURE_2D, 0, GL_COMPRESSED_RGB_S3TC_DXT1_EXT,
-                                     _width, _height, 0, dxt_size, 0);
+             static_cast<GLsizei>(_hdr.width), static_cast<GLsizei>(_hdr.height), 0,
+             static_cast<GLsizei>(_pbo.sz), 0);
     CHECK_GL(glTexParameteri, GL_TEXTURE_2D, GL_TEXTURE_BASE_LEVEL, 0);
     CHECK_GL(glTexParameteri, GL_TEXTURE_2D, GL_TEXTURE_MAX_LEVEL, 0);
     CHECK_GL(glTexParameteri, GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
@@ -312,96 +356,48 @@ class AsyncGenTCReq : public AsyncTexRequest {
     CHECK_GL(glBindTexture, GL_TEXTURE_2D, 0);
 
     // We don't need the PBO anymore
-    CHECK_GL(glDeleteBuffers, 1, &_pbo);
-	_loaded = false;
+    CHECK_GL(glDeleteBuffers, 1, &_pbo.pbo);
+    CHECK_CL(clReleaseMemObject, _pbo.dst_buf);
+    CHECK_CL(clReleaseMemObject, _cmp_buf);
   }
 
-  virtual void MarkLoaded() {
-    _loaded = true;
-    _user_fn();
-  }
-
-  virtual void QueueDXT(const std::vector<uint8_t> &cmp_data, GLuint pbo, std::function<void()> user_fn) {
-    // Grab the header from the data
-    GenTC::GenTCHeader hdr;
-    hdr.LoadFrom(cmp_data.data());
-    _width = static_cast<GLsizei>(hdr.width);
-    _height = static_cast<GLsizei>(hdr.height);
+  virtual void Preload(const std::vector<uint8_t> &cmp_data) {
+    _hdr.LoadFrom(cmp_data.data());
+    _pbo.sz = (_hdr.width * _hdr.height) / 2;
 
     // Create the data for OpenCL
     cl_int errCreateBuffer;
-    static const size_t kHeaderSz = sizeof(hdr);
+    static const size_t kHeaderSz = sizeof(_hdr);
     cl_mem_flags flags = CL_MEM_READ_ONLY | CL_MEM_COPY_HOST_PTR | CL_MEM_HOST_NO_ACCESS;
-    cl_mem cmp_buf = clCreateBuffer(_ctx->GetOpenCLContext(), flags, cmp_data.size() - kHeaderSz,
-                                    const_cast<uint8_t *>(cmp_data.data() + kHeaderSz),
-                                    &errCreateBuffer);
+    _cmp_buf = clCreateBuffer(_ctx->GetOpenCLContext(), flags, cmp_data.size() - kHeaderSz,
+                              const_cast<uint8_t *>(cmp_data.data() + kHeaderSz),
+                              &errCreateBuffer);
     CHECK_CL((cl_int), errCreateBuffer);
+  }
 
-    // Create an OpenGL handle to our pbo
-    // !SPEED! We don't need to recreate this every time....
-    cl_mem output = clCreateFromGLBuffer(_ctx->GetOpenCLContext(), CL_MEM_READ_WRITE, pbo,
-                                         &errCreateBuffer);
-    CHECK_CL((cl_int), errCreateBuffer);
-
-    // Acquire the PBO
-    cl_event acquire_event;
-    CHECK_CL(clEnqueueAcquireGLObjects, _ctx->GetCommandQueue(),
-                                        1, &output, 0, NULL, &acquire_event);
-
+  virtual std::vector<cl_event> QueueDXT() {
     // Load it
-    std::vector<cl_event> cmp_events =
-      std::move(GenTC::LoadCompressedDXT(_ctx, hdr, cmp_buf, output, &acquire_event));
-
-    // Release the PBO
-    cl_event release_event;
-    CHECK_CL(clEnqueueReleaseGLObjects, _ctx->GetCommandQueue(),
-                                        1, &output,
-                                        static_cast<cl_uint>(cmp_events.size()), 
-                                        cmp_events.data(), &release_event);
-
-    // Set the event callback
-    _pbo = pbo;
-    _user_fn = user_fn;
-    CHECK_CL(clSetEventCallback, release_event, CL_COMPLETE, MarkLoadedCallback, this);
-
-    // Cleanup
-    CHECK_CL(clReleaseMemObject, cmp_buf);
-    CHECK_CL(clReleaseMemObject, output);
-    CHECK_CL(clReleaseEvent, acquire_event);
-    CHECK_CL(clReleaseEvent, release_event);
-    for (auto event : cmp_events) {
-      CHECK_CL(clReleaseEvent, event);
-    }
+    return std::move(GenTC::LoadCompressedDXT(_ctx, _hdr, _cmp_buf, _pbo.dst_buf, &_pbo.acquire_event));
   }
 
  private:
   const std::unique_ptr<gpu::GPUContext> &_ctx;
   GLuint _texID;
-  bool _loaded;
 
-  GLsizei _width, _height;
-  GLuint _pbo;
-  std::function<void()> _user_fn;
+  GenTC::GenTCHeader _hdr;
+  cl_mem _cmp_buf;
+  PBORequest _pbo;
 };
-
-static void CL_CALLBACK MarkLoadedCallback(cl_event e, cl_int status, void *data) {
-  CHECK_CL((cl_int), status);
-
-  AsyncGenTCReq *cbdata = reinterpret_cast<AsyncGenTCReq *>(data);
-  cbdata->MarkLoaded();
-}
 
 class AsyncGenericReq : public AsyncTexRequest {
  public:
   AsyncGenericReq(GLuint id)
     : AsyncTexRequest()
     , _texID(id)
-    , _loaded(false) { }
+  { }
 
-  virtual bool IsReady() const override { return _loaded; }
   virtual GLuint TextureHandle() const override { return _texID; }
-  virtual void LoadTexture() override {
-    assert(this->_loaded);
+  virtual void LoadTexture() const override {
     assert(this->_n == 3);
 
     // Initialize the texture...
@@ -414,42 +410,20 @@ class AsyncGenericReq : public AsyncTexRequest {
     CHECK_GL(glTexParameteri, GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
     CHECK_GL(glTexParameteri, GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
     CHECK_GL(glBindTexture, GL_TEXTURE_2D, 0);
+    stbi_image_free(this->_data);
   }
 
+  virtual bool NeedsPBO(PBORequest **ret) override { return false; }
   virtual void LoadFile(const std::string &filename) {
     this->_data = stbi_load(filename.c_str(), &_x, &_y, &_n, 3);
     assert(_n == 3);  // Only load RGB textures...
     _n = 3;
-    this->_loaded = true;
   }
 
  private:
   GLuint _texID;
   int _x, _y, _n;
   unsigned char *_data;
-  bool _loaded;
-};
-
-// Requesting thread sets sz to a size, dst to a valid pointer, and waits on the cv
-// Producing thread sets sz to zero, places a requested pbo in dst, and then notifies the cv.
-struct PBORequest {
-  size_t sz;
-  GLuint *dst;
-  std::condition_variable *cv;
-
-  void Satisfy() {
-    assert(sz > 0);
-    assert(dst != NULL);
-    assert(cv != NULL);
-
-    CHECK_GL(glGenBuffers, 1, dst);
-    CHECK_GL(glBindBuffer, GL_PIXEL_UNPACK_BUFFER, *dst);
-    CHECK_GL(glBufferData, GL_PIXEL_UNPACK_BUFFER, sz, NULL, GL_DYNAMIC_DRAW);
-    CHECK_GL(glBindBuffer, GL_PIXEL_UNPACK_BUFFER, 0);
-
-    sz = 0;
-    cv->notify_one();
-  }
 };
 
 std::vector<std::unique_ptr<Texture> > LoadTextures(const std::unique_ptr<gpu::GPUContext> &ctx,
@@ -477,39 +451,19 @@ std::vector<std::unique_ptr<Texture> > LoadTextures(const std::unique_ptr<gpu::G
   std::vector<std::unique_ptr<Texture> > textures;
   textures.reserve(filenames.size());
 
-  std::atomic_int num_loaded; num_loaded = 0;
-  std::condition_variable loading_cv;
-
-  const unsigned kTotalNumThreads = async ? std::thread::hardware_concurrency() : 1;
-  ctpl::thread_pool pool(kTotalNumThreads);
-
-  // Create a queue for PBO requests...
-  std::mutex pbo_request_queue_mutex;
-  std::condition_variable pbo_request_queue_cv;
-  std::queue<PBORequest *> pbo_request_queue;
-  size_t num_pbo_requests = 0;
-
+  // Load up a bunch of requests
   std::vector<std::unique_ptr<AsyncTexRequest> > reqs;
+  reqs.reserve(textures.size());
+
+  // Events that we need to wait on before we release GL objects...
+  std::mutex dxt_events_mutex;
+  std::vector<cl_event> dxt_events;
+
   for (size_t i = 0; i < filenames.size(); ++i) {
 
 #ifndef NDEBUG
     std::cout << "Loading texture: " << filenames[i] << std::endl;
 #endif
-
-    // Handle any outstanding pbo requests...
-    {
-      std::unique_lock<std::mutex> lock(pbo_request_queue_mutex);
-      while (!pbo_request_queue.empty()) {
-        PBORequest *req = pbo_request_queue.front();
-        req->Satisfy();
-        pbo_request_queue.pop();
-        num_pbo_requests++;
-      }
-
-      // !SPEED! We really would rather have glFenceSync here...
-      CHECK_GL(glFlush);
-      CHECK_GL(glFinish);
-    }
 
     GLuint texID;
     CHECK_GL(glGenTextures, 1, &texID);
@@ -520,89 +474,157 @@ std::vector<std::unique_ptr<Texture> > LoadTextures(const std::unique_ptr<gpu::G
       reqs.push_back(std::unique_ptr<AsyncTexRequest>(new AsyncGenTCReq(ctx, texID)));
       AsyncTexRequest *req = reqs.back().get();
       const std::string &fname = filenames[i];
-      pool.push([&loading_cv, &num_loaded, req, &fname, texID, &ctx,
-                 &pbo_request_queue_mutex, &pbo_request_queue_cv, &pbo_request_queue](int) {
+
+      // Pre-pbo
+      req->QueueWork([&fname, &ctx, req]() {
         std::vector<uint8_t> cmp_data = std::move(LoadFile(fname));
+        reinterpret_cast<AsyncGenTCReq *>(req)->Preload(cmp_data);
+      });
 
-        // Once we've loaded the data, we need to request a PBO
-        const uint32_t *dims_ptr = reinterpret_cast<const uint32_t *>(cmp_data.data());
-        uint32_t width = dims_ptr[0];
-        uint32_t height = dims_ptr[1];
-        size_t dxt_sz = (width * height) / 2;
-
-        GLuint pbo;
-
-        std::condition_variable pbo_cv;
-        PBORequest pbo_req;
-        pbo_req.sz = dxt_sz;
-        pbo_req.dst = &pbo;
-        pbo_req.cv = &pbo_cv;
-
-        // Lock the queue, push the request, and then wait for it to finish...
-        bool pushed = false;
-        while(pbo_req.sz > 0) {
-          std::unique_lock<std::mutex> lock(pbo_request_queue_mutex);
-          if (!pushed) {
-            pbo_request_queue.push(&pbo_req);
-            pushed = true;
-          }
-          pbo_request_queue_cv.notify_one();
-          pbo_cv.wait(lock);
-        }
-
-        AsyncGenTCReq *gtc_req = reinterpret_cast<AsyncGenTCReq *>(req);
-        gtc_req->QueueDXT(cmp_data, pbo, [&loading_cv, &num_loaded] {
-          num_loaded++;
-          loading_cv.notify_one();
-        });
+      // Post-pbo
+      req->QueueWork([&fname, &ctx, &dxt_events, &dxt_events_mutex, req]() {
+        std::vector<cl_event> es = reinterpret_cast<AsyncGenTCReq *>(req)->QueueDXT();
+        std::unique_lock<std::mutex> lock(dxt_events_mutex);
+        dxt_events.insert(dxt_events.end(), es.begin(), es.end());
       });
     } else {
       reqs.push_back(std::unique_ptr<AsyncTexRequest>(new AsyncGenericReq(texID)));
       AsyncTexRequest *req = reqs.back().get();
       const std::string &fname = filenames[i];
-      pool.push([&loading_cv, &num_loaded, req, &fname](int){
+      req->QueueWork([req, &fname]() {
         reinterpret_cast<AsyncGenericReq *>(req)->LoadFile(fname);
-        num_loaded++;
-        loading_cv.notify_one();
       });
-
-      // Didn't really request a pbo, but won't ever for this texture
-      num_pbo_requests++;
     }
 
     textures.push_back(std::unique_ptr<Texture>(
                        new Texture(texLoc, posLoc, uvLoc, texID, i, filenames.size())));
   }
 
-  // Handle any outstanding pbo requests...
-  while(num_pbo_requests != textures.size()) {
-    std::unique_lock<std::mutex> lock(pbo_request_queue_mutex);
-    pbo_request_queue_cv.wait(lock);
+  // Loop until all requests are dun:
+  //   - Run all of the requests that need it.
+  //   - Collect GL/CL interop resources for each request
+  std::vector<PBORequest *> pbo_reqs;
+  std::vector<cl_mem> pbos;
+  pbo_reqs.reserve(textures.size());
+  pbos.reserve(textures.size());
 
-    while (!pbo_request_queue.empty()) {
-      PBORequest *req = pbo_request_queue.front();
-      req->Satisfy();
-      pbo_request_queue.pop();
-      num_pbo_requests++;
-    }
+  std::atomic_int num_loaded; num_loaded = 0;
+  std::condition_variable loading_cv;
 
-    // !SPEED! We really would rather have glFenceSync here...
-    CHECK_GL(glFlush);
-    CHECK_GL(glFinish);
-  }
+  const unsigned kTotalNumThreads = async ? std::thread::hardware_concurrency() : 1;
+  ctpl::thread_pool pool(kTotalNumThreads);
 
-  std::mutex m;
-  std::unique_lock<std::mutex> lock(m);
-  while (num_loaded != static_cast<int>(textures.size())) {
-    loading_cv.wait(lock);
+  bool acquire = true;
+  cl_event acquire_event;
+  cl_event release_event;
 
-    // Load textures
+  std::chrono::time_point<std::chrono::high_resolution_clock> start, end;
+  double idle_time = 0.0;
+  double interop_time = 0.0;
+
+  for(int pass = 0; pass < 2; ++pass) {
+    // Queue up work
+    std::mutex m;
+    std::condition_variable done;
+    std::atomic_int num_finished(0);
+    int num_running = 0;
     for (auto &req : reqs) {
-      if (req->IsReady()) {
-        req->LoadTexture();
+      std::function<void()> fn;
+      if (req->Run(&fn)) {
+        pool.push([fn, &num_finished, &done, &m](int) {
+          fn();
+          std::unique_lock<std::mutex> lock(m);
+          num_finished++;
+          done.notify_one();
+        });
+        num_running++;
       }
     }
+
+    // If the work is more or less done, then we don't need to
+    // keep going...
+    if (0 == num_running) {
+      break;
+    }
+
+    // Wait for the work to finish
+    start = std::chrono::high_resolution_clock::now();
+    {
+      std::unique_lock<std::mutex> lock(m);
+      done.wait(lock, [&]() { return num_running == num_finished; });
+    }
+    end = std::chrono::high_resolution_clock::now();
+    idle_time += std::chrono::duration<double>(end-start).count();
+
+    if (acquire) {
+      // Collect all of our pbo requests if we need to acquire them
+      for (auto &req : reqs) {
+        PBORequest *pbo_req;
+        if (req->NeedsPBO(&pbo_req)) {
+          assert(pbo_req->sz == 131072);
+          pbo_reqs.push_back(pbo_req);
+          pbo_req->SetupPBO();
+        }
+      }
+
+      if (pbo_reqs.size() == 0) {
+        continue;
+      }
+
+      // Wait for the GPU to finish
+      CHECK_GL(glFlush);
+      CHECK_GL(glFinish);
+
+      // Now, create CL buffers for all of our pbos
+      for (auto req : pbo_reqs) {
+        req->CreateCLBuffer(ctx);
+        pbos.push_back(req->dst_buf);
+      }
+
+      // Acquire all of the CL buffers at once...
+      start = std::chrono::high_resolution_clock::now();
+      CHECK_CL(clEnqueueAcquireGLObjects, ctx->GetCommandQueue(), pbos.size(),
+                                          pbos.data(), 0, NULL, &acquire_event);
+      end = std::chrono::high_resolution_clock::now();
+      interop_time += std::chrono::duration<double>(end-start).count();
+      std::cout << "Loading textures acquire GL time: " << idle_time << "s" << std::endl;
+
+      // Set the event for all the requests so that they know
+      // that it's ok to use it...
+      for (auto req : pbo_reqs) {
+        req->acquire_event = acquire_event;
+      }
+
+      // We're done, let's do the rest of the work...
+      acquire = false;
+    } else {
+      start = std::chrono::high_resolution_clock::now();
+      CHECK_CL(clEnqueueReleaseGLObjects, ctx->GetCommandQueue(),
+                                          pbos.size(), pbos.data(),
+                                          dxt_events.size(), dxt_events.data(), &release_event);
+      end = std::chrono::high_resolution_clock::now();
+      interop_time += std::chrono::duration<double>(end-start).count();
+    }
   }
+
+  // Wait for the OpenCL event to finish...
+  if (dxt_events.size() > 0) {
+    start = std::chrono::high_resolution_clock::now();
+    CHECK_CL(clWaitForEvents, 1, &release_event);
+    end = std::chrono::high_resolution_clock::now();
+    idle_time += std::chrono::duration<double>(end-start).count();
+  }
+
+  CHECK_CL(clReleaseEvent, acquire_event);
+  CHECK_CL(clReleaseEvent, release_event);
+
+  // I think we're done now...
+  for (auto &req : reqs) {
+    req->LoadTexture();
+  }
+
+  std::cout << "Loading textures idle time: " << idle_time << "s" << std::endl;
+  std::cout << "Loading textures interop time: " << interop_time << "s" << std::endl;
 
   return std::move(textures);
 }
@@ -677,12 +699,12 @@ int main(int argc, char* argv[] ) {
     assert ( uvLoc >= 0 );
     assert ( texLoc >= 0 );
 
-    std::chrono::time_point<std::chrono::system_clock> start, end;
-    start = std::chrono::system_clock::now();
+    std::chrono::time_point<std::chrono::high_resolution_clock> start, end;
+    start = std::chrono::high_resolution_clock::now();
     std::vector<std::unique_ptr<Texture> > texs =
       LoadTextures(ctx, texLoc, posLoc, uvLoc, true, dirname);
       // LoadTextures(ctx, texLoc, posLoc, uvLoc, false, dirname);
-    end = std::chrono::system_clock::now();
+    end = std::chrono::high_resolution_clock::now();
     std::cout << "Loaded " << texs.size() << " texture"
               << ((texs.size() == 1) ? "" : "s") << " in "
               << std::chrono::duration<double>(end-start).count() << "s"
