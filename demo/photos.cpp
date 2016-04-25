@@ -583,7 +583,7 @@ std::vector<std::unique_ptr<Texture> > LoadTextures(const std::unique_ptr<gpu::G
 
       // Acquire all of the CL buffers at once...
       start = std::chrono::high_resolution_clock::now();
-      CHECK_CL(clEnqueueAcquireGLObjects, ctx->GetCommandQueue(), pbos.size(),
+      CHECK_CL(clEnqueueAcquireGLObjects, ctx->GetDefaultCommandQueue(), pbos.size(),
                                           pbos.data(), 0, NULL, &acquire_event);
       end = std::chrono::high_resolution_clock::now();
       interop_time += std::chrono::duration<double>(end-start).count();
@@ -599,7 +599,7 @@ std::vector<std::unique_ptr<Texture> > LoadTextures(const std::unique_ptr<gpu::G
       acquire = false;
     } else {
       start = std::chrono::high_resolution_clock::now();
-      CHECK_CL(clEnqueueReleaseGLObjects, ctx->GetCommandQueue(),
+      CHECK_CL(clEnqueueReleaseGLObjects, ctx->GetDefaultCommandQueue(),
                                           pbos.size(), pbos.data(),
                                           dxt_events.size(), dxt_events.data(), &release_event);
       end = std::chrono::high_resolution_clock::now();
