@@ -1,8 +1,10 @@
 #include "gpu.h"
 
+#include <algorithm>
 #include <cassert>
 #include <cstring>
 #include <iostream>
+#include <string>
 
 #ifdef __APPLE__
 #  include <OpenGL/opengl.h>
@@ -121,7 +123,7 @@ static int GetGLSharingDevice(cl_device_id *devices, cl_uint num_devices) {
 
   for (cl_uint didx = 0; didx < num_devices; didx++) {
     CHECK_CL(clGetDeviceInfo, devices[didx], CL_DEVICE_EXTENSIONS, kStrBufSz, strBuf, &strLen);
-    if (strstr(strBuf, "")) {
+    if (strstr(strBuf, "cl_khr_gl_sharing")) {
       return static_cast<int>(didx);
     }
   }
@@ -256,15 +258,16 @@ static cl_platform_id GetCLPlatform(bool share_opengl) {
 #ifndef NDEBUG
     extensions = std::move(GetPlatformExtensions(platforms[i]));
     std::cout << "Platform extensions: " << std::endl;
-    for (const auto &ext : extensions) {
+    for (auto &ext : extensions) {
       std::cout << "  " << ext << std::endl;
       if (share_opengl) {
 #else
     if (share_opengl) {    
       extensions = std::move(GetPlatformExtensions(platforms[i]));
-      for (const auto &ext : extensions) {
+      for (auto &ext : extensions) {
 #endif
 
+        std::transform(ext.begin(), ext.end(), ext.begin(), ::tolower);
 #ifdef __APPLE__
         if (ext == std::string("cl_apple_gl_sharing")) {        
 #else
@@ -465,6 +468,12 @@ std::unique_ptr<GPUContext> GPUContext::InitializeOpenCL(bool share_opengl) {
   cl_int errCreateCommandQueue;
   cl_command_queue_properties cq_props = CL_QUEUE_OUT_OF_ORDER_EXEC_MODE_ENABLE;
 #ifndef CL_VERSION_2_0
+  cl_command_queue_properties supported_props =
+    gpu_ctx->GetDeviceInfo<cl_command_queue_properties>(CL_DEVICE_QUEUE_PROPERTIES);
+  if ((supported_props & cq_props) != cq_props) {
+    std::cout << "WARNING: Not all queue properties supported!" << std::endl;
+  }
+  cq_props &= supported_props;
   gpu_ctx->_command_queue = clCreateCommandQueue(ctx, gpu_ctx->_device, cq_props, &errCreateCommandQueue);
   CHECK_CL((cl_int), errCreateCommandQueue);
 
