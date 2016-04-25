@@ -3,6 +3,7 @@
 #include <cstring>
 #include <iostream>
 #include <fstream>
+#include <mutex>
 
 #ifndef CL_VERSION_1_2
 static cl_int clUnloadCompiler11(cl_platform_id) {
@@ -74,7 +75,8 @@ static cl_program CompileProgram(const char *source_filename, cl_context ctx,
     args += std::string("\" ");
   }
 
-  if (clBuildProgram(program, 1, &device, args.c_str(), NULL, NULL) != CL_SUCCESS) {
+  cl_int build_program_result = clBuildProgram(program, 1, &device, args.c_str(), NULL, NULL);
+  if (build_program_result == CL_BUILD_PROGRAM_FAILURE) {
     size_t bufferSz;
     clGetProgramBuildInfo(program, device, CL_PROGRAM_BUILD_LOG,
                           sizeof(size_t), NULL, &bufferSz);
@@ -89,17 +91,22 @@ static cl_program CompileProgram(const char *source_filename, cl_context ctx,
     abort();
   }
 #ifndef NDEBUG
-  else {
+  else if (build_program_result == CL_SUCCESS) {
     std::cerr << "CL Program " << source_filename << " compiled successfully!" << std::endl;
   }
 #endif
+  CHECK_CL((cl_int), build_program_result);
   CHECK_CL(gUnloadCompilerFunc, GetPlatformForContext(ctx));
 
   return program;
 }
 
+static std::mutex gKernelCacheMutex;
+
 GPUKernelCache *GPUKernelCache::Instance(cl_context ctx, EContextType ctx_ty,
                                          EOpenCLVersion ctx_ver, cl_device_id device) {
+  std::unique_lock<std::mutex> lock(gKernelCacheMutex);
+
   if (gKernelCache == nullptr) {
     gKernelCache = new GPUKernelCache(ctx, ctx_ty, ctx_ver, device);
   }
@@ -132,7 +139,7 @@ void GPUKernelCache::Clear() {
 }
 
 cl_kernel GPUKernelCache::GetKernel(const std::string &filename, const std::string &kernel) {
-  std::unique_lock<std::mutex> lock(_kernel_creation_mutex);
+  std::unique_lock<std::mutex> lock(gKernelCacheMutex);
   if (_programs.find(filename) == _programs.end()) {
     _programs[filename]._prog =
       CompileProgram(filename.c_str(), _ctx, _ctx_ty, _ctx_ver, _device);
