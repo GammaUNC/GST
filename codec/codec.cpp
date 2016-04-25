@@ -366,11 +366,11 @@ static CLKernelResult InverseWavelet(const std::unique_ptr<GPUContext> &gpu_ctx,
 
   size_t global_work_size[2] = {
     static_cast<size_t>(width / 2),
-    static_cast<size_t>(height) };
+    static_cast<size_t>(height / 2) };
 
   size_t local_work_size[2] = {
     static_cast<size_t>(kWaveletBlockDim / 2),
-    static_cast<size_t>(kWaveletBlockDim) };
+    static_cast<size_t>(kWaveletBlockDim / 2) };
 
   gpu::GPUContext::LocalMemoryKernelArg local_mem;
   local_mem._local_mem_sz = local_mem_sz;
@@ -626,6 +626,7 @@ std::vector<uint8_t>  DecompressDXTBuffer(const std::unique_ptr<GPUContext> &gpu
                                 decmp.output, CL_TRUE, 0, dxt_size, decmp_data.data(),
                                 decmp.num_events, decmp.output_events, NULL);
 
+  CHECK_CL(clReleaseMemObject, cmp_buf);
   for (size_t i = 0; i < decmp.num_events; ++i) {
     CHECK_CL(clReleaseEvent, decmp.output_events[i]);
   }

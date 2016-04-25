@@ -1,8 +1,10 @@
 #include "gpu.h"
 
+#include <algorithm>
 #include <cassert>
 #include <cstring>
 #include <iostream>
+#include <string>
 
 #ifdef __APPLE__
 #  include <OpenGL/opengl.h>
@@ -113,6 +115,22 @@ static void PrintDeviceInfo(cl_device_id device_id) {
     std::cout << "Device driver type: DEFAULT" << std::endl;
   }
 }
+
+static int GetGLSharingDevice(cl_device_id *devices, cl_uint num_devices) {
+  size_t strLen;
+  const size_t kStrBufSz = 1024;
+  char strBuf[kStrBufSz];
+
+  for (cl_uint didx = 0; didx < num_devices; didx++) {
+    CHECK_CL(clGetDeviceInfo, devices[didx], CL_DEVICE_EXTENSIONS, kStrBufSz, strBuf, &strLen);
+    if (strstr(strBuf, "cl_khr_gl_sharing")) {
+      return static_cast<int>(didx);
+    }
+  }
+
+  return -1;
+}
+
 
 static std::vector<cl_context_properties> GetSharedCLGLProps() {
   std::vector<cl_context_properties> props;
@@ -240,15 +258,16 @@ static cl_platform_id GetCLPlatform(bool share_opengl) {
 #ifndef NDEBUG
     extensions = std::move(GetPlatformExtensions(platforms[i]));
     std::cout << "Platform extensions: " << std::endl;
-    for (const auto &ext : extensions) {
+    for (auto &ext : extensions) {
       std::cout << "  " << ext << std::endl;
       if (share_opengl) {
 #else
     if (share_opengl) {    
       extensions = std::move(GetPlatformExtensions(platforms[i]));
-      for (const auto &ext : extensions) {
+      for (auto &ext : extensions) {
 #endif
 
+        std::transform(ext.begin(), ext.end(), ext.begin(), ::tolower);
 #ifdef __APPLE__
         if (ext == std::string("cl_apple_gl_sharing")) {        
 #else
@@ -259,6 +278,17 @@ static cl_platform_id GetCLPlatform(bool share_opengl) {
         }
       }
     }
+
+    // If we can't share opengl and we need it, then just check
+    // the GPU device for the extension string, too...
+    if (share_opengl && !can_share_opengl) {
+      static const cl_uint kMaxNumDevices = 8;
+      cl_device_id devices[kMaxNumDevices];
+      cl_uint nDevices;
+      CHECK_CL(clGetDeviceIDs, platforms[i], CL_DEVICE_TYPE_ALL, kMaxNumDevices, devices, &nDevices);
+      can_share_opengl = GetGLSharingDevice(devices, nDevices) >= 0;
+    }
+
     ok = ok && (!share_opengl || can_share_opengl);
 
     if (ok) {
@@ -434,6 +464,14 @@ std::unique_ptr<GPUContext> GPUContext::InitializeOpenCL(bool share_opengl) {
   // And the command queue...
   cl_int errCreateCommandQueue;
   cl_command_queue_properties cq_props = CL_QUEUE_OUT_OF_ORDER_EXEC_MODE_ENABLE;
+  cl_command_queue_properties supported_props =
+    gpu_ctx->GetDeviceInfo<cl_command_queue_properties>(CL_DEVICE_QUEUE_PROPERTIES);
+
+  if ((supported_props & cq_props) != cq_props) {
+    std::cout << "WARNING: Not all queue properties supported!" << std::endl;
+  }
+  cq_props &= supported_props;
+
 #ifndef CL_VERSION_2_0
   gpu_ctx->_command_queue = clCreateCommandQueue(ctx, gpu_ctx->_device, cq_props, &errCreateCommandQueue);
 #else

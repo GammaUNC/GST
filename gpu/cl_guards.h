@@ -62,7 +62,9 @@ static inline const char *clErrMsg(cl_int err) {
   case CL_INVALID_DEVICE_PARTITION_COUNT:  errMsg = "Invalid device partition count"; break;
 
     // extension errors
+#ifndef __APPLE__
   case CL_INVALID_GL_SHAREGROUP_REFERENCE_KHR: errMsg = "Invalid GL sharegroup reference"; break;
+#endif
 #if 0 // We don't need these yet, but I don't want to go digging if/when we do.
 //#ifdef _MSC_VER
   case CL_INVALID_D3D10_DEVICE_KHR:            errMsg = "Invalid D3D10 Device"; break;
