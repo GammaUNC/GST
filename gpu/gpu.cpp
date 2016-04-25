@@ -481,7 +481,7 @@ std::unique_ptr<GPUContext> GPUContext::InitializeOpenCL(bool share_opengl) {
 
   for (int i = 0; i < kNumInOrderQueues; ++i) {
     gpu_ctx->_in_order_queues[i] =
-      clCreateCommandQueueWithProperties(ctx, gpu_ctx->_device, 0, &errCreateCommandQueue);
+      clCreateCommandQueue(ctx, gpu_ctx->_device, 0, &errCreateCommandQueue);
     CHECK_CL((cl_int), errCreateCommandQueue);
   }
 #else
