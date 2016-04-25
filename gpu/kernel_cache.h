@@ -1,7 +1,6 @@
 #ifndef __GPU_KERNEL_CACHE_H__
 #define __GPU_KERNEL_CACHE_H__
 
-#include <mutex>
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -29,8 +28,6 @@ private:
   EOpenCLVersion _ctx_ver;
 
   cl_device_id _device;
-
-  std::mutex _kernel_creation_mutex;
 
   struct GPUProgram {
     cl_program _prog;
