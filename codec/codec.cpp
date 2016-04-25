@@ -460,7 +460,7 @@ static cl_event CollectEndpoints(const std::unique_ptr<GPUContext> &gpu_ctx,
   return e;
 }
 
-static cl_event DecodeIndices(const std::unique_ptr<GPUContext> &gpu_ctx, cl_command_queue *queues,
+static cl_event DecodeIndices(const std::unique_ptr<GPUContext> &gpu_ctx, cl_command_queue queue,
                               cl_mem dst, cl_mem cmp_buf, size_t offset, size_t num_pixels,
                               const GenTCHeader::rANSInfo &palette_info,
                               const GenTCHeader::rANSInfo &indices_info) {
@@ -468,8 +468,8 @@ static cl_event DecodeIndices(const std::unique_ptr<GPUContext> &gpu_ctx, cl_com
   static std::atomic_int queue_order_counter(0);
   int queue_order = (queue_order_counter++) % 2;
 
-  CLKernelResult palette = DecodeANS(gpu_ctx, queues[0], cmp_buf, offset, palette_info);
-  CLKernelResult indices = DecodeANS(gpu_ctx, queues[1], cmp_buf, offset + palette_info.sz, indices_info);
+  CLKernelResult palette = DecodeANS(gpu_ctx, queue, cmp_buf, offset, palette_info);
+  CLKernelResult indices = DecodeANS(gpu_ctx, queue, cmp_buf, offset + palette_info.sz, indices_info);
 
   static const size_t kLocalScanSz = 128;
   static const size_t kLocalScanSzLog = 7;
@@ -499,7 +499,7 @@ static cl_event DecodeIndices(const std::unique_ptr<GPUContext> &gpu_ctx, cl_com
 
     gpu_ctx->EnqueueOpenCLKernel<1>(
       // Queue to run on
-      queues[queue_order],
+      queue,
 
       // Kernel to run...
       GenTC::kOpenCLKernels[GenTC::eOpenCLKernel_DecodeIndices], "decode_indices",
@@ -535,7 +535,7 @@ static cl_event DecodeIndices(const std::unique_ptr<GPUContext> &gpu_ctx, cl_com
 
     gpu_ctx->EnqueueOpenCLKernel<1>(
       // Queue to run on
-      queues[queue_order],
+      queue,
 
       // Kernel to run...
       GenTC::kOpenCLKernels[GenTC::eOpenCLKernel_DecodeIndices], "collect_indices",
@@ -569,11 +569,8 @@ static void DecompressDXTImage(const std::unique_ptr<GPUContext> &gpu_ctx,
                                const GenTCHeader &hdr, cl_mem cmp_buf,
                                cl_event init_event, CLKernelResult *result) {
   // Create a few in-order queues
-  CommandQueueList queue_list;
-  for (int i = 0; i < kCommandQueueListSz; ++i) {
-    queue_list[i] = gpu_ctx->GetNextQueue();
-    CHECK_CL(clEnqueueMarkerWithWaitList, queue_list[i], 1, &init_event, NULL);
-  }
+  cl_command_queue queue = gpu_ctx->GetNextQueue();
+  CHECK_CL(clEnqueueMarkerWithWaitList, queue, 1, &init_event, NULL);
 
   assert((hdr.width & 0x3) == 0);
   assert((hdr.height & 0x3) == 0);
@@ -581,18 +578,18 @@ static void DecompressDXTImage(const std::unique_ptr<GPUContext> &gpu_ctx,
   const int blocks_y = static_cast<int>(hdr.height) >> 2;
 
   size_t offset = 0;
-  CLKernelResult ep1_y = DecompressEndpoints(gpu_ctx, queue_list[0], cmp_buf, hdr.ep1_y,
+  CLKernelResult ep1_y = DecompressEndpoints(gpu_ctx, queue, cmp_buf, hdr.ep1_y,
                                              &offset, -128, blocks_x, blocks_y);
-  CLKernelResult ep1_co = DecompressEndpoints(gpu_ctx, queue_list[1], cmp_buf, hdr.ep1_co,
+  CLKernelResult ep1_co = DecompressEndpoints(gpu_ctx, queue, cmp_buf, hdr.ep1_co,
                                               &offset, -128, blocks_x, blocks_y);
-  CLKernelResult ep1_cg = DecompressEndpoints(gpu_ctx, queue_list[2], cmp_buf, hdr.ep1_cg,
+  CLKernelResult ep1_cg = DecompressEndpoints(gpu_ctx, queue, cmp_buf, hdr.ep1_cg,
                                               &offset, -128, blocks_x, blocks_y);
 
-  CLKernelResult ep2_y = DecompressEndpoints(gpu_ctx, queue_list[3], cmp_buf, hdr.ep2_y,
+  CLKernelResult ep2_y = DecompressEndpoints(gpu_ctx, queue, cmp_buf, hdr.ep2_y,
                                              &offset, -128, blocks_x, blocks_y);
-  CLKernelResult ep2_co = DecompressEndpoints(gpu_ctx, queue_list[4], cmp_buf, hdr.ep2_co,
+  CLKernelResult ep2_co = DecompressEndpoints(gpu_ctx, queue, cmp_buf, hdr.ep2_co,
                                               &offset, -128, blocks_x, blocks_y);
-  CLKernelResult ep2_cg = DecompressEndpoints(gpu_ctx, queue_list[5], cmp_buf, hdr.ep2_cg,
+  CLKernelResult ep2_cg = DecompressEndpoints(gpu_ctx, queue, cmp_buf, hdr.ep2_cg,
                                               &offset, -128, blocks_x, blocks_y);
 
   static std::atomic_int queue_order_counter(0);
@@ -601,12 +598,14 @@ static void DecompressDXTImage(const std::unique_ptr<GPUContext> &gpu_ctx,
   result->num_events = 3;
   const size_t num_blocks = blocks_x * blocks_y;
   result->output_events[0] =
-    CollectEndpoints(gpu_ctx, queue_list[queue_order], result->output, num_blocks, ep1_y, ep1_co, ep1_cg, 0);
+    CollectEndpoints(gpu_ctx, queue, result->output, num_blocks, ep1_y, ep1_co, ep1_cg, 0);
   result->output_events[1] =
-    CollectEndpoints(gpu_ctx, queue_list[3 + queue_order], result->output, num_blocks, ep2_y, ep2_co, ep2_cg, 1);
+    CollectEndpoints(gpu_ctx, queue, result->output, num_blocks, ep2_y, ep2_co, ep2_cg, 1);
 
-  result->output_events[2] = DecodeIndices(gpu_ctx, queue_list + 6, result->output, cmp_buf,
+  result->output_events[2] = DecodeIndices(gpu_ctx, queue, result->output, cmp_buf,
                                            offset, num_blocks, hdr.palette, hdr.indices);
+
+  CHECK_CL(clFlush, queue);
 }
 
 cl_mem UploadData(const std::unique_ptr<GPUContext> &gpu_ctx,
