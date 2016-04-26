@@ -266,6 +266,7 @@ static CLKernelResult DecodeANS(const std::unique_ptr<GPUContext> &gpu_ctx, cl_c
                                           &freqs_sub_region, &errCreateBuffer);
   CHECK_CL((cl_int), errCreateBuffer);
 
+  cl_event build_table_event;
   gpu_ctx->EnqueueOpenCLKernel<1>(
     // Queue to run on
     queue,
@@ -275,7 +276,7 @@ static CLKernelResult DecodeANS(const std::unique_ptr<GPUContext> &gpu_ctx, cl_c
     &M, &build_table_local_work_size,
     
     // No events
-    0, NULL, NULL,
+    0, NULL, &build_table_event,
     
     freqs_buffer, table);
 
@@ -322,11 +323,12 @@ static CLKernelResult DecodeANS(const std::unique_ptr<GPUContext> &gpu_ctx, cl_c
     &total_streams, &streams_per_work_group,
 
     // Events to depend on and return
-    0, NULL, result.output_events,
+    1, &build_table_event, result.output_events,
 
     // Kernel arguments
     table, data_buf, result.output);
 
+  CHECK_CL(clReleaseEvent, build_table_event);
   CHECK_CL(clReleaseMemObject, table);
   CHECK_CL(clReleaseMemObject, data_buf);
 
@@ -344,7 +346,7 @@ static CLKernelResult InverseWavelet(const std::unique_ptr<GPUContext> &gpu_ctx,
   size_t out_sz = width * height;
   size_t local_mem_sz = 8 * kWaveletBlockDim * kWaveletBlockDim;
 
- CLKernelResult result;
+  CLKernelResult result;
   result.num_events = 1;
   result.output = clCreateBuffer(ctx, CL_MEM_READ_WRITE, out_sz, NULL, &errCreateBuffer);
   CHECK_CL((cl_int), errCreateBuffer);
@@ -568,6 +570,7 @@ static cl_event DecodeIndices(const std::unique_ptr<GPUContext> &gpu_ctx, cl_com
 static void DecompressDXTImage(const std::unique_ptr<GPUContext> &gpu_ctx,
                                const GenTCHeader &hdr, cl_command_queue queue, cl_mem cmp_buf,
                                cl_event init_event, CLKernelResult *result) {
+  CHECK_CL(clEnqueueBarrierWithWaitList, queue, 1, &init_event, NULL);
   assert((hdr.width & 0x3) == 0);
   assert((hdr.height & 0x3) == 0);
   const int blocks_x = static_cast<int>(hdr.width) >> 2;
