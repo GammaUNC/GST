@@ -328,6 +328,7 @@ class AsyncGenTCReq : public AsyncTexRequest {
     : AsyncTexRequest()
     , _ctx(ctx)
     , _texID(id)
+    , _queue(ctx->GetNextQueue())
   { }
   virtual ~AsyncGenTCReq() { }
 
@@ -359,7 +360,9 @@ class AsyncGenTCReq : public AsyncTexRequest {
     CHECK_GL(glDeleteBuffers, 1, &_pbo.pbo);
     CHECK_CL(clReleaseMemObject, _pbo.dst_buf);
     CHECK_CL(clReleaseMemObject, _cmp_buf);
+#if USE_PINNED_MEMORY
     CHECK_CL(clReleaseEvent, _unmap_event);
+#endif
   }
 
   virtual void Preload(const std::string &fname) {
@@ -379,20 +382,25 @@ class AsyncGenTCReq : public AsyncTexRequest {
     is.read(reinterpret_cast<char *>(&_hdr), kHeaderSz);
 
     cl_int errCreateBuffer;
+#if USE_PINNED_MEMORY
     cl_mem_flags flags = CL_MEM_READ_ONLY | CL_MEM_ALLOC_HOST_PTR;
     _cmp_buf = clCreateBuffer(_ctx->GetOpenCLContext(), flags,
                               length - kHeaderSz, NULL, &errCreateBuffer);
     CHECK_CL((cl_int), errCreateBuffer);
 
-    void *buf_mem = clEnqueueMapBuffer(_ctx->GetDefaultCommandQueue(), _cmp_buf,
-                                       CL_TRUE, CL_MAP_WRITE, 0, length - kHeaderSz,
+    void *buf_mem = clEnqueueMapBuffer(_queue, _cmp_buf, CL_TRUE, CL_MAP_WRITE, 0, length - kHeaderSz,
                                        0, NULL, NULL, &errCreateBuffer);
     CHECK_CL((cl_int), errCreateBuffer);
 
     is.read(reinterpret_cast<char *>(buf_mem), length - kHeaderSz);
 
-    CHECK_CL(clEnqueueUnmapMemObject, _ctx->GetDefaultCommandQueue(), _cmp_buf,
-                                      buf_mem, 0, NULL, &_unmap_event);
+    CHECK_CL(clEnqueueUnmapMemObject, _queue, _cmp_buf, buf_mem, 0, NULL, &_unmap_event);
+#else
+	std::vector<uint8_t> cmp_data(length - kHeaderSz);
+	is.read(reinterpret_cast<char *>(cmp_data.data()), cmp_data.size());
+	_cmp_buf = clCreateBuffer(_ctx->GetOpenCLContext(), CL_MEM_READ_ONLY | CL_MEM_COPY_HOST_PTR,
+		                      cmp_data.size(), cmp_data.data(), &errCreateBuffer);
+#endif
 
     assert(is);
     assert(is.tellg() == static_cast<std::streamoff>(length));
@@ -404,14 +412,21 @@ class AsyncGenTCReq : public AsyncTexRequest {
   virtual std::vector<cl_event> QueueDXT() {
     // Load it
     cl_event init_event;
-    cl_event wait_events[2] = { _unmap_event, _pbo.acquire_event };
-    CHECK_CL(clEnqueueMarkerWithWaitList, _ctx->GetDefaultCommandQueue(), 2, wait_events, &init_event);
-    return std::move(GenTC::LoadCompressedDXT(_ctx, _hdr, _ctx->GetDefaultCommandQueue(), _cmp_buf, _pbo.dst_buf, &init_event));
+    cl_event wait_events[] = {
+#if USE_PINNED_MEMORY
+//		_unmap_event,
+#endif
+		_pbo.acquire_event
+	};
+	cl_uint num_wait_events = sizeof(wait_events) / sizeof(wait_events[0]);
+    CHECK_CL(clEnqueueMarkerWithWaitList, _queue, num_wait_events, wait_events, &init_event);
+    return std::move(GenTC::LoadCompressedDXT(_ctx, _hdr, _queue, _cmp_buf, _pbo.dst_buf, &init_event));
   }
 
  private:
   const std::unique_ptr<gpu::GPUContext> &_ctx;
   GLuint _texID;
+  cl_command_queue _queue;
 
   GenTC::GenTCHeader _hdr;
   cl_mem _cmp_buf;
@@ -630,8 +645,9 @@ std::vector<std::unique_ptr<Texture> > LoadTextures(const std::unique_ptr<gpu::G
     } else {
       start = std::chrono::high_resolution_clock::now();
       CHECK_CL(clEnqueueReleaseGLObjects, ctx->GetDefaultCommandQueue(),
-                                          pbos.size(), pbos.data(),
-                                          dxt_events.size(), dxt_events.data(), &release_event);
+                                          static_cast<cl_uint>(pbos.size()), pbos.data(),
+                                          static_cast<cl_uint>(dxt_events.size()),
+		                                  dxt_events.data(), &release_event);
       end = std::chrono::high_resolution_clock::now();
       interop_time += std::chrono::duration<double>(end-start).count();
     }
