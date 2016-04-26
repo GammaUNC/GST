@@ -395,8 +395,7 @@ class AsyncGenTCReq : public AsyncTexRequest {
                                       buf_mem, 0, NULL, &_unmap_event);
 
     assert(is);
-    assert(is.tellg() == length);
-    assert(is.eof());
+    assert(is.tellg() == static_cast<std::streamoff>(length));
     is.close();
 
     _pbo.sz = (_hdr.width * _hdr.height) / 2;
@@ -407,7 +406,7 @@ class AsyncGenTCReq : public AsyncTexRequest {
     cl_event init_event;
     cl_event wait_events[2] = { _unmap_event, _pbo.acquire_event };
     CHECK_CL(clEnqueueMarkerWithWaitList, _ctx->GetDefaultCommandQueue(), 2, wait_events, &init_event);
-    return std::move(GenTC::LoadCompressedDXT(_ctx, _hdr, _cmp_buf, _pbo.dst_buf, &init_event));
+    return std::move(GenTC::LoadCompressedDXT(_ctx, _hdr, _ctx->GetDefaultCommandQueue(), _cmp_buf, _pbo.dst_buf, &init_event));
   }
 
  private:
