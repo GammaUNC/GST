@@ -718,7 +718,10 @@ int main(int argc, char* argv[] ) {
 #endif
 
     std::unique_ptr<gpu::GPUContext> ctx = gpu::GPUContext::InitializeOpenCL(true);
-    GenTC::InitializeDecoder(ctx);
+    if (!GenTC::InitializeDecoder(ctx)) {
+      std::cerr << "ERROR: OpenCL device does not support features needed for decoder." << std::endl;
+      exit(EXIT_FAILURE);
+    }
 
     glfwSetKeyCallback(window, key_callback);
 
