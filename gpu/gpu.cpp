@@ -375,7 +375,7 @@ static std::vector<cl_device_id> GetAllDevicesForContext(cl_context ctx) {
 GPUContext::~GPUContext() {
   GPUKernelCache::Instance(_ctx, _type, _version, _device)->Clear();
   CHECK_CL(clReleaseCommandQueue, _command_queue);
-  for (int i = 0; i < kNumInOrderQueues; ++i) {
+  for (int i = 0; i < _num_in_order_queues; ++i) {
     CHECK_CL(clReleaseCommandQueue, _in_order_queues[i]);
   }
   CHECK_CL(clReleaseContext, _ctx);
@@ -475,11 +475,23 @@ std::unique_ptr<GPUContext> GPUContext::InitializeOpenCL(bool share_opengl) {
   }
   cq_props &= supported_props;
 
+  bool is_amd = false;
+  char version_buf[256];
+  CHECK_CL(clGetDeviceInfo, devices[0], CL_DEVICE_VENDOR_ID, 256, version_buf, NULL);
+  if (strstr(version_buf, "AMD")) {
+	  is_amd = true;
+  }
+
+  gpu_ctx->_num_in_order_queues = kMaxNumInOrderQueues;
+  if (is_amd) {
+    gpu_ctx->_num_in_order_queues = 2;
+  }
+
 #ifndef CL_VERSION_2_0
   gpu_ctx->_command_queue = clCreateCommandQueue(ctx, gpu_ctx->_device, cq_props, &errCreateCommandQueue);
   CHECK_CL((cl_int), errCreateCommandQueue);
 
-  for (int i = 0; i < kNumInOrderQueues; ++i) {
+  for (int i = 0; i < gpu_ctx->_num_in_order_queues; ++i) {
     gpu_ctx->_in_order_queues[i] =
       clCreateCommandQueue(ctx, gpu_ctx->_device, 0, &errCreateCommandQueue);
     CHECK_CL((cl_int), errCreateCommandQueue);
@@ -495,9 +507,9 @@ std::unique_ptr<GPUContext> GPUContext::InitializeOpenCL(bool share_opengl) {
     clCreateCommandQueueWithProperties(ctx, gpu_ctx->_device, cq_props_list, &errCreateCommandQueue);
   CHECK_CL((cl_int), errCreateCommandQueue);
 
-  for (int i = 0; i < kNumInOrderQueues; ++i) {
+  for (int i = 0; i < gpu_ctx->_num_in_order_queues; ++i) {
     gpu_ctx->_in_order_queues[i] =
-      clCreateCommandQueueWithProperties(ctx, gpu_ctx->_device, NULL, &errCreateCommandQueue);
+      clCreateCommandQueueWithProperties(ctx, gpu_ctx->_device, 0, &errCreateCommandQueue);
     CHECK_CL((cl_int), errCreateCommandQueue);
   }
 #endif
