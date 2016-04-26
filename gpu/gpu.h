@@ -53,6 +53,14 @@ namespace gpu {
       int next = _next_in_order_queue++;
       return _in_order_queues[next % kNumInOrderQueues];
     }
+
+    void FlushAllQueues() const {
+      CHECK_CL(clFlush, _command_queue);
+      for (int i = 0; i < kNumInOrderQueues; ++i) {
+        CHECK_CL(clFlush, _in_order_queues[i]);
+      }
+    }
+
     cl_device_id GetDeviceID() const { return _device;  }
     cl_context GetOpenCLContext() const { return _ctx; }
 
