@@ -359,25 +359,55 @@ class AsyncGenTCReq : public AsyncTexRequest {
     CHECK_GL(glDeleteBuffers, 1, &_pbo.pbo);
     CHECK_CL(clReleaseMemObject, _pbo.dst_buf);
     CHECK_CL(clReleaseMemObject, _cmp_buf);
+    CHECK_CL(clReleaseEvent, _unmap_event);
   }
 
-  virtual void Preload(const std::vector<uint8_t> &cmp_data) {
-    _hdr.LoadFrom(cmp_data.data());
-    _pbo.sz = (_hdr.width * _hdr.height) / 2;
+  virtual void Preload(const std::string &fname) {
+    // Load in compressed data.
+    std::ifstream is(fname.c_str(), std::ifstream::binary);
+    if (!is) {
+      std::cerr << "Error opening GenTC texture: " << fname << std::endl;
+      exit(EXIT_FAILURE);
+    }
 
-    // Create the data for OpenCL
-    cl_int errCreateBuffer;
+    is.seekg(0, is.end);
+    size_t length = static_cast<size_t>(is.tellg());
+    is.seekg(0, is.beg);
+
     static const size_t kHeaderSz = sizeof(_hdr);
-    cl_mem_flags flags = CL_MEM_READ_ONLY | CL_MEM_COPY_HOST_PTR | CL_MEM_HOST_NO_ACCESS;
-    _cmp_buf = clCreateBuffer(_ctx->GetOpenCLContext(), flags, cmp_data.size() - kHeaderSz,
-                              const_cast<uint8_t *>(cmp_data.data() + kHeaderSz),
-                              &errCreateBuffer);
+    assert((length - kHeaderSz) % 512 == 0);
+    is.read(reinterpret_cast<char *>(&_hdr), kHeaderSz);
+
+    cl_int errCreateBuffer;
+    cl_mem_flags flags = CL_MEM_READ_ONLY | CL_MEM_ALLOC_HOST_PTR;
+    _cmp_buf = clCreateBuffer(_ctx->GetOpenCLContext(), flags,
+                              length - kHeaderSz, NULL, &errCreateBuffer);
     CHECK_CL((cl_int), errCreateBuffer);
+
+    void *buf_mem = clEnqueueMapBuffer(_ctx->GetDefaultCommandQueue(), _cmp_buf,
+                                       CL_TRUE, CL_MAP_WRITE, 0, length - kHeaderSz,
+                                       0, NULL, NULL, &errCreateBuffer);
+    CHECK_CL((cl_int), errCreateBuffer);
+
+    is.read(reinterpret_cast<char *>(buf_mem), length - kHeaderSz);
+
+    CHECK_CL(clEnqueueUnmapMemObject, _ctx->GetDefaultCommandQueue(), _cmp_buf,
+                                      buf_mem, 0, NULL, &_unmap_event);
+
+    assert(is);
+    assert(is.tellg() == length);
+    assert(is.eof());
+    is.close();
+
+    _pbo.sz = (_hdr.width * _hdr.height) / 2;
   }
 
   virtual std::vector<cl_event> QueueDXT() {
     // Load it
-    return std::move(GenTC::LoadCompressedDXT(_ctx, _hdr, _cmp_buf, _pbo.dst_buf, &_pbo.acquire_event));
+    cl_event init_event;
+    cl_event wait_events[2] = { _unmap_event, _pbo.acquire_event };
+    CHECK_CL(clEnqueueMarkerWithWaitList, _ctx->GetDefaultCommandQueue(), 2, wait_events, &init_event);
+    return std::move(GenTC::LoadCompressedDXT(_ctx, _hdr, _cmp_buf, _pbo.dst_buf, &init_event));
   }
 
  private:
@@ -386,6 +416,7 @@ class AsyncGenTCReq : public AsyncTexRequest {
 
   GenTC::GenTCHeader _hdr;
   cl_mem _cmp_buf;
+  cl_event _unmap_event;
   PBORequest _pbo;
 };
 
@@ -476,9 +507,8 @@ std::vector<std::unique_ptr<Texture> > LoadTextures(const std::unique_ptr<gpu::G
       const std::string &fname = filenames[i];
 
       // Pre-pbo
-      req->QueueWork([&fname, &ctx, req]() {
-        std::vector<uint8_t> cmp_data = std::move(LoadFile(fname));
-        reinterpret_cast<AsyncGenTCReq *>(req)->Preload(cmp_data);
+      req->QueueWork([&fname, req]() {
+        reinterpret_cast<AsyncGenTCReq *>(req)->Preload(fname);
       });
 
       // Post-pbo
@@ -583,7 +613,8 @@ std::vector<std::unique_ptr<Texture> > LoadTextures(const std::unique_ptr<gpu::G
 
       // Acquire all of the CL buffers at once...
       start = std::chrono::high_resolution_clock::now();
-      CHECK_CL(clEnqueueAcquireGLObjects, ctx->GetDefaultCommandQueue(), pbos.size(),
+      CHECK_CL(clEnqueueAcquireGLObjects, ctx->GetDefaultCommandQueue(),
+                                          static_cast<cl_uint>(pbos.size()),
                                           pbos.data(), 0, NULL, &acquire_event);
       end = std::chrono::high_resolution_clock::now();
       interop_time += std::chrono::duration<double>(end-start).count();
@@ -687,6 +718,10 @@ int main(int argc, char* argv[] ) {
 #endif
 
     std::unique_ptr<gpu::GPUContext> ctx = gpu::GPUContext::InitializeOpenCL(true);
+    if (!GenTC::InitializeDecoder(ctx)) {
+      std::cerr << "ERROR: OpenCL device does not support features needed for decoder." << std::endl;
+      exit(EXIT_FAILURE);
+    }
 
     glfwSetKeyCallback(window, key_callback);
 
