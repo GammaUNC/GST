@@ -731,6 +731,37 @@ std::vector<cl_event> LoadCompressedDXT(const std::unique_ptr<gpu::GPUContext> &
   return std::move(events);
 }
 
+bool InitializeDecoder(const std::unique_ptr<gpu::GPUContext> &gpu_ctx) {
+  bool ok = true;
+
+  // At least make sure that the work group size needed for each kernel is met...
+  ok = ok && 256 <= gpu_ctx->GetKernelWGInfo<size_t>(
+    ans::kANSOpenCLKernels[ans::eANSOpenCLKernel_BuildTable], "build_table",
+    CL_KERNEL_WORK_GROUP_SIZE);
+
+  ok = ok && ans::ocl::kThreadsPerEncodingGroup <= gpu_ctx->GetKernelWGInfo<size_t>(
+    ans::kANSOpenCLKernels[ans::eANSOpenCLKernel_ANSDecode], "ans_decode",
+    CL_KERNEL_WORK_GROUP_SIZE);
+
+  ok = ok && (kWaveletBlockDim * kWaveletBlockDim / 4) <= gpu_ctx->GetKernelWGInfo<size_t>(
+    GenTC::kOpenCLKernels[GenTC::eOpenCLKernel_InverseWavelet], "inv_wavelet",
+    CL_KERNEL_WORK_GROUP_SIZE);
+
+  ok = ok && 1 <= gpu_ctx->GetKernelWGInfo<size_t>(
+    GenTC::kOpenCLKernels[GenTC::eOpenCLKernel_Endpoints], "collect_endpoints",
+    CL_KERNEL_WORK_GROUP_SIZE);
+
+  ok = ok && 128 <= gpu_ctx->GetKernelWGInfo<size_t>(
+    GenTC::kOpenCLKernels[GenTC::eOpenCLKernel_DecodeIndices], "decode_indices",
+    CL_KERNEL_WORK_GROUP_SIZE);
+
+  ok = ok && 128 <= gpu_ctx->GetKernelWGInfo<size_t>(
+    GenTC::kOpenCLKernels[GenTC::eOpenCLKernel_DecodeIndices], "collect_indices",
+    CL_KERNEL_WORK_GROUP_SIZE);
+
+  return ok;
+}
+
 void GenTCHeader::Print() const {
   std::cout << "Width: " << width << std::endl;
   std::cout << "Height: " << height << std::endl;

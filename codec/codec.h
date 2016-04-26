@@ -16,6 +16,9 @@ namespace GenTC {
                                    const std::vector<uint8_t> &rgb_data,
                                    const std::vector<uint8_t> &dxt_data);
 
+  // Optional to compile kernels so that we don't have to do it at runtime.
+  // Returns true if our platform meets all of the expectations...
+  bool InitializeDecoder(const std::unique_ptr<gpu::GPUContext> &gpu_ctx);
   DXTImage DecompressDXT(const std::unique_ptr<gpu::GPUContext> &gpu_ctx,
                          const std::vector<uint8_t> &cmp_data);
 
