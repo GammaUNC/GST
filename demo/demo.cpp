@@ -172,10 +172,11 @@ void LoadGTC(const std::unique_ptr<gpu::GPUContext> &ctx,
                                        &errCreateBuffer);
   CHECK_CL((cl_int), errCreateBuffer);
 
+  cl_command_queue queue = ctx->GetNextQueue();
+
   // Acquire the PBO
   cl_event acquire_event;
-  CHECK_CL(clEnqueueAcquireGLObjects, ctx->GetDefaultCommandQueue(),
-                                      1, &output, 0, NULL, &acquire_event);
+  CHECK_CL(clEnqueueAcquireGLObjects, queue, 1, &output, 0, NULL, &acquire_event);
 
   // Load it
   std::vector<cl_event> cmp_events =
@@ -183,8 +184,7 @@ void LoadGTC(const std::unique_ptr<gpu::GPUContext> &ctx,
 
   // Release the PBO
   cl_event release_event;
-  CHECK_CL(clEnqueueReleaseGLObjects, ctx->GetDefaultCommandQueue(),
-                                      1, &output,
+  CHECK_CL(clEnqueueReleaseGLObjects, queue, 1, &output,
                                       static_cast<cl_uint>(cmp_events.size()),
                                       cmp_events.data(), &release_event);
 
