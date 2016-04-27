@@ -3580,7 +3580,7 @@ namespace crnd
 } // namespace crnd
 
 // File: crnd_decode.cpp
-#define CRND_CREATE_BYTE_STREAMS 1
+#define CRND_CREATE_BYTE_STREAMS 0
 #ifdef _MSC_VER
 // #define CRND_STRING_LITERAL(x) L##x
 #define CRND_STRING_LITERAL(x) x

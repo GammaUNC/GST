@@ -1,0 +1,7 @@
+#
+# gliml
+#
+---
+exports:
+    header-dirs: [ . ]
+
