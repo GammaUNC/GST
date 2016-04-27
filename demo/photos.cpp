@@ -54,6 +54,12 @@
 
 #include "gl_guards.h"
 
+#define GLIML_NO_PVR
+#include "gliml\gliml.h"
+
+#define CRND_HEADER_FILE_ONLY
+#include "crn_decomp.h"
+
 static const int kWindowWidth = 512;
 static const int kWindowHeight = 512;
 static const float kAspect = static_cast<float>(kWindowWidth) / static_cast<float>(kWindowHeight);
@@ -414,6 +420,7 @@ class AsyncGenericReq : public AsyncTexRequest {
     CHECK_GL(glTexParameteri, GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
     CHECK_GL(glTexParameteri, GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
     CHECK_GL(glBindTexture, GL_TEXTURE_2D, 0);
+    stbi_image_free(this->_data);
   }
 
   virtual void LoadFile(const std::string &filename) {
@@ -423,11 +430,126 @@ class AsyncGenericReq : public AsyncTexRequest {
     this->_loaded = true;
   }
 
+ protected:
+  const GLuint _texID;
+  bool _loaded;
  private:
-  GLuint _texID;
   int _x, _y, _n;
   unsigned char *_data;
-  bool _loaded;
+};
+
+class AsyncGLIMLReq : public AsyncGenericReq {
+public:
+  AsyncGLIMLReq(GLuint id) : AsyncGenericReq(id) { }
+
+  virtual void LoadTexture() override {
+    assert(this->_loaded);
+
+    gliml::context gliml_ctx;
+    gliml_ctx.enable_dxt(true);
+
+    if (!gliml_ctx.load(_ktx_data.data(), static_cast<int>(_ktx_data.size()))) {
+      std::cerr << "Error reading GLIML file!" << std::endl;
+      exit(EXIT_FAILURE);
+    }
+
+    assert(gliml_ctx.num_faces() == 1);
+    assert(gliml_ctx.num_mipmaps(0) == 1);
+    assert(gliml_ctx.is_2d());
+
+    // Initialize the texture...
+    CHECK_GL(glBindTexture, gliml_ctx.texture_target(), _texID);
+    if (gliml_ctx.is_compressed()) {
+      CHECK_GL(glCompressedTexImage2D, gliml_ctx.texture_target(), 0,
+                                       gliml_ctx.image_internal_format(),
+                                       gliml_ctx.image_width(0, 0),
+                                       gliml_ctx.image_height(0, 0), 0,
+                                       gliml_ctx.image_size(0, 0),
+                                       gliml_ctx.image_data(0, 0));
+    } else {
+      CHECK_GL(glTexImage2D, gliml_ctx.texture_target(), 0,
+                             gliml_ctx.image_internal_format(),
+                             gliml_ctx.image_width(0, 0),
+                             gliml_ctx.image_height(0, 0), 0,
+                             gliml_ctx.image_format(), gliml_ctx.image_type(),
+                             gliml_ctx.image_data(0, 0));
+    }
+    CHECK_GL(glTexParameteri, gliml_ctx.texture_target(), GL_TEXTURE_BASE_LEVEL, 0);
+    CHECK_GL(glTexParameteri, gliml_ctx.texture_target(), GL_TEXTURE_MAX_LEVEL, 0);
+    CHECK_GL(glTexParameteri, gliml_ctx.texture_target(), GL_TEXTURE_WRAP_S, GL_REPEAT);
+    CHECK_GL(glTexParameteri, gliml_ctx.texture_target(), GL_TEXTURE_WRAP_T, GL_REPEAT);
+    CHECK_GL(glTexParameteri, gliml_ctx.texture_target(), GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    CHECK_GL(glTexParameteri, gliml_ctx.texture_target(), GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    this->_loaded = false;
+  }
+
+  virtual void LoadFile(const std::string &filename) {
+    _ktx_data = std::move(::LoadFile(filename));
+    _loaded = true;
+  }
+
+private:
+  std::vector<uint8_t> _ktx_data;
+};
+
+class AsyncCrunchReq : public AsyncGenericReq {
+public:
+  AsyncCrunchReq(GLuint id): AsyncGenericReq(id) { }
+
+  virtual void LoadTexture() override {
+    assert(this->_loaded);
+
+    // Initialize the texture...
+    GLsizei dxt_sz = static_cast<GLsizei>(_dxt_data.size());
+    CHECK_GL(glBindTexture, GL_TEXTURE_2D, _texID);
+    CHECK_GL(glCompressedTexImage2D, GL_TEXTURE_2D, 0, GL_COMPRESSED_RGB_S3TC_DXT1_EXT,
+                                     _width, _height, 0, dxt_sz, _dxt_data.data());
+    CHECK_GL(glTexParameteri, GL_TEXTURE_2D, GL_TEXTURE_BASE_LEVEL, 0);
+    CHECK_GL(glTexParameteri, GL_TEXTURE_2D, GL_TEXTURE_MAX_LEVEL, 0);
+    CHECK_GL(glTexParameteri, GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
+    CHECK_GL(glTexParameteri, GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
+    CHECK_GL(glTexParameteri, GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    CHECK_GL(glTexParameteri, GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    this->_loaded = false;
+  }
+
+  virtual void LoadFile(const std::string &filename) {
+    std::vector<uint8_t> crn_data = std::move(::LoadFile(filename));
+    crnd::uint32 crn_data_sz = static_cast<crnd::uint32>(crn_data.size());
+
+    crnd::crn_texture_info tinfo;
+    if (!crnd::crnd_get_texture_info(crn_data.data(), crn_data_sz, &tinfo)) {
+      assert(!"Invalid texture?");
+      return;
+    }
+
+    crnd::crnd_unpack_context ctx = crnd::crnd_unpack_begin(crn_data.data(), crn_data_sz);
+    if (!ctx) {
+      assert(!"Error beginning crn decoding!");
+      return;
+    }
+
+    _width = tinfo.m_width;
+    _height = tinfo.m_height;
+
+    const int num_blocks_x = (tinfo.m_width + 3) / 4;
+    const int num_blocks_y = (tinfo.m_height + 3) / 4;
+    const int num_blocks = num_blocks_x * num_blocks_y;
+
+    _dxt_data.resize(num_blocks * 8);
+    void *dxt_data = reinterpret_cast<void *>(_dxt_data.data());
+    if (!crnd::crnd_unpack_level(ctx, &dxt_data, num_blocks * 8, num_blocks_x * 8, 0)) {
+      assert(!"Error decoding crunch texture!");
+      return;
+    }
+
+    crnd::crnd_unpack_end(ctx);
+    _loaded = true;
+  }
+
+private:
+  GLsizei _width, _height;
+  std::vector<uint8_t> _dxt_data;
 };
 
 // Requesting thread sets sz to a size, dst to a valid pointer, and waits on the cv
@@ -557,10 +679,18 @@ std::vector<std::unique_ptr<Texture> > LoadTextures(const std::unique_ptr<gpu::G
         });
       });
     } else {
-      reqs.push_back(std::unique_ptr<AsyncTexRequest>(new AsyncGenericReq(texID)));
+      if (strncmp(filenames[i].c_str() + len - 4, ".ktx", 4) == 0 ||
+          strncmp(filenames[i].c_str() + len - 4, ".dds", 4) == 0) {
+        reqs.push_back(std::unique_ptr<AsyncTexRequest>(new AsyncGLIMLReq(texID)));
+      } else if (strncmp(filenames[i].c_str() + len - 4, ".crn", 4) == 0) {
+        reqs.push_back(std::unique_ptr<AsyncTexRequest>(new AsyncCrunchReq(texID)));
+      } else {
+        reqs.push_back(std::unique_ptr<AsyncTexRequest>(new AsyncGenericReq(texID)));
+      }
+
       AsyncTexRequest *req = reqs.back().get();
       const std::string &fname = filenames[i];
-      pool.push([&loading_cv, &num_loaded, req, &fname](int){
+      pool.push([&loading_cv, &num_loaded, req, &fname](int) {
         reinterpret_cast<AsyncGenericReq *>(req)->LoadFile(fname);
         num_loaded++;
         loading_cv.notify_one();
