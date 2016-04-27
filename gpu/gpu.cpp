@@ -475,16 +475,12 @@ std::unique_ptr<GPUContext> GPUContext::InitializeOpenCL(bool share_opengl) {
   }
   cq_props &= supported_props;
 
-  bool is_amd = false;
-  char version_buf[256];
-  CHECK_CL(clGetDeviceInfo, devices[0], CL_DEVICE_VENDOR_ID, 256, version_buf, NULL);
-  if (strstr(version_buf, "AMD")) {
-	  is_amd = true;
-  }
+  char name_buf[256];
+  CHECK_CL(clGetDeviceInfo, devices[0], CL_DEVICE_NAME, sizeof(name_buf), name_buf, NULL);
 
   gpu_ctx->_num_in_order_queues = kMaxNumInOrderQueues;
-  if (is_amd) {
-    gpu_ctx->_num_in_order_queues = 2;
+  if (strstr(name_buf, "Pitcairn")) {
+    gpu_ctx->_num_in_order_queues = std::min(2, kMaxNumInOrderQueues);
   }
 
 #ifndef CL_VERSION_2_0
