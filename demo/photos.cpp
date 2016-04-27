@@ -363,6 +363,7 @@ class AsyncGenTCReq : public AsyncTexRequest {
 #if USE_PINNED_MEMORY
     CHECK_CL(clReleaseEvent, _unmap_event);
 #endif
+    CHECK_CL(clFlush, _queue);
   }
 
   virtual void Preload(const std::string &fname) {
@@ -416,9 +417,9 @@ class AsyncGenTCReq : public AsyncTexRequest {
 #if USE_PINNED_MEMORY
 //		_unmap_event,
 #endif
-		_pbo.acquire_event
-	};
-	cl_uint num_wait_events = sizeof(wait_events) / sizeof(wait_events[0]);
+	  	_pbo.acquire_event
+  	};
+	  cl_uint num_wait_events = sizeof(wait_events) / sizeof(wait_events[0]);
     CHECK_CL(clEnqueueMarkerWithWaitList, _queue, num_wait_events, wait_events, &init_event);
     return std::move(GenTC::LoadCompressedDXT(_ctx, _hdr, _queue, _cmp_buf, _pbo.dst_buf, &init_event));
   }
@@ -605,7 +606,6 @@ std::vector<std::unique_ptr<Texture> > LoadTextures(const std::unique_ptr<gpu::G
       for (auto &req : reqs) {
         PBORequest *pbo_req;
         if (req->NeedsPBO(&pbo_req)) {
-          assert(pbo_req->sz == 131072);
           pbo_reqs.push_back(pbo_req);
           pbo_req->SetupPBO();
         }
@@ -647,7 +647,7 @@ std::vector<std::unique_ptr<Texture> > LoadTextures(const std::unique_ptr<gpu::G
       CHECK_CL(clEnqueueReleaseGLObjects, ctx->GetDefaultCommandQueue(),
                                           static_cast<cl_uint>(pbos.size()), pbos.data(),
                                           static_cast<cl_uint>(dxt_events.size()),
-		                                  dxt_events.data(), &release_event);
+		                                      dxt_events.data(), &release_event);
       end = std::chrono::high_resolution_clock::now();
       interop_time += std::chrono::duration<double>(end-start).count();
     }
@@ -659,10 +659,10 @@ std::vector<std::unique_ptr<Texture> > LoadTextures(const std::unique_ptr<gpu::G
     CHECK_CL(clWaitForEvents, 1, &release_event);
     end = std::chrono::high_resolution_clock::now();
     idle_time += std::chrono::duration<double>(end-start).count();
-  }
 
-  CHECK_CL(clReleaseEvent, acquire_event);
-  CHECK_CL(clReleaseEvent, release_event);
+    CHECK_CL(clReleaseEvent, acquire_event);
+    CHECK_CL(clReleaseEvent, release_event);
+  }
 
   // I think we're done now...
   for (auto &req : reqs) {
