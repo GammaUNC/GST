@@ -765,7 +765,7 @@ std::vector<std::unique_ptr<Texture> > LoadTextures(const std::unique_ptr<gpu::G
       acquire = false;
     } else {
       start = std::chrono::high_resolution_clock::now();
-      CHECK_CL(clEnqueueReleaseGLObjects, ctx->GetCommandQueue(),
+      CHECK_CL(clEnqueueReleaseGLObjects, ctx->GetDefaultCommandQueue(),
                                           static_cast<cl_uint>(pbos.size()), pbos.data(),
                                           static_cast<cl_uint>(dxt_events.size()), dxt_events.data(),
                                           &release_event);
