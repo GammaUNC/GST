@@ -1,5 +1,8 @@
 #pragma OPENCL EXTENSION cl_khr_byte_addressable_store : enable
 
+// This doesn't seem to make much of a difference....
+#define USE_LOCAL_TABLE
+
 #define ANS_TABLE_SIZE_LOG  11
 #define ANS_TABLE_SIZE      (1 << ANS_TABLE_SIZE_LOG)
 #define NUM_ENCODED_SYMBOLS 256
@@ -12,10 +15,23 @@ typedef struct AnsTableEntry_Struct {
 	uchar  symbol;
 } AnsTableEntry;
 
-__kernel void ans_decode(const __constant AnsTableEntry *table,
+__kernel void ans_decode(const __constant AnsTableEntry *global_table,
 						 const __global   uchar         *data,
 						       __global   uchar         *out_stream)
 {
+#ifdef USE_LOCAL_TABLE
+	// Load everything into local memory
+	__local AnsTableEntry table[ANS_TABLE_SIZE];
+	size_t entries_per_thread = (ANS_TABLE_SIZE + get_local_size(0) - 1) / get_local_size(0);
+	size_t table_idx = get_local_id(0) * entries_per_thread;
+	size_t table_limit = min(table_idx + entries_per_thread, (size_t)ANS_TABLE_SIZE);
+	for (size_t i = table_idx; i < table_limit; ++i) {
+		table[i].freq = global_table[i].freq;
+		table[i].cum_freq = global_table[i].cum_freq;
+		table[i].symbol = global_table[i].symbol;
+	}
+#endif
+
 	__local uint normalization_mask;
 	normalization_mask = 0;
 
@@ -28,7 +44,11 @@ __kernel void ans_decode(const __constant AnsTableEntry *table,
 
 	for (int i = 0; i < NUM_ENCODED_SYMBOLS; ++i) {
 		const uint symbol = state & (ANS_TABLE_SIZE - 1);
-		const __constant AnsTableEntry *entry = table + symbol;
+#ifdef USE_LOCAL_TABLE
+		const __local AnsTableEntry *entry = table + symbol;
+#else
+		const __constant AnsTableEntry *entry = global_table + symbol;
+#endif
 		state = (state >> ANS_TABLE_SIZE_LOG) * entry->freq
 			- entry->cum_freq + symbol;
 
