@@ -39,6 +39,14 @@
 
 #include "gl_guards.h"
 
+#define GLIML_NO_PVR
+#include "gliml\gliml.h"
+
+#define CRND_HEADER_FILE_ONLY
+#include "crn_decomp.h"
+
+#define TEST_GTC
+
 static void error_callback(int error, const char* description)
 {
     fputs(description, stderr);
@@ -150,8 +158,8 @@ void LoadGTC(const std::unique_ptr<gpu::GPUContext> &ctx,
   assert(is);
   is.close();
 
-  glFlush();
-  glFinish();
+  // glFlush();
+  // glFinish();
 
   // Grab the header from the data
   GenTC::GenTCHeader hdr;
@@ -188,6 +196,8 @@ void LoadGTC(const std::unique_ptr<gpu::GPUContext> &ctx,
                                       static_cast<cl_uint>(cmp_events.size()),
                                       cmp_events.data(), &release_event);
 
+  CHECK_CL(clFlush, ctx->GetDefaultCommandQueue());
+
   // Wait on the release
   CHECK_CL(clWaitForEvents, 1, &release_event);
 
@@ -208,6 +218,121 @@ void LoadGTC(const std::unique_ptr<gpu::GPUContext> &ctx,
   CHECK_GL(glBindTexture, GL_TEXTURE_2D, texID);
   CHECK_GL(glCompressedTexSubImage2D, GL_TEXTURE_2D, 0, 0, 0, hdr.width, hdr.height,
                                       GL_COMPRESSED_RGB_S3TC_DXT1_EXT, dxt_size, 0);
+  CHECK_GL(glBindTexture, GL_TEXTURE_2D, 0);
+}
+
+
+void LoadDDS(const std::unique_ptr<gpu::GPUContext> &ctx,
+             GLuint pbo, GLuint texID, const std::string &filePath) {
+  // Load in compressed data.
+  std::ifstream is(filePath.c_str(), std::ifstream::binary);
+  if (!is) {
+    assert(!"Error opening DDS texture!");
+    return;
+  }
+
+  is.seekg(0, is.end);
+  size_t length = static_cast<size_t>(is.tellg());
+  is.seekg(0, is.beg);
+
+  std::vector<uint8_t> cmp_data(length);
+  is.read(reinterpret_cast<char *>(cmp_data.data()), length);
+  assert(is);
+  is.close();
+
+  gliml::context gliml_ctx;
+  gliml_ctx.enable_dxt(true);
+
+  if (!gliml_ctx.load(cmp_data.data(), static_cast<int>(cmp_data.size()))) {
+    std::cerr << "Error reading GLIML file!" << std::endl;
+    exit(EXIT_FAILURE);
+  }
+
+  assert(gliml_ctx.num_faces() == 1);
+  assert(gliml_ctx.num_mipmaps(0) == 1);
+  assert(gliml_ctx.is_2d());
+
+  // Initialize the texture...
+  CHECK_GL(glBindBuffer, GL_PIXEL_UNPACK_BUFFER, 0);
+  CHECK_GL(glBindTexture, gliml_ctx.texture_target(), texID);
+  if (gliml_ctx.is_compressed()) {
+    CHECK_GL(glCompressedTexSubImage2D, gliml_ctx.texture_target(), 0, 0, 0,
+                                        gliml_ctx.image_width(0, 0),
+                                        gliml_ctx.image_height(0, 0),
+                                        GL_COMPRESSED_RGB_S3TC_DXT1_EXT,
+                                        gliml_ctx.image_size(0, 0),
+                                        gliml_ctx.image_data(0, 0));
+  } else {
+    CHECK_GL(glTexSubImage2D, gliml_ctx.texture_target(), 0, 0, 0,
+                              gliml_ctx.image_width(0, 0),
+                              gliml_ctx.image_height(0, 0),
+                              gliml_ctx.image_format(), gliml_ctx.image_type(),
+                              gliml_ctx.image_data(0, 0));
+  }
+  CHECK_GL(glBindTexture, GL_TEXTURE_2D, 0);
+}
+
+void LoadJPG(const std::unique_ptr<gpu::GPUContext> &ctx,
+             GLuint pbo, GLuint texID, const std::string &filePath) {
+  int width, height, comp;
+  unsigned char *img = stbi_load(filePath.c_str(), &width, &height, &comp, 3);
+  CHECK_GL(glTexSubImage2D, GL_TEXTURE_2D, 0, 0, 0, width, height, GL_RGB, GL_UNSIGNED_BYTE, img);
+  CHECK_GL(glBindTexture, GL_TEXTURE_2D, 0);
+  stbi_image_free(img);
+}
+
+void LoadCRN(const std::unique_ptr<gpu::GPUContext> &ctx,
+             GLuint pbo, GLuint texID, const std::string &filePath) {
+  // Load in compressed data.
+  std::ifstream is(filePath.c_str(), std::ifstream::binary);
+  if (!is) {
+    assert(!"Error opening DDS texture!");
+    return;
+  }
+
+  is.seekg(0, is.end);
+  size_t length = static_cast<size_t>(is.tellg());
+  is.seekg(0, is.beg);
+
+  std::vector<uint8_t> cmp_data(length);
+  is.read(reinterpret_cast<char *>(cmp_data.data()), length);
+  assert(is);
+  is.close();
+
+  crnd::uint32 crn_data_sz = static_cast<crnd::uint32>(cmp_data.size());
+
+  crnd::crn_texture_info tinfo;
+  if (!crnd::crnd_get_texture_info(cmp_data.data(), crn_data_sz, &tinfo)) {
+    assert(!"Invalid texture?");
+    return;
+  }
+
+  crnd::crnd_unpack_context crn_ctx = crnd::crnd_unpack_begin(cmp_data.data(), crn_data_sz);
+  if (!crn_ctx) {
+    assert(!"Error beginning crn decoding!");
+    return;
+  }
+
+  const int num_blocks_x = (tinfo.m_width + 3) / 4;
+  const int num_blocks_y = (tinfo.m_height + 3) / 4;
+  const int num_blocks = num_blocks_x * num_blocks_y;
+
+  std::vector<uint8_t> dxt_vec(num_blocks * 8);
+  void *dxt_data = reinterpret_cast<void *>(dxt_vec.data());
+  if (!crnd::crnd_unpack_level(crn_ctx, &dxt_data, num_blocks * 8, num_blocks_x * 8, 0)) {
+    assert(!"Error decoding crunch texture!");
+    return;
+  }
+
+  crnd::crnd_unpack_end(crn_ctx);
+
+  // Initialize the texture...
+  GLsizei dxt_sz = static_cast<GLsizei>(dxt_vec.size());
+  CHECK_GL(glBindBuffer, GL_PIXEL_UNPACK_BUFFER, 0);
+  CHECK_GL(glBindTexture, GL_TEXTURE_2D, texID);
+  CHECK_GL(glCompressedTexSubImage2D, GL_TEXTURE_2D, 0, 0, 0, tinfo.m_width, tinfo.m_height,
+                                      GL_COMPRESSED_RGB_S3TC_DXT1_EXT, dxt_sz, dxt_data);
+  CHECK_GL(glBindTexture, GL_TEXTURE_2D, 0);
 }
 
 int main(int argc, char* argv[])
@@ -280,7 +405,11 @@ int main(int argc, char* argv[])
 
     // Initialize the texture...
     glBindTexture(GL_TEXTURE_2D, texID);
+#ifdef TEST_JPG
+    glTexStorage2D(GL_TEXTURE_2D, 1, GL_RGB8, 1792, 1024);
+#else
     glTexStorage2D(GL_TEXTURE_2D, 1, GL_COMPRESSED_RGB_S3TC_DXT1_EXT, 1792, 1024);
+#endif
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_BASE_LEVEL, 0);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAX_LEVEL, 0);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
@@ -352,12 +481,35 @@ int main(int argc, char* argv[])
       glClear(GL_COLOR_BUFFER_BIT);
 
       std::ostringstream stream;
+#ifdef TEST_GTC
       stream << "../test/dump_gtc/frame";
       for (int i = 1000; i > 0; i /= 10) {
         stream << (((gFrameNumber + 1) / i) % 10);
       }
       stream << ".gtc";
       LoadGTC(ctx, pbo, texID, stream.str());
+#elif defined TEST_CRN
+      stream << "../test/dump_crn/frame";
+      for (int i = 1000; i > 0; i /= 10) {
+        stream << (((gFrameNumber + 1) / i) % 10);
+      }
+      stream << ".crn";
+      LoadCRN(ctx, pbo, texID, stream.str());
+#elif defined TEST_DDS
+      stream << "../test/dump_dds/frame";
+      for (int i = 1000; i > 0; i /= 10) {
+        stream << (((gFrameNumber + 1) / i) % 10);
+      }
+      stream << ".dds";
+      LoadDDS(ctx, pbo, texID, stream.str());
+#elif defined TEST_JPG
+      stream << "../test/dump_jpg/frame";
+      for (int i = 1000; i > 0; i /= 10) {
+        stream << (((gFrameNumber + 1) / i) % 10);
+      }
+      stream << ".jpg";
+      LoadJPG(ctx, pbo, texID, stream.str());
+#endif
 
       glActiveTexture(GL_TEXTURE0);
       glBindTexture(GL_TEXTURE_2D, texID);
@@ -385,14 +537,15 @@ int main(int argc, char* argv[])
       frame_time_idx = (frame_time_idx + 1) % 8;
       gFrameNumber = (gFrameNumber + 1) % kNumFrames;
 
-      if (frame_time_idx % 8 == 0) {
+      static double last_end_time = 0.0;
+      if (end_time - last_end_time > 1) {
         double time = std::accumulate(frame_times, frame_times + 8, 0.0);
         double frame_time = time / 8.0;
         double fps = 1000.0 / frame_time;
-        std::cout << "\033[20D";
-        std::cout << "\033[K";
+        std::cout << "\r";
         std::cout << "FPS: " << fps;
         std::cout.flush();
+        last_end_time = end_time;
       }
     }
     std::cout << std::endl;

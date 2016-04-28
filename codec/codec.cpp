@@ -336,8 +336,8 @@ static CLKernelResult DecodeANS(const std::unique_ptr<GPUContext> &gpu_ctx, cl_c
 }
 
 static CLKernelResult InverseWavelet(const std::unique_ptr<GPUContext> &gpu_ctx,
-                                     cl_command_queue queue, cl_mem img, cl_int offset,
-                                     int width, int height) {
+                                     cl_command_queue queue, const CLKernelResult &img,
+                                     cl_int offset, int width, int height) {
   assert(width % kWaveletBlockDim == 0);
   assert(height % kWaveletBlockDim == 0);
 
@@ -394,13 +394,13 @@ static CLKernelResult InverseWavelet(const std::unique_ptr<GPUContext> &gpu_ctx,
     global_work_size, local_work_size,
 
     // Events to depend on and return
-    0, NULL, result.output_events,
+    img.num_events, img.output_events, result.output_events,
 
     // Kernel arguments
-    img, offset, local_mem, result.output);
+    img.output, offset, local_mem, result.output);
 
   // No longer need image buffer
-  CHECK_CL(clReleaseMemObject, img);
+  CHECK_CL(clReleaseMemObject, img.output);
 
   return result;
 }
@@ -413,7 +413,7 @@ static CLKernelResult DecompressEndpoints(const std::unique_ptr<GPUContext> &gpu
   size_t offset = *data_offset;
   *data_offset += rANS_info.sz;
   CLKernelResult decoded_ans = DecodeANS(gpu_ctx, command_queue, cmp_data, offset, rANS_info);
-  CLKernelResult result = InverseWavelet(gpu_ctx, command_queue, decoded_ans.output, val_offset, width, height);
+  CLKernelResult result = InverseWavelet(gpu_ctx, command_queue, decoded_ans, val_offset, width, height);
   for (cl_uint i = 0; i < decoded_ans.num_events; ++i) {
     CHECK_CL(clReleaseEvent, decoded_ans.output_events[i]);
   }
