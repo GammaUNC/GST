@@ -349,19 +349,19 @@ class AsyncGenTCReq : public AsyncTexRequest {
                                          &errCreateBuffer);
     CHECK_CL((cl_int), errCreateBuffer);
 
+    cl_command_queue queue = _ctx->GetNextQueue();
+
     // Acquire the PBO
     cl_event acquire_event;
-    CHECK_CL(clEnqueueAcquireGLObjects, _ctx->GetDefaultCommandQueue(),
-                                        1, &output, 0, NULL, &acquire_event);
+    CHECK_CL(clEnqueueAcquireGLObjects, queue, 1, &output, 0, NULL, &acquire_event);
 
     // Load it
     std::vector<cl_event> cmp_events =
-      std::move(GenTC::LoadCompressedDXT(_ctx, hdr, cmp_buf, output, &acquire_event));
+      std::move(GenTC::LoadCompressedDXT(_ctx, hdr, queue, cmp_buf, output, &acquire_event));
 
     // Release the PBO
     cl_event release_event;
-    CHECK_CL(clEnqueueReleaseGLObjects, _ctx->GetDefaultCommandQueue(),
-                                        1, &output,
+    CHECK_CL(clEnqueueReleaseGLObjects, queue, 1, &output,
                                         static_cast<cl_uint>(cmp_events.size()), 
                                         cmp_events.data(), &release_event);
 

@@ -158,8 +158,8 @@ void LoadGTC(const std::unique_ptr<gpu::GPUContext> &ctx,
   assert(is);
   is.close();
 
-//  glFlush();
-//  glFinish();
+  // glFlush();
+  // glFinish();
 
   // Grab the header from the data
   GenTC::GenTCHeader hdr;
@@ -187,7 +187,7 @@ void LoadGTC(const std::unique_ptr<gpu::GPUContext> &ctx,
 
   // Load it
   std::vector<cl_event> cmp_events =
-    std::move(GenTC::LoadCompressedDXT(ctx, hdr, cmp_buf, output, &acquire_event));
+    std::move(GenTC::LoadCompressedDXT(ctx, hdr, ctx->GetDefaultCommandQueue(), cmp_buf, output, &acquire_event));
 
   // Release the PBO
   cl_event release_event;
@@ -196,7 +196,7 @@ void LoadGTC(const std::unique_ptr<gpu::GPUContext> &ctx,
                                       static_cast<cl_uint>(cmp_events.size()),
                                       cmp_events.data(), &release_event);
 
-  CHECK_CL(clFlush, ctx->GetCommandQueue());
+  CHECK_CL(clFlush, ctx->GetDefaultCommandQueue());
 
   // Wait on the release
   CHECK_CL(clWaitForEvents, 1, &release_event);
