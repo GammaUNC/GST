@@ -466,10 +466,6 @@ static cl_event DecodeIndices(const std::unique_ptr<GPUContext> &gpu_ctx, cl_com
                               cl_mem dst, cl_mem cmp_buf, size_t offset, size_t num_pixels,
                               const GenTCHeader::rANSInfo &palette_info,
                               const GenTCHeader::rANSInfo &indices_info) {
-
-  static std::atomic_int queue_order_counter(0);
-  int queue_order = (queue_order_counter++) % 2;
-
   CLKernelResult palette = DecodeANS(gpu_ctx, queue, cmp_buf, offset, palette_info);
   CLKernelResult indices = DecodeANS(gpu_ctx, queue, cmp_buf, offset + palette_info.sz, indices_info);
 
@@ -590,9 +586,6 @@ static void DecompressDXTImage(const std::unique_ptr<GPUContext> &gpu_ctx,
                                               &offset, -128, blocks_x, blocks_y);
   CLKernelResult ep2_cg = DecompressEndpoints(gpu_ctx, queue, cmp_buf, hdr.ep2_cg,
                                               &offset, -128, blocks_x, blocks_y);
-
-  static std::atomic_int queue_order_counter(0);
-  int queue_order = (queue_order_counter++) % 3;
 
   result->num_events = 3;
   const size_t num_blocks = blocks_x * blocks_y;

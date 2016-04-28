@@ -43,6 +43,7 @@ namespace gpu {
     eOpenCLVersion_20
   };
 
+  static const int kMaxNumInOrderQueues = 4;
   class GPUContext {
   public:
     ~GPUContext();
@@ -56,7 +57,7 @@ namespace gpu {
 
     void FlushAllQueues() const {
       CHECK_CL(clFlush, _command_queue);
-      for (int i = 0; i < _num_in_order_queues; ++i) {
+      for (size_t i = 0; i < _num_in_order_queues; ++i) {
         CHECK_CL(clFlush, _in_order_queues[i]);
       }
     }
@@ -113,7 +114,7 @@ namespace gpu {
     }
 
   private:
-    GPUContext() : _next_in_order_queue(0), _num_in_order_queues(0) { }
+    GPUContext() : _num_in_order_queues(0), _next_in_order_queue(0) { }
     GPUContext(const GPUContext &) { }
 
     void SetArgument(cl_kernel kernel, unsigned idx, LocalMemoryKernelArg mem) {
@@ -141,7 +142,6 @@ namespace gpu {
     cl_device_id _device;
     cl_context _ctx;
 
-    static const int kMaxNumInOrderQueues = 4;
     size_t _num_in_order_queues;
     mutable std::atomic_int _next_in_order_queue;
     cl_command_queue _in_order_queues[kMaxNumInOrderQueues];
