@@ -427,7 +427,9 @@ class AsyncGenTCReq : public AsyncTexRequest {
   	};
 	  cl_uint num_wait_events = sizeof(wait_events) / sizeof(wait_events[0]);
     CHECK_CL(clEnqueueMarkerWithWaitList, _queue, num_wait_events, wait_events, &init_event);
-    return std::move(GenTC::LoadCompressedDXT(_ctx, _hdr, _queue, _cmp_buf, _pbo.dst_buf, &init_event));
+    std::vector<cl_event> result = std::move(GenTC::LoadCompressedDXT(_ctx, _hdr, _queue, _cmp_buf, _pbo.dst_buf, &init_event));
+    CHECK_CL(clReleaseEvent, init_event);
+    return std::move(result);
   }
 
  private:

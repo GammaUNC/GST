@@ -1,7 +1,7 @@
 #pragma OPENCL EXTENSION cl_khr_byte_addressable_store : enable
 
 // This doesn't seem to make much of a difference....
-#define USE_LOCAL_TABLE
+// #define USE_LOCAL_TABLE
 
 #define ANS_TABLE_SIZE_LOG  11
 #define ANS_TABLE_SIZE      (1 << ANS_TABLE_SIZE_LOG)
@@ -22,10 +22,7 @@ __kernel void ans_decode(const __constant AnsTableEntry *global_table,
 #ifdef USE_LOCAL_TABLE
 	// Load everything into local memory
 	__local AnsTableEntry table[ANS_TABLE_SIZE];
-	size_t entries_per_thread = (ANS_TABLE_SIZE + get_local_size(0) - 1) / get_local_size(0);
-	size_t table_idx = get_local_id(0) * entries_per_thread;
-	size_t table_limit = min(table_idx + entries_per_thread, (size_t)ANS_TABLE_SIZE);
-	for (size_t i = table_idx; i < table_limit; ++i) {
+	for (size_t i = get_local_id(0); i < ANS_TABLE_SIZE; i += get_local_size(0)) {
 		table[i].freq = global_table[i].freq;
 		table[i].cum_freq = global_table[i].cum_freq;
 		table[i].symbol = global_table[i].symbol;
@@ -42,6 +39,7 @@ __kernel void ans_decode(const __constant AnsTableEntry *global_table,
 
 	barrier(CLK_LOCAL_MEM_FENCE);
 
+	uchar result[NUM_ENCODED_SYMBOLS];
 	for (int i = 0; i < NUM_ENCODED_SYMBOLS; ++i) {
 		const uint symbol = state & (ANS_TABLE_SIZE - 1);
 #ifdef USE_LOCAL_TABLE
@@ -77,7 +75,14 @@ __kernel void ans_decode(const __constant AnsTableEntry *global_table,
 		next_to_read -= total_to_read;
 
 		// Write the result
-		const int gidx = get_global_id(0) * NUM_ENCODED_SYMBOLS + (255 - i);
-		out_stream[gidx] = entry->symbol;
+		result[i] = entry->symbol;
+	}
+
+	// Write a staggered result to avoid bank conflicts
+	int write_idx = get_local_id(0);
+	for (int i = 0; i < NUM_ENCODED_SYMBOLS; ++i) {
+		const int gidx = get_global_id(0) * NUM_ENCODED_SYMBOLS + (255 - write_idx);
+		out_stream[gidx] = result[write_idx];
+		write_idx = (write_idx + 1) & (NUM_ENCODED_SYMBOLS - 1);
 	}
 }
