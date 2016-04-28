@@ -55,7 +55,7 @@
 #include "gl_guards.h"
 
 #define GLIML_NO_PVR
-#include "gliml\gliml.h"
+#include "gliml/gliml.h"
 
 #define CRND_HEADER_FILE_ONLY
 #include "crn_decomp.h"
