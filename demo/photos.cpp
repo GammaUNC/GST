@@ -356,7 +356,7 @@ class AsyncGenTCReq : public AsyncTexRequest {
 
     // Load it
     std::vector<cl_event> cmp_events =
-      std::move(GenTC::LoadCompressedDXT(_ctx, hdr, cmp_buf, output, &acquire_event));
+      std::move(GenTC::LoadCompressedDXT(_ctx, hdr, cmp_buf, output, acquire_event));
 
     // Release the PBO
     cl_event release_event;

@@ -264,10 +264,15 @@ static CLKernelResult DecodeANS(const std::unique_ptr<GPUContext> &gpu_ctx,
   CHECK_CL((cl_int), errCreateBuffer);
 
   cl_event build_table_event;
-  gpu_ctx->EnqueueOpenCLKernel<1>(ans::kANSOpenCLKernels[ans::eANSOpenCLKernel_BuildTable], "build_table",
-                                  &M, &build_table_local_work_size,
-                                  1, &init_event, &build_table_event,
-                                  freqs_buffer, table);
+  gpu_ctx->EnqueueOpenCLKernel<1>(
+    ans::kANSOpenCLKernels[ans::eANSOpenCLKernel_BuildTable], "build_table",
+
+    &M, &build_table_local_work_size,
+    
+    // Events
+    1, &init_event, &build_table_event,
+    
+    freqs_buffer, table);
 
   CHECK_CL(clReleaseMemObject, freqs_buffer);
 
@@ -667,26 +672,12 @@ bool TestDXT(const std::unique_ptr<gpu::GPUContext> &gpu_ctx,
 }
 
 std::vector<cl_event> LoadCompressedDXT(const std::unique_ptr<gpu::GPUContext> &gpu_ctx,
-                                        const GenTCHeader &hdr, cl_mem cmp_data, cl_mem output,
-                                        cl_event *init) {
-  // Set a dummy event
-  cl_event init_event;
-#ifdef CL_VERSION_1_2
-  CHECK_CL(clEnqueueMarkerWithWaitList, gpu_ctx->GetCommandQueue(), 0, NULL, &init_event);
-#else
-  CHECK_CL(clEnqueueMarker, gpu_ctx->GetCommandQueue(), &init_event);
-#endif
-
-  // If there's an actual event, switch to it instead
-  if (NULL != init) {
-    CHECK_CL(clReleaseEvent, init_event);
-    init_event = *init;
-  }
-
+                                        const GenTCHeader &hdr,
+                                        cl_mem cmp_data, cl_mem output, cl_event init) {
   // Queue the decompression...
   CLKernelResult decmp;
   decmp.output = output;
-  DecompressDXTImage(gpu_ctx, hdr, cmp_data, init_event, &decmp);
+  DecompressDXTImage(gpu_ctx, hdr, cmp_data, init, &decmp);
 
   // Send back the events...
   std::vector<cl_event> events;
