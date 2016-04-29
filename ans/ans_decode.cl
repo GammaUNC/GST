@@ -1,7 +1,12 @@
 #pragma OPENCL EXTENSION cl_khr_byte_addressable_store : enable
 
-// This doesn't seem to make much of a difference....
+// This doesn't seem to make much of a difference on AMD but very
+// significant on NVIDIA....
 #define USE_LOCAL_TABLE
+
+// Not too sure about this -- bank conflicts on writes aren't particularly
+// that bad from what I understand, but maybe this makes a difference, idk?
+// #define AVOID_GLOBAL_BANK_CONFLICTS
 
 #define ANS_TABLE_SIZE_LOG  11
 #define ANS_TABLE_SIZE      (1 << ANS_TABLE_SIZE_LOG)
@@ -33,7 +38,9 @@ __kernel void ans_decode(const __constant AnsTableEntry *global_table,
 #endif
 
 	__local uint normalization_mask;
-	normalization_mask = 0;
+    if (0 == get_local_id(0)) {
+      normalization_mask = 0;
+    }
 
 	uint offset = ((const __global uint *)data)[get_group_id(0)];
 	uint state = ((const __global uint *)(data + offset) - get_local_size(0))[get_local_id(0)];
@@ -42,13 +49,17 @@ __kernel void ans_decode(const __constant AnsTableEntry *global_table,
 
 	barrier(CLK_LOCAL_MEM_FENCE);
 
+#ifdef AVOID_GLOBAL_BANK_CONFLICTS
+	uchar result[NUM_ENCODED_SYMBOLS];
+#endif  // AVOID_GLOBAL_BANK_CONFLICTS
+
 	for (int i = 0; i < NUM_ENCODED_SYMBOLS; ++i) {
 		const uint symbol = state & (ANS_TABLE_SIZE - 1);
 #ifdef USE_LOCAL_TABLE
 		const __local AnsTableEntry *entry = table + symbol;
 #else
 		const __constant AnsTableEntry *entry = global_table + symbol;
-#endif
+#endif  // USE_LOCAL_TABLE
 		state = (state >> ANS_TABLE_SIZE_LOG) * entry->freq
 			- entry->cum_freq + symbol;
 
@@ -75,9 +86,15 @@ __kernel void ans_decode(const __constant AnsTableEntry *global_table,
 
 		// Advance the read pointer by the number of shorts read
 		next_to_read -= total_to_read;
-
+#ifdef AVOID_GLOBAL_BANK_CONFLICTS
 		// Write the result
 		const int gidx = get_global_id(0) * NUM_ENCODED_SYMBOLS + (255 - i);
 		out_stream[gidx] = entry->symbol;
 	}
+#else
+		// Write the result
+		const int gidx = get_global_id(0) * NUM_ENCODED_SYMBOLS + (255 - i);
+		out_stream[gidx] = entry->symbol;
+	}
+#endif // AVOID_GLOBAL_BANK_CONFLICTS
 }
