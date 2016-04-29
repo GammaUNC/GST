@@ -241,7 +241,8 @@ std::vector<uint8_t> CompressDXT(int width, int height, const std::vector<uint8_
 ////////////////////////////////////////////////////////////////////////////////
 
 static CLKernelResult DecodeANS(const std::unique_ptr<GPUContext> &gpu_ctx, cl_command_queue queue,
-                                cl_mem input, const size_t offset, const GenTCHeader::rANSInfo &info) {
+                                cl_mem input, const size_t offset, cl_event init_event,
+                                const GenTCHeader::rANSInfo &info) {
   // First get the number of frequencies...
   cl_uint num_freqs = info.num_freqs;
   const size_t M = ans::ocl::kANSTableSize;
@@ -275,8 +276,8 @@ static CLKernelResult DecodeANS(const std::unique_ptr<GPUContext> &gpu_ctx, cl_c
 
     &M, &build_table_local_work_size,
     
-    // No events
-    0, NULL, &build_table_event,
+    // Events
+    1, &init_event, &build_table_event,
     
     freqs_buffer, table);
 
@@ -406,13 +407,13 @@ static CLKernelResult InverseWavelet(const std::unique_ptr<GPUContext> &gpu_ctx,
 }
 
 static CLKernelResult DecompressEndpoints(const std::unique_ptr<GPUContext> &gpu_ctx,
-                                          cl_command_queue command_queue,
+                                          cl_command_queue command_queue, cl_event init,
                                           cl_mem cmp_data, const GenTCHeader::rANSInfo &rANS_info,
                                           size_t *data_offset, cl_int val_offset,
                                           int width, int height) {
   size_t offset = *data_offset;
   *data_offset += rANS_info.sz;
-  CLKernelResult decoded_ans = DecodeANS(gpu_ctx, command_queue, cmp_data, offset, rANS_info);
+  CLKernelResult decoded_ans = DecodeANS(gpu_ctx, command_queue, cmp_data, offset, init, rANS_info);
   CLKernelResult result = InverseWavelet(gpu_ctx, command_queue, decoded_ans, val_offset, width, height);
   for (cl_uint i = 0; i < decoded_ans.num_events; ++i) {
     CHECK_CL(clReleaseEvent, decoded_ans.output_events[i]);
@@ -462,12 +463,12 @@ static cl_event CollectEndpoints(const std::unique_ptr<GPUContext> &gpu_ctx,
   return e;
 }
 
-static cl_event DecodeIndices(const std::unique_ptr<GPUContext> &gpu_ctx, cl_command_queue queue,
+static cl_event DecodeIndices(const std::unique_ptr<GPUContext> &gpu_ctx, cl_command_queue queue, cl_event init,
                               cl_mem dst, cl_mem cmp_buf, size_t offset, size_t num_pixels,
                               const GenTCHeader::rANSInfo &palette_info,
                               const GenTCHeader::rANSInfo &indices_info) {
-  CLKernelResult palette = DecodeANS(gpu_ctx, queue, cmp_buf, offset, palette_info);
-  CLKernelResult indices = DecodeANS(gpu_ctx, queue, cmp_buf, offset + palette_info.sz, indices_info);
+  CLKernelResult palette = DecodeANS(gpu_ctx, queue, cmp_buf, offset, init, palette_info);
+  CLKernelResult indices = DecodeANS(gpu_ctx, queue, cmp_buf, offset + palette_info.sz, init, indices_info);
 
   static const size_t kLocalScanSz = 128;
   static const size_t kLocalScanSzLog = 7;
@@ -566,25 +567,24 @@ static cl_event DecodeIndices(const std::unique_ptr<GPUContext> &gpu_ctx, cl_com
 static void DecompressDXTImage(const std::unique_ptr<GPUContext> &gpu_ctx,
                                const GenTCHeader &hdr, cl_command_queue queue, cl_mem cmp_buf,
                                cl_event init_event, CLKernelResult *result) {
-  CHECK_CL(clEnqueueBarrierWithWaitList, queue, 1, &init_event, NULL);
   assert((hdr.width & 0x3) == 0);
   assert((hdr.height & 0x3) == 0);
   const int blocks_x = static_cast<int>(hdr.width) >> 2;
   const int blocks_y = static_cast<int>(hdr.height) >> 2;
 
   size_t offset = 0;
-  CLKernelResult ep1_y = DecompressEndpoints(gpu_ctx, queue, cmp_buf, hdr.ep1_y,
+  CLKernelResult ep1_y = DecompressEndpoints(gpu_ctx, queue, init_event, cmp_buf, hdr.ep1_y,
                                              &offset, -128, blocks_x, blocks_y);
-  CLKernelResult ep1_co = DecompressEndpoints(gpu_ctx, queue, cmp_buf, hdr.ep1_co,
+  CLKernelResult ep1_co = DecompressEndpoints(gpu_ctx, queue, init_event, cmp_buf, hdr.ep1_co,
                                               &offset, -128, blocks_x, blocks_y);
-  CLKernelResult ep1_cg = DecompressEndpoints(gpu_ctx, queue, cmp_buf, hdr.ep1_cg,
+  CLKernelResult ep1_cg = DecompressEndpoints(gpu_ctx, queue, init_event, cmp_buf, hdr.ep1_cg,
                                               &offset, -128, blocks_x, blocks_y);
 
-  CLKernelResult ep2_y = DecompressEndpoints(gpu_ctx, queue, cmp_buf, hdr.ep2_y,
+  CLKernelResult ep2_y = DecompressEndpoints(gpu_ctx, queue, init_event, cmp_buf, hdr.ep2_y,
                                              &offset, -128, blocks_x, blocks_y);
-  CLKernelResult ep2_co = DecompressEndpoints(gpu_ctx, queue, cmp_buf, hdr.ep2_co,
+  CLKernelResult ep2_co = DecompressEndpoints(gpu_ctx, queue, init_event, cmp_buf, hdr.ep2_co,
                                               &offset, -128, blocks_x, blocks_y);
-  CLKernelResult ep2_cg = DecompressEndpoints(gpu_ctx, queue, cmp_buf, hdr.ep2_cg,
+  CLKernelResult ep2_cg = DecompressEndpoints(gpu_ctx, queue, init_event, cmp_buf, hdr.ep2_cg,
                                               &offset, -128, blocks_x, blocks_y);
 
   result->num_events = 3;
@@ -594,7 +594,7 @@ static void DecompressDXTImage(const std::unique_ptr<GPUContext> &gpu_ctx,
   result->output_events[1] =
     CollectEndpoints(gpu_ctx, queue, result->output, num_blocks, ep2_y, ep2_co, ep2_cg, 1);
 
-  result->output_events[2] = DecodeIndices(gpu_ctx, queue, result->output, cmp_buf,
+  result->output_events[2] = DecodeIndices(gpu_ctx, queue, init_event, result->output, cmp_buf,
                                            offset, num_blocks, hdr.palette, hdr.indices);
 }
 
@@ -691,28 +691,11 @@ bool TestDXT(const std::unique_ptr<gpu::GPUContext> &gpu_ctx,
 
 std::vector<cl_event> LoadCompressedDXT(const std::unique_ptr<gpu::GPUContext> &gpu_ctx,
                                         const GenTCHeader &hdr, cl_command_queue queue,
-                                        cl_mem cmp_data, cl_mem output,
-                                        cl_event *init) {
-  // Set a dummy event
-  cl_event init_event;
-  if (NULL == init) {
-#ifdef CL_VERSION_1_2
-    CHECK_CL(clEnqueueMarkerWithWaitList, queue, 0, NULL, &init_event);
-#else
-    CHECK_CL(clEnqueueMarker, queue, &init_event);
-#endif
-  } else {
-    // If there's an actual event, switch to it instead
-    init_event = *init;
-  }
-
+                                        cl_mem cmp_data, cl_mem output, cl_event init) {
   // Queue the decompression...
   CLKernelResult decmp;
   decmp.output = output;
-  DecompressDXTImage(gpu_ctx, hdr, queue, cmp_data, init_event, &decmp);
-  if (NULL == init) {
-    CHECK_CL(clReleaseEvent, init_event);
-  }
+  DecompressDXTImage(gpu_ctx, hdr, queue, cmp_data, init, &decmp);
 
   // Send back the events...
   std::vector<cl_event> events;

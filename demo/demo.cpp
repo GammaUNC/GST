@@ -188,7 +188,7 @@ void LoadGTC(const std::unique_ptr<gpu::GPUContext> &ctx,
 
   // Load it
   std::vector<cl_event> cmp_events =
-    std::move(GenTC::LoadCompressedDXT(ctx, hdr, ctx->GetDefaultCommandQueue(), cmp_buf, output, &acquire_event));
+    std::move(GenTC::LoadCompressedDXT(ctx, hdr, ctx->GetDefaultCommandQueue(), cmp_buf, output, acquire_event));
 
   // Release the PBO
   cl_event release_event;

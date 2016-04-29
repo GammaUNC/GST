@@ -7,7 +7,7 @@ inline bool
 is_dds(const void* data, unsigned int byteSize) {
     if (byteSize > sizeof(dds_header)) {
         const dds_header* hdr = (const dds_header*) data;
-        return hdr->dwMagicFourCC == ' SDD';
+        return hdr->dwMagicFourCC == 0x20534444;
     }
     return false;
 }
