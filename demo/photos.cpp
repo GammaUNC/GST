@@ -328,6 +328,7 @@ class AsyncTexRequest {
   std::queue<std::function<void()> > _fns;
 };
 
+#define USE_PINNED_MEMORY 0
 class AsyncGenTCReq : public AsyncTexRequest {
  public:
   AsyncGenTCReq(const std::unique_ptr<gpu::GPUContext> &ctx, GLuint id)
@@ -367,7 +368,8 @@ class AsyncGenTCReq : public AsyncTexRequest {
     CHECK_CL(clReleaseMemObject, _pbo.dst_buf);
     CHECK_CL(clReleaseMemObject, _cmp_buf);
 #if USE_PINNED_MEMORY
-    CHECK_CL(clReleaseEvent, _unmap_event);
+    CHECK_CL(clReleaseMemObject, _cmp_buf_host);
+    CHECK_CL(clReleaseEvent, _write_event);
 #endif
     CHECK_CL(clFlush, _queue);
   }
@@ -385,28 +387,45 @@ class AsyncGenTCReq : public AsyncTexRequest {
     is.seekg(0, is.beg);
 
     static const size_t kHeaderSz = sizeof(_hdr);
-    assert((length - kHeaderSz) % 512 == 0);
+    const size_t mem_sz = length - kHeaderSz;
+    assert(mem_sz % 512 == 0);
+
     is.read(reinterpret_cast<char *>(&_hdr), kHeaderSz);
 
     cl_int errCreateBuffer;
 #if USE_PINNED_MEMORY
-    cl_mem_flags flags = CL_MEM_READ_ONLY | CL_MEM_ALLOC_HOST_PTR;
-    _cmp_buf = clCreateBuffer(_ctx->GetOpenCLContext(), flags,
-                              length - kHeaderSz, NULL, &errCreateBuffer);
+    cl_context cl_ctx = _ctx->GetOpenCLContext();
+    cl_command_queue d_queue = _ctx->GetDefaultCommandQueue();
+
+    // Create pinned host memory and device memory
+    cl_mem_flags pinned_flags = CL_MEM_READ_WRITE | CL_MEM_ALLOC_HOST_PTR;
+    _cmp_buf_host = clCreateBuffer(cl_ctx, pinned_flags, mem_sz, NULL, &errCreateBuffer);
+    CHECK_CL((cl_int), errCreateBuffer);
+    _cmp_buf = clCreateBuffer(cl_ctx, CL_MEM_READ_ONLY, mem_sz, NULL, &errCreateBuffer);
     CHECK_CL((cl_int), errCreateBuffer);
 
-    void *buf_mem = clEnqueueMapBuffer(_queue, _cmp_buf, CL_TRUE, CL_MAP_WRITE, 0, length - kHeaderSz,
-                                       0, NULL, NULL, &errCreateBuffer);
+    // Map the host memory to the application's address space...
+    cl_event map_event;
+    void *pinned_mem = clEnqueueMapBuffer(d_queue, _cmp_buf_host, CL_TRUE, CL_MAP_WRITE | CL_MAP_READ, 0, mem_sz,
+                                          0, NULL, &map_event, &errCreateBuffer);
     CHECK_CL((cl_int), errCreateBuffer);
 
-    is.read(reinterpret_cast<char *>(buf_mem), length - kHeaderSz);
+    is.read(reinterpret_cast<char *>(pinned_mem), mem_sz);
 
-    CHECK_CL(clEnqueueUnmapMemObject, _queue, _cmp_buf, buf_mem, 0, NULL, &_unmap_event);
+    // Unmap and enqueue copy
+    cl_event unmap_event;
+    CHECK_CL(clEnqueueUnmapMemObject, d_queue, _cmp_buf_host, pinned_mem, 1, &map_event, &unmap_event);
+    CHECK_CL(clEnqueueCopyBuffer, d_queue, _cmp_buf_host, _cmp_buf, 0, 0, mem_sz,
+                                  1, &unmap_event, &_write_event);
+    CHECK_CL(clReleaseEvent, map_event);
+    CHECK_CL(clReleaseEvent, unmap_event);
 #else
-	std::vector<uint8_t> cmp_data(length - kHeaderSz);
-	is.read(reinterpret_cast<char *>(cmp_data.data()), cmp_data.size());
-	_cmp_buf = clCreateBuffer(_ctx->GetOpenCLContext(), CL_MEM_READ_ONLY | CL_MEM_COPY_HOST_PTR,
-		                      cmp_data.size(), cmp_data.data(), &errCreateBuffer);
+    _cmp_data.resize(mem_sz);
+    is.read(reinterpret_cast<char *>(_cmp_data.data()), _cmp_data.size());
+    _cmp_buf = clCreateBuffer(_ctx->GetOpenCLContext(),
+                              CL_MEM_READ_ONLY | CL_MEM_COPY_HOST_PTR | CL_MEM_HOST_NO_ACCESS,
+		                      _cmp_data.size(), _cmp_data.data(), &errCreateBuffer);
+    CHECK_CL((cl_int), errCreateBuffer);
 #endif
 
     assert(is);
@@ -418,18 +437,20 @@ class AsyncGenTCReq : public AsyncTexRequest {
 
   virtual std::vector<cl_event> QueueDXT() {
     // Load it
-    cl_event init_event;
     cl_event wait_events[] = {
 #if USE_PINNED_MEMORY
-//		_unmap_event,
+		_write_event,
 #endif
 	  	_pbo.acquire_event
   	};
-	  cl_uint num_wait_events = sizeof(wait_events) / sizeof(wait_events[0]);
-    CHECK_CL(clEnqueueMarkerWithWaitList, _queue, num_wait_events, wait_events, &init_event);
-    std::vector<cl_event> result = std::move(GenTC::LoadCompressedDXT(_ctx, _hdr, _queue, _cmp_buf, _pbo.dst_buf, init_event));
+    cl_uint num_wait_events = sizeof(wait_events) / sizeof(wait_events[0]);
+
+    cl_event init_event;
+    CHECK_CL(clEnqueueBarrierWithWaitList, _queue, num_wait_events, wait_events, &init_event);
+    std::vector<cl_event> result =
+      std::move(GenTC::LoadCompressedDXT(_ctx, _hdr, _queue, _cmp_buf, _pbo.dst_buf, init_event));
     CHECK_CL(clReleaseEvent, init_event);
-    return std::move(result);
+    return result;
   }
 
  private:
@@ -437,9 +458,11 @@ class AsyncGenTCReq : public AsyncTexRequest {
   GLuint _texID;
   cl_command_queue _queue;
 
+  std::vector<uint8_t> _cmp_data;
   GenTC::GenTCHeader _hdr;
+  cl_mem _cmp_buf_host;
   cl_mem _cmp_buf;
-  cl_event _unmap_event;
+  cl_event _write_event;
   PBORequest _pbo;
 };
 
