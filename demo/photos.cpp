@@ -282,26 +282,10 @@ public:
 // Producing thread sets sz to zero, places a requested pbo in dst, and then notifies the cv.
 struct PBORequest {
   size_t sz;
+  size_t off;
   GLuint pbo;
   cl_mem dst_buf;
   cl_event acquire_event;
-
-  void SetupPBO() {
-    assert(sz > 0);
-    CHECK_GL(glGenBuffers, 1, &pbo);
-    CHECK_GL(glBindBuffer, GL_PIXEL_UNPACK_BUFFER, pbo);
-    CHECK_GL(glBufferData, GL_PIXEL_UNPACK_BUFFER, sz, NULL, GL_DYNAMIC_DRAW);
-    CHECK_GL(glBindBuffer, GL_PIXEL_UNPACK_BUFFER, 0);    
-  }
-
-  void CreateCLBuffer(const std::unique_ptr<gpu::GPUContext> &ctx) {
-    // Create an OpenGL handle to our pbo
-    // !SPEED! We don't need to recreate this every time....
-    cl_int errCreateBuffer;
-    dst_buf = clCreateFromGLBuffer(ctx->GetOpenCLContext(), CL_MEM_READ_WRITE, pbo,
-                                   &errCreateBuffer);
-    CHECK_CL((cl_int), errCreateBuffer);
-  }
 };
 
 class AsyncTexRequest {
@@ -328,7 +312,7 @@ class AsyncTexRequest {
   std::queue<std::function<void()> > _fns;
 };
 
-#define USE_PINNED_MEMORY 0
+#define USE_PINNED_MEMORY 1
 class AsyncGenTCReq : public AsyncTexRequest {
  public:
   AsyncGenTCReq(const std::unique_ptr<gpu::GPUContext> &ctx, GLuint id)
@@ -352,7 +336,7 @@ class AsyncGenTCReq : public AsyncTexRequest {
     CHECK_GL(glBindTexture, GL_TEXTURE_2D, _texID);
     CHECK_GL(glCompressedTexImage2D, GL_TEXTURE_2D, 0, GL_COMPRESSED_RGB_S3TC_DXT1_EXT,
              static_cast<GLsizei>(_hdr.width), static_cast<GLsizei>(_hdr.height), 0,
-             static_cast<GLsizei>(_pbo.sz), 0);
+             static_cast<GLsizei>(_pbo.sz), reinterpret_cast<const void *>(_pbo.off));
     CHECK_GL(glTexParameteri, GL_TEXTURE_2D, GL_TEXTURE_BASE_LEVEL, 0);
     CHECK_GL(glTexParameteri, GL_TEXTURE_2D, GL_TEXTURE_MAX_LEVEL, 0);
     CHECK_GL(glTexParameteri, GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
@@ -364,14 +348,11 @@ class AsyncGenTCReq : public AsyncTexRequest {
     CHECK_GL(glBindTexture, GL_TEXTURE_2D, 0);
 
     // We don't need the PBO anymore
-    CHECK_GL(glDeleteBuffers, 1, &_pbo.pbo);
-    CHECK_CL(clReleaseMemObject, _pbo.dst_buf);
     CHECK_CL(clReleaseMemObject, _cmp_buf);
 #if USE_PINNED_MEMORY
     CHECK_CL(clReleaseMemObject, _cmp_buf_host);
     CHECK_CL(clReleaseEvent, _write_event);
 #endif
-    CHECK_CL(clFlush, _queue);
   }
 
   virtual void Preload(const std::string &fname) {
@@ -406,7 +387,7 @@ class AsyncGenTCReq : public AsyncTexRequest {
 
     // Map the host memory to the application's address space...
     cl_event map_event;
-    void *pinned_mem = clEnqueueMapBuffer(d_queue, _cmp_buf_host, CL_TRUE, CL_MAP_WRITE | CL_MAP_READ, 0, mem_sz,
+    void *pinned_mem = clEnqueueMapBuffer(_queue, _cmp_buf_host, CL_TRUE, CL_MAP_WRITE | CL_MAP_READ, 0, mem_sz,
                                           0, NULL, &map_event, &errCreateBuffer);
     CHECK_CL((cl_int), errCreateBuffer);
 
@@ -414,8 +395,8 @@ class AsyncGenTCReq : public AsyncTexRequest {
 
     // Unmap and enqueue copy
     cl_event unmap_event;
-    CHECK_CL(clEnqueueUnmapMemObject, d_queue, _cmp_buf_host, pinned_mem, 1, &map_event, &unmap_event);
-    CHECK_CL(clEnqueueCopyBuffer, d_queue, _cmp_buf_host, _cmp_buf, 0, 0, mem_sz,
+    CHECK_CL(clEnqueueUnmapMemObject, _queue, _cmp_buf_host, pinned_mem, 1, &map_event, &unmap_event);
+    CHECK_CL(clEnqueueCopyBuffer, _queue, _cmp_buf_host, _cmp_buf, 0, 0, mem_sz,
                                   1, &unmap_event, &_write_event);
     CHECK_CL(clReleaseEvent, map_event);
     CHECK_CL(clReleaseEvent, unmap_event);
@@ -424,7 +405,7 @@ class AsyncGenTCReq : public AsyncTexRequest {
     is.read(reinterpret_cast<char *>(_cmp_data.data()), _cmp_data.size());
     _cmp_buf = clCreateBuffer(_ctx->GetOpenCLContext(),
                               CL_MEM_READ_ONLY | CL_MEM_COPY_HOST_PTR | CL_MEM_HOST_NO_ACCESS,
-		                      _cmp_data.size(), _cmp_data.data(), &errCreateBuffer);
+		                          _cmp_data.size(), _cmp_data.data(), &errCreateBuffer);
     CHECK_CL((cl_int), errCreateBuffer);
 #endif
 
@@ -439,17 +420,27 @@ class AsyncGenTCReq : public AsyncTexRequest {
     // Load it
     cl_event wait_events[] = {
 #if USE_PINNED_MEMORY
-		_write_event,
+		  _write_event,
 #endif
 	  	_pbo.acquire_event
   	};
     cl_uint num_wait_events = sizeof(wait_events) / sizeof(wait_events[0]);
 
+    cl_buffer_region region;
+    region.origin = _pbo.off;
+    region.size = _pbo.sz;
+    assert((0x7 & gpu_ctx->GetDeviceInfo<cl_uint>(CL_DEVICE_MEM_BASE_ADDR_ALIGN)) == 0);
+    assert((region.origin % (gpu_ctx->GetDeviceInfo<cl_uint>(CL_DEVICE_MEM_BASE_ADDR_ALIGN) / 8)) == 0);
+
+    cl_int errCreateBuffer;
+    cl_mem dst = clCreateSubBuffer(_pbo.dst_buf, CL_MEM_READ_WRITE, CL_BUFFER_CREATE_TYPE_REGION, &region, &errCreateBuffer);
+    CHECK_CL((cl_int), errCreateBuffer);
+
     cl_event init_event;
     CHECK_CL(clEnqueueBarrierWithWaitList, _queue, num_wait_events, wait_events, &init_event);
-    std::vector<cl_event> result =
-      std::move(GenTC::LoadCompressedDXT(_ctx, _hdr, _queue, _cmp_buf, _pbo.dst_buf, init_event));
+    std::vector<cl_event> result = std::move(GenTC::LoadCompressedDXT(_ctx, _hdr, _queue, _cmp_buf, dst, init_event));
     CHECK_CL(clReleaseEvent, init_event);
+    CHECK_CL(clReleaseMemObject, dst);
     return result;
   }
 
@@ -694,6 +685,10 @@ std::vector<std::unique_ptr<Texture> > LoadTextures(const std::unique_ptr<gpu::G
   // Loop until all requests are dun:
   //   - Run all of the requests that need it.
   //   - Collect GL/CL interop resources for each request
+  GLuint pbo;
+  CHECK_GL(glGenBuffers, 1, &pbo);
+  cl_mem pbo_cl;
+
   std::vector<PBORequest *> pbo_reqs;
   std::vector<cl_mem> pbos;
   pbo_reqs.reserve(textures.size());
@@ -749,53 +744,63 @@ std::vector<std::unique_ptr<Texture> > LoadTextures(const std::unique_ptr<gpu::G
 
     if (acquire) {
       // Collect all of our pbo requests if we need to acquire them
+      GLsizeiptr total_pbo_size = 0;
       for (auto &req : reqs) {
         PBORequest *pbo_req;
         if (req->NeedsPBO(&pbo_req)) {
           pbo_reqs.push_back(pbo_req);
-          pbo_req->SetupPBO();
+          assert((pbo_req->sz % 512) == 0);
+          total_pbo_size += pbo_req->sz;
         }
       }
 
-      if (pbo_reqs.size() == 0) {
+      if (total_pbo_size == 0) {
         continue;
       }
+
+      start = std::chrono::high_resolution_clock::now();
+      CHECK_GL(glBindBuffer, GL_PIXEL_UNPACK_BUFFER, pbo);
+      CHECK_GL(glBufferData, GL_PIXEL_UNPACK_BUFFER, total_pbo_size, NULL, GL_STREAM_COPY);
 
       // Wait for the GPU to finish
       CHECK_GL(glFlush);
       CHECK_GL(glFinish);
 
-      // Now, create CL buffers for all of our pbos
-      for (auto req : pbo_reqs) {
-        req->CreateCLBuffer(ctx);
-        pbos.push_back(req->dst_buf);
-      }
+      // Get the PBO
+      cl_int errCreateBuffer;
+      pbo_cl = clCreateFromGLBuffer(ctx->GetOpenCLContext(), CL_MEM_READ_WRITE, pbo, &errCreateBuffer);
+      CHECK_CL((cl_int), errCreateBuffer);
+      CHECK_CL(clEnqueueAcquireGLObjects, ctx->GetDefaultCommandQueue(), 1, &pbo_cl, 0, NULL, &acquire_event);
+      end = std::chrono::high_resolution_clock::now();
+      interop_time += std::chrono::duration<double>(end - start).count();
 
       // Acquire all of the CL buffers at once...
-      start = std::chrono::high_resolution_clock::now();
-      CHECK_CL(clEnqueueAcquireGLObjects, ctx->GetDefaultCommandQueue(),
-                                          static_cast<cl_uint>(pbos.size()),
-                                          pbos.data(), 0, NULL, &acquire_event);
-      end = std::chrono::high_resolution_clock::now();
-      interop_time += std::chrono::duration<double>(end-start).count();
-      std::cout << "Loading textures acquire GL time: " << idle_time << "s" << std::endl;
+      std::cout << "Loading textures acquire GL time: " << interop_time << "s" << std::endl;
 
       // Set the event for all the requests so that they know
-      // that it's ok to use it...
+      // that it's ok to use it, and create the subbuffer to write into
+      size_t offset = 0;
       for (auto req : pbo_reqs) {
+        // Create
+        req->pbo = pbo;
+        req->dst_buf = pbo_cl;
+        req->off = offset;
         req->acquire_event = acquire_event;
+
+        offset += req->sz;
       }
 
       // We're done, let's do the rest of the work...
       acquire = false;
     } else {
       start = std::chrono::high_resolution_clock::now();
-      CHECK_CL(clEnqueueReleaseGLObjects, ctx->GetDefaultCommandQueue(),
-                                          static_cast<cl_uint>(pbos.size()), pbos.data(),
+      CHECK_CL(clEnqueueReleaseGLObjects, ctx->GetDefaultCommandQueue(), 1, &pbo_cl,
                                           static_cast<cl_uint>(dxt_events.size()), dxt_events.data(),
                                           &release_event);
       end = std::chrono::high_resolution_clock::now();
       interop_time += std::chrono::duration<double>(end-start).count();
+
+      CHECK_CL(clReleaseMemObject, pbo_cl);
     }
   }
 
@@ -817,7 +822,7 @@ std::vector<std::unique_ptr<Texture> > LoadTextures(const std::unique_ptr<gpu::G
 
   std::cout << "Loading textures idle time: " << idle_time << "s" << std::endl;
   std::cout << "Loading textures interop time: " << interop_time << "s" << std::endl;
-
+  CHECK_GL(glDeleteBuffers, 1, &pbo);
   return std::move(textures);
 }
 
