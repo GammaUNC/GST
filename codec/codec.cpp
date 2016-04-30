@@ -39,11 +39,6 @@ struct CLKernelResult {
   cl_event output_events[8];
 };
 
-struct CLSubRegion {
-  size_t origin;
-  size_t size;
-};
-
 template<typename T>
 static std::vector<T> ReadBuffer(cl_command_queue queue, cl_mem buffer, size_t num_elements, cl_event e) {
   std::vector<T> host_mem(num_elements);
@@ -240,362 +235,417 @@ std::vector<uint8_t> CompressDXT(int width, int height, const std::vector<uint8_
 //
 ////////////////////////////////////////////////////////////////////////////////
 
-static CLKernelResult DecodeANS(const std::unique_ptr<GPUContext> &gpu_ctx, cl_command_queue queue,
-                                cl_mem input, const size_t offset, cl_event init_event,
-                                const GenTCHeader::rANSInfo &info) {
-  // First get the number of frequencies...
-  cl_uint num_freqs = info.num_freqs;
-  const size_t M = ans::ocl::kANSTableSize;
-  size_t build_table_local_work_size = 256;
-  assert(build_table_local_work_size <= gpu_ctx->GetKernelWGInfo<size_t>(
-    ans::kANSOpenCLKernels[ans::eANSOpenCLKernel_BuildTable], "build_table",
-    CL_KERNEL_WORK_GROUP_SIZE));
+static const int kNumBuildTableKernels = 8;
+static const int kNumANSDecodeKernels = 8;
+static const int kNumInvWaveletKernels = 6;
+class GenTCDecoder {
+ public:
+  GenTCDecoder(const std::unique_ptr<GPUContext> &ctx, cl_command_queue q, int w, int h)
+    : _ctx(ctx), _queue(q), _width(w), _height(h)
+    , _ans_decode_iter(0)
+    , _inv_wavelet_iter(0) {
 
-  cl_int errCreateBuffer;
-  cl_mem table = clCreateBuffer(gpu_ctx->GetOpenCLContext(), CL_MEM_READ_WRITE,
-                                M * sizeof(AnsTableEntry), NULL, &errCreateBuffer);
-  CHECK_CL((cl_int), errCreateBuffer);
+    cl_int errCreateBuffer;
+    size_t scratch_mem_sz = 8 * ans::ocl::kANSTableSize * sizeof(AnsTableEntry) + 17 * (w * h / 16);
+    _scratch = clCreateBuffer(ctx->GetOpenCLContext(), CL_MEM_READ_WRITE, scratch_mem_sz, NULL, &errCreateBuffer);
+    CHECK_CL((cl_int), errCreateBuffer);
 
-  CLSubRegion freqs_sub_region;
-  freqs_sub_region.origin = offset;
-  freqs_sub_region.size = (num_freqs + 1) * 4;
+    assert((0x7 & _ctx->GetDeviceInfo<cl_uint>(CL_DEVICE_MEM_BASE_ADDR_ALIGN)) == 0);
 
-  assert((0x7 & gpu_ctx->GetDeviceInfo<cl_uint>(CL_DEVICE_MEM_BASE_ADDR_ALIGN)) == 0);
-  assert((freqs_sub_region.origin % (gpu_ctx->GetDeviceInfo<cl_uint>(CL_DEVICE_MEM_BASE_ADDR_ALIGN) / 8)) == 0);
+    // Each build table kernel needs the same amount of space:
+    // ans::ocl::kANSTableSize * sizeof(AnsTableEntry)
+    size_t offset = 0;
+    for (int i = 0; i < kNumBuildTableKernels; ++i) {
+      size_t sz = ans::ocl::kANSTableSize * sizeof(AnsTableEntry);
+      _build_table_scratch[i] = SubBufferAt(sz, &offset);
+    }
 
-  cl_mem freqs_buffer = clCreateSubBuffer(input, CL_MEM_READ_ONLY, CL_BUFFER_CREATE_TYPE_REGION,
-                                          &freqs_sub_region, &errCreateBuffer);
-  CHECK_CL((cl_int), errCreateBuffer);
+    // Each ans kernel outputs at most per-block values
+    for (int i = 0; i < kNumANSDecodeKernels; ++i) {
+      size_t sz = w * h / 16;
+      // !HACK!
+      if (i == 6) { sz *= 4; }
+      _ans_decode_scratch[i] = SubBufferAt(sz, &offset);
+    }
 
-  cl_event build_table_event;
-  gpu_ctx->EnqueueOpenCLKernel<1>(
-    // Queue to run on
-    queue,
-
-    ans::kANSOpenCLKernels[ans::eANSOpenCLKernel_BuildTable], "build_table",
-
-    &M, &build_table_local_work_size,
-    
-    // Events
-    1, &init_event, &build_table_event,
-    
-    freqs_buffer, table);
-
-  CHECK_CL(clReleaseMemObject, freqs_buffer);
-
-  // Load all of the offsets to the different data streams...
-  cl_uint num_offsets = info.num_offsets;
-
-  // Make sure we have enough space to use constant buffer...
-  assert( static_cast<cl_ulong>(M * sizeof(AnsTableEntry)) <
-          gpu_ctx->GetDeviceInfo<cl_ulong>(CL_DEVICE_MAX_CONSTANT_BUFFER_SIZE) );
-
-  CLSubRegion data_sub_region;
-  data_sub_region.origin = offset + (num_freqs + 2) * 4;
-  data_sub_region.origin = ((data_sub_region.origin + 511) / 512) * 512;
-  data_sub_region.size = (offset + info.sz) - data_sub_region.origin;
-
-  assert((data_sub_region.origin % (gpu_ctx->GetDeviceInfo<cl_uint>(CL_DEVICE_MEM_BASE_ADDR_ALIGN) / 8)) == 0);
-
-  cl_mem data_buf = clCreateSubBuffer(input, CL_MEM_READ_ONLY, CL_BUFFER_CREATE_TYPE_REGION,
-                                      &data_sub_region, &errCreateBuffer);
-  CHECK_CL((cl_int), errCreateBuffer);
-
-  // Allocate 256 * num interleaved slots for result
-  size_t total_encoded =
-    num_offsets * ans::ocl::kThreadsPerEncodingGroup * ans::ocl::kNumEncodedSymbols;
-  const size_t total_streams = total_encoded / ans::ocl::kNumEncodedSymbols;
-  const size_t streams_per_work_group = ans::ocl::kThreadsPerEncodingGroup;
-
-  CLKernelResult result;
-  result.num_events = 1;
-  result.output = clCreateBuffer(gpu_ctx->GetOpenCLContext(), CL_MEM_READ_WRITE,
-                                 total_encoded, NULL, &errCreateBuffer);
-  CHECK_CL((cl_int), errCreateBuffer);
-
-  gpu_ctx->EnqueueOpenCLKernel<1>(
-    // Queue to run on
-    queue,
-
-    // Kernel to run...
-    ans::kANSOpenCLKernels[ans::eANSOpenCLKernel_ANSDecode], "ans_decode",
-
-    // Work size (global and local)
-    &total_streams, &streams_per_work_group,
-
-    // Events to depend on and return
-    1, &build_table_event, result.output_events,
-
-    // Kernel arguments
-    table, data_buf, result.output);
-
-  CHECK_CL(clReleaseEvent, build_table_event);
-  CHECK_CL(clReleaseMemObject, table);
-  CHECK_CL(clReleaseMemObject, data_buf);
-
-  return result;
-}
-
-static CLKernelResult InverseWavelet(const std::unique_ptr<GPUContext> &gpu_ctx,
-                                     cl_command_queue queue, const CLKernelResult &img,
-                                     cl_int offset, int width, int height) {
-  assert(width % kWaveletBlockDim == 0);
-  assert(height % kWaveletBlockDim == 0);
-
-  cl_int errCreateBuffer;
-  cl_context ctx = gpu_ctx->GetOpenCLContext();
-  size_t out_sz = width * height;
-  size_t local_mem_sz = 8 * kWaveletBlockDim * kWaveletBlockDim;
-
-  CLKernelResult result;
-  result.num_events = 1;
-  result.output = clCreateBuffer(ctx, CL_MEM_READ_WRITE, out_sz, NULL, &errCreateBuffer);
-  CHECK_CL((cl_int), errCreateBuffer);
-
-#ifndef NDEBUG
-  // One thread per pixel, kWaveletBlockDim * kWaveletBlockDim threads
-  // per group...
-  size_t threads_per_group = (kWaveletBlockDim / 2) * (kWaveletBlockDim / 2);
-
-  // Make sure that we can launch enough kernels per group
-  assert(threads_per_group <=
-    gpu_ctx->GetDeviceInfo<size_t>(CL_DEVICE_MAX_WORK_GROUP_SIZE));
-
-  // I don't know of a GPU implementation that uses more than 3 dims..
-  assert(3 ==
-    gpu_ctx->GetDeviceInfo<cl_uint>(CL_DEVICE_MAX_WORK_ITEM_DIMENSIONS));
-
-  struct WorkGroupSizes {
-    size_t sizes[3];
-  };
-  WorkGroupSizes wgsz =
-    gpu_ctx->GetDeviceInfo<WorkGroupSizes>(CL_DEVICE_MAX_WORK_ITEM_SIZES);
-  assert( threads_per_group <= wgsz.sizes[0] );
-#endif
-
-  size_t global_work_size[2] = {
-    static_cast<size_t>(width / 2),
-    static_cast<size_t>(height / 2) };
-
-  size_t local_work_size[2] = {
-    static_cast<size_t>(kWaveletBlockDim / 2),
-    static_cast<size_t>(kWaveletBlockDim / 2) };
-
-  gpu::GPUContext::LocalMemoryKernelArg local_mem;
-  local_mem._local_mem_sz = local_mem_sz;
-
-  gpu_ctx->EnqueueOpenCLKernel<2>(
-    // Queue to run on
-    queue,
-
-    // Kernel to run...
-    GenTC::kOpenCLKernels[GenTC::eOpenCLKernel_InverseWavelet], "inv_wavelet",
-
-    // Work size (global and local)
-    global_work_size, local_work_size,
-
-    // Events to depend on and return
-    img.num_events, img.output_events, result.output_events,
-
-    // Kernel arguments
-    img.output, offset, local_mem, result.output);
-
-  // No longer need image buffer
-  CHECK_CL(clReleaseMemObject, img.output);
-
-  return result;
-}
-
-static CLKernelResult DecompressEndpoints(const std::unique_ptr<GPUContext> &gpu_ctx,
-                                          cl_command_queue command_queue, cl_event init,
-                                          cl_mem cmp_data, const GenTCHeader::rANSInfo &rANS_info,
-                                          size_t *data_offset, cl_int val_offset,
-                                          int width, int height) {
-  size_t offset = *data_offset;
-  *data_offset += rANS_info.sz;
-  CLKernelResult decoded_ans = DecodeANS(gpu_ctx, command_queue, cmp_data, offset, init, rANS_info);
-  CLKernelResult result = InverseWavelet(gpu_ctx, command_queue, decoded_ans, val_offset, width, height);
-  for (cl_uint i = 0; i < decoded_ans.num_events; ++i) {
-    CHECK_CL(clReleaseEvent, decoded_ans.output_events[i]);
-  }
-  return result;
-}
-
-static cl_event CollectEndpoints(const std::unique_ptr<GPUContext> &gpu_ctx,
-                                 cl_command_queue command_queue,
-                                 cl_mem dst, size_t num_pixels, const CLKernelResult &y,
-                                 const CLKernelResult &co, const CLKernelResult &cg,
-                                 const cl_uint endpoint_index) {
-  assert(y.num_events == 1);
-  assert(co.num_events == 1);
-  assert(cg.num_events == 1);
-
-  cl_event wait_events[] = {
-    y.output_events[0], co.output_events[0], cg.output_events[0]
-  };
-  const size_t num_wait_events = sizeof(wait_events) / sizeof(wait_events[0]);
-
-  cl_event e;
-  gpu_ctx->EnqueueOpenCLKernel<1>(
-    // Queue to run on
-    command_queue,
-
-    // Kernel to run...
-    GenTC::kOpenCLKernels[GenTC::eOpenCLKernel_Endpoints], "collect_endpoints",
-
-    // Work size (global and local)
-    &num_pixels, NULL,
-
-    // Events to depend on and return
-    num_wait_events, wait_events, &e,
-
-    // Kernel arguments
-    y.output, co.output, cg.output, dst, endpoint_index);
-
-  // Release events we don't need anymore
-  for (size_t i = 0; i < num_wait_events; ++i) {
-    CHECK_CL(clReleaseEvent, wait_events[i]);
-  }
-  CHECK_CL(clReleaseMemObject, y.output);
-  CHECK_CL(clReleaseMemObject, co.output);
-  CHECK_CL(clReleaseMemObject, cg.output);
-
-  return e;
-}
-
-static cl_event DecodeIndices(const std::unique_ptr<GPUContext> &gpu_ctx, cl_command_queue queue, cl_event init,
-                              cl_mem dst, cl_mem cmp_buf, size_t offset, size_t num_pixels,
-                              const GenTCHeader::rANSInfo &palette_info,
-                              const GenTCHeader::rANSInfo &indices_info) {
-  CLKernelResult palette = DecodeANS(gpu_ctx, queue, cmp_buf, offset, init, palette_info);
-  CLKernelResult indices = DecodeANS(gpu_ctx, queue, cmp_buf, offset + palette_info.sz, init, indices_info);
-
-  static const size_t kLocalScanSz = 128;
-  static const size_t kLocalScanSzLog = 7;
-  
-  // !SPEED! We don't really need to allocate here...
-  std::vector<cl_event> e;
-  cl_uint event_idx = 0;
-  for (size_t i = 0; i < indices.num_events; ++i) {
-    e.push_back(indices.output_events[i]);
+    // Each inverse wavelet kernel outputs at most per-block values
+    for (int i = 0; i < kNumInvWaveletKernels; ++i) {
+      _inv_wavelet_scratch[i] = SubBufferAt(w * h / 16, &offset);
+    }
   }
 
-  cl_int stage = -1;
-  size_t num_vals = num_pixels;
-  while (num_vals > 1) {
-    stage++;
+  ~GenTCDecoder() {
+    for (int i = 0; i < kNumBuildTableKernels; ++i) {
+      CHECK_CL(clReleaseMemObject, _build_table_scratch[i]);
+    }
+    for (int i = 0; i < kNumANSDecodeKernels; ++i) {
+      CHECK_CL(clReleaseMemObject, _ans_decode_scratch[i]);
+    }
+    for (int i = 0; i < kNumInvWaveletKernels; ++i) {
+      CHECK_CL(clReleaseMemObject, _inv_wavelet_scratch[i]);
+    }
+    CHECK_CL(clReleaseMemObject, _scratch);
+  }
 
-    cl_event next_event;
-    cl_uint num_events = static_cast<cl_uint>(e.size()) - event_idx;
-    size_t local_work_sz = std::min(num_vals, kLocalScanSz);
+  CLKernelResult DecompressEndpoints(cl_event init, cl_mem cmp_data, const GenTCHeader::rANSInfo &rANS_info,
+                                     size_t *data_offset, cl_int val_offset) {
+    size_t offset = *data_offset;
+    *data_offset += rANS_info.sz;
+    CLKernelResult decoded_ans = DecodeANS(cmp_data, offset, init, rANS_info);
+    CLKernelResult result = InverseWavelet(decoded_ans, val_offset);
+    for (cl_uint i = 0; i < decoded_ans.num_events; ++i) {
+      CHECK_CL(clReleaseEvent, decoded_ans.output_events[i]);
+    }
+    return result;
+  }
 
-#ifndef NDEBUG
-    assert((num_vals % local_work_sz) == 0);
-    assert(local_work_sz <= gpu_ctx->GetKernelWGInfo<size_t>(
-      GenTC::kOpenCLKernels[GenTC::eOpenCLKernel_DecodeIndices], "decode_indices",
-      CL_KERNEL_WORK_GROUP_SIZE));
-#endif
+  cl_event CollectEndpoints(cl_mem dst, const CLKernelResult &y,
+                            const CLKernelResult &co, const CLKernelResult &cg,
+                            const cl_uint endpoint_index) {
+    assert(y.num_events == 1);
+    assert(co.num_events == 1);
+    assert(cg.num_events == 1);
 
-    gpu_ctx->EnqueueOpenCLKernel<1>(
+    cl_event wait_events[] = {
+      y.output_events[0], co.output_events[0], cg.output_events[0]
+    };
+
+    const size_t num_wait_events = sizeof(wait_events) / sizeof(wait_events[0]);
+    size_t num_pixels = (_width * _height) / 16;
+
+    cl_event e;
+    _ctx->EnqueueOpenCLKernel<1>(
       // Queue to run on
-      queue,
+      _queue,
 
       // Kernel to run...
-      GenTC::kOpenCLKernels[GenTC::eOpenCLKernel_DecodeIndices], "decode_indices",
+      GenTC::kOpenCLKernels[GenTC::eOpenCLKernel_Endpoints], "collect_endpoints",
 
       // Work size (global and local)
-      &num_vals, &local_work_sz,
+      &num_pixels, NULL,
 
       // Events to depend on and return
-      num_events, e.data() + event_idx, &next_event,
+      num_wait_events, wait_events, &e,
 
       // Kernel arguments
-      indices.output, stage, dst);
+      y.output, co.output, cg.output, dst, endpoint_index);
 
-    num_vals >>= kLocalScanSzLog;
-    event_idx += num_events;
-    e.push_back(next_event);
+    // Release events we don't need anymore
+    for (size_t i = 0; i < num_wait_events; ++i) {
+      CHECK_CL(clReleaseEvent, wait_events[i]);
+    }
+    return e;
   }
 
-  for (size_t i = 0; i < palette.num_events; ++i) {
-    e.push_back(palette.output_events[i]);
+  cl_event DecodeIndices(cl_event init, cl_mem dst, cl_mem cmp_buf, size_t offset,
+                         const GenTCHeader::rANSInfo &palette_info,
+                         const GenTCHeader::rANSInfo &indices_info) {
+    CLKernelResult palette = DecodeANS(cmp_buf, offset, init, palette_info);
+    CLKernelResult indices = DecodeANS(cmp_buf, offset + palette_info.sz, init, indices_info);
+
+    static const size_t kLocalScanSz = 128;
+    static const size_t kLocalScanSzLog = 7;
+
+    // !SPEED! We don't really need to allocate here...
+    std::vector<cl_event> e;
+    cl_uint event_idx = 0;
+    for (size_t i = 0; i < indices.num_events; ++i) {
+      e.push_back(indices.output_events[i]);
+    }
+
+    cl_int stage = -1;
+    size_t num_vals = _width * _height / 16;
+    while (num_vals > 1) {
+      stage++;
+
+      cl_event next_event;
+      cl_uint num_events = static_cast<cl_uint>(e.size()) - event_idx;
+      size_t local_work_sz = std::min(num_vals, kLocalScanSz);
+
+#ifndef NDEBUG
+      assert((num_vals % local_work_sz) == 0);
+      assert(local_work_sz <= _ctx->GetKernelWGInfo<size_t>(
+        GenTC::kOpenCLKernels[GenTC::eOpenCLKernel_DecodeIndices], "decode_indices",
+        CL_KERNEL_WORK_GROUP_SIZE));
+#endif
+
+      _ctx->EnqueueOpenCLKernel<1>(
+        // Queue to run on
+        _queue,
+
+        // Kernel to run...
+        GenTC::kOpenCLKernels[GenTC::eOpenCLKernel_DecodeIndices], "decode_indices",
+
+        // Work size (global and local)
+        &num_vals, &local_work_sz,
+
+        // Events to depend on and return
+        num_events, e.data() + event_idx, &next_event,
+
+        // Kernel arguments
+        indices.output, stage, dst);
+
+      num_vals >>= kLocalScanSzLog;
+      event_idx += num_events;
+      e.push_back(next_event);
+    }
+
+    for (size_t i = 0; i < palette.num_events; ++i) {
+      e.push_back(palette.output_events[i]);
+    }
+
+    num_vals = _width * _height / 16;
+    while ((num_vals >> kLocalScanSzLog) > 1) {
+      num_vals >>= kLocalScanSzLog;
+    }
+
+    while (stage >= 0) {
+      num_vals = std::min<size_t>(_width * _height / 16, num_vals << kLocalScanSzLog);
+
+      cl_event next_event;
+      cl_uint num_events = static_cast<cl_uint>(e.size()) - event_idx;
+
+      _ctx->EnqueueOpenCLKernel<1>(
+        // Queue to run on
+        _queue,
+
+        // Kernel to run...
+        GenTC::kOpenCLKernels[GenTC::eOpenCLKernel_DecodeIndices], "collect_indices",
+
+        // Work size (global and local)
+        &num_vals, &kLocalScanSz,
+
+        // Events to depend on and return
+        num_events, e.data() + event_idx, &next_event,
+
+        // Kernel arguments
+        palette.output, stage, dst);
+
+      event_idx += num_events;
+      e.push_back(next_event);
+      stage--;
+    }
+
+    // Don't need these events anymore...
+    for (size_t i = 0; i < event_idx; ++i) {
+      CHECK_CL(clReleaseEvent, e[i]);
+    }
+
+    assert(e.size() - event_idx == 1);
+    return e[event_idx];
   }
 
-  num_vals = num_pixels;
-  while ((num_vals >> kLocalScanSzLog) > 1) {
-    num_vals >>= kLocalScanSzLog;
-  }
+ private:
+   // Disallow copying
+   GenTCDecoder();
+   GenTCDecoder(const GenTCDecoder &);
+   GenTCDecoder &operator=(const GenTCDecoder &) { assert(false); return *this; }
 
-  while (stage >= 0) {
-    num_vals = std::min(num_pixels, num_vals << kLocalScanSzLog);
+   cl_mem SubBufferAt(size_t sz, size_t *offset) const {
+     cl_buffer_region region;
+     region.origin = *offset;
+     region.size = sz;
 
-    cl_event next_event;
-    cl_uint num_events = static_cast<cl_uint>(e.size()) - event_idx;
+     cl_int errCreateBuffer;
+     assert((region.origin % (_ctx->GetDeviceInfo<cl_uint>(CL_DEVICE_MEM_BASE_ADDR_ALIGN) / 8)) == 0);
+     cl_mem result = clCreateSubBuffer(_scratch, CL_MEM_READ_WRITE, CL_BUFFER_CREATE_TYPE_REGION,
+                                       &region, &errCreateBuffer);
+     CHECK_CL((cl_int), errCreateBuffer);
+     *offset += sz;
+     return result;
+   }
 
-    gpu_ctx->EnqueueOpenCLKernel<1>(
-      // Queue to run on
-      queue,
+   CLKernelResult DecodeANS(cl_mem input, const size_t offset, cl_event init_event,
+     const GenTCHeader::rANSInfo &info) {
+     int iter = _ans_decode_iter++;
+     assert(iter < kNumANSDecodeKernels);
 
-      // Kernel to run...
-      GenTC::kOpenCLKernels[GenTC::eOpenCLKernel_DecodeIndices], "collect_indices",
+     // First get the number of frequencies...
+     cl_uint num_freqs = info.num_freqs;
+     const size_t M = ans::ocl::kANSTableSize;
+     size_t build_table_local_work_size = 256;
+     assert(build_table_local_work_size <= _ctx->GetKernelWGInfo<size_t>(
+       ans::kANSOpenCLKernels[ans::eANSOpenCLKernel_BuildTable], "build_table",
+       CL_KERNEL_WORK_GROUP_SIZE));
 
-      // Work size (global and local)
-      &num_vals, &kLocalScanSz,
+     cl_buffer_region freqs_sub_region;
+     freqs_sub_region.origin = offset;
+     freqs_sub_region.size = (num_freqs + 1) * 4;
 
-      // Events to depend on and return
-      num_events, e.data() + event_idx, &next_event,
+     assert((0x7 & _ctx->GetDeviceInfo<cl_uint>(CL_DEVICE_MEM_BASE_ADDR_ALIGN)) == 0);
+     assert((freqs_sub_region.origin % (_ctx->GetDeviceInfo<cl_uint>(CL_DEVICE_MEM_BASE_ADDR_ALIGN) / 8)) == 0);
 
-      // Kernel arguments
-      palette.output, stage, dst);
+     cl_int errCreateBuffer;
+     cl_mem freqs_buffer = clCreateSubBuffer(input, CL_MEM_READ_ONLY, CL_BUFFER_CREATE_TYPE_REGION,
+       &freqs_sub_region, &errCreateBuffer);
+     CHECK_CL((cl_int), errCreateBuffer);
 
-    event_idx += num_events;
-    e.push_back(next_event);
-    stage--;
-  }
+     cl_event build_table_event;
+     _ctx->EnqueueOpenCLKernel<1>(
+       // Queue to run on
+       _queue,
 
-  // Don't need these events anymore...
-  for (size_t i = 0; i < event_idx; ++i) {
-    CHECK_CL(clReleaseEvent, e[i]);
-  }
-  CHECK_CL(clReleaseMemObject, indices.output);
-  CHECK_CL(clReleaseMemObject, palette.output);
+       ans::kANSOpenCLKernels[ans::eANSOpenCLKernel_BuildTable], "build_table",
 
-  assert(e.size() - event_idx == 1);
-  return e[event_idx];
-}
+       &M, &build_table_local_work_size,
+
+       // Events
+       1, &init_event, &build_table_event,
+
+       freqs_buffer, _build_table_scratch[iter]);
+
+     // Load all of the offsets to the different data streams...
+     cl_uint num_offsets = info.num_offsets;
+
+     // Make sure we have enough space to use constant buffer...
+     assert(static_cast<cl_ulong>(M * sizeof(AnsTableEntry)) <
+       _ctx->GetDeviceInfo<cl_ulong>(CL_DEVICE_MAX_CONSTANT_BUFFER_SIZE));
+
+     cl_buffer_region data_sub_region;
+     data_sub_region.origin = offset + (num_freqs + 2) * 4;
+     data_sub_region.origin = ((data_sub_region.origin + 511) / 512) * 512;
+     data_sub_region.size = (offset + info.sz) - data_sub_region.origin;
+
+     assert((data_sub_region.origin % (_ctx->GetDeviceInfo<cl_uint>(CL_DEVICE_MEM_BASE_ADDR_ALIGN) / 8)) == 0);
+
+     cl_mem data_buf = clCreateSubBuffer(input, CL_MEM_READ_ONLY, CL_BUFFER_CREATE_TYPE_REGION,
+       &data_sub_region, &errCreateBuffer);
+     CHECK_CL((cl_int), errCreateBuffer);
+
+     // Allocate 256 * num interleaved slots for result
+     size_t total_encoded =
+       num_offsets * ans::ocl::kThreadsPerEncodingGroup * ans::ocl::kNumEncodedSymbols;
+     const size_t total_streams = total_encoded / ans::ocl::kNumEncodedSymbols;
+     const size_t streams_per_work_group = ans::ocl::kThreadsPerEncodingGroup;
+
+     CLKernelResult result;
+     result.num_events = 1;
+     _ctx->EnqueueOpenCLKernel<1>(
+       // Queue to run on
+       _queue,
+
+       // Kernel to run...
+       ans::kANSOpenCLKernels[ans::eANSOpenCLKernel_ANSDecode], "ans_decode",
+
+       // Work size (global and local)
+       &total_streams, &streams_per_work_group,
+
+       // Events to depend on and return
+       1, &build_table_event, result.output_events,
+
+       // Kernel arguments
+       _build_table_scratch[iter], data_buf, _ans_decode_scratch[iter]);
+
+     CHECK_CL(clReleaseEvent, build_table_event);
+
+     CHECK_CL(clReleaseMemObject, freqs_buffer);
+     CHECK_CL(clReleaseMemObject, data_buf);
+
+     result.output = _ans_decode_scratch[iter];
+     return result;
+   }
+
+   CLKernelResult InverseWavelet(const CLKernelResult &img, cl_int offset) {
+     assert((_width / 4) % kWaveletBlockDim == 0);
+     assert((_height / 4) % kWaveletBlockDim == 0);
+
+     cl_context ctx = _ctx->GetOpenCLContext();
+     size_t blocks_x = _width / 4;
+     size_t blocks_y = _height / 4;
+     size_t out_sz = blocks_x * blocks_y;
+     size_t local_mem_sz = 8 * kWaveletBlockDim * kWaveletBlockDim;
+
+#ifndef NDEBUG
+     // One thread per pixel, kWaveletBlockDim * kWaveletBlockDim threads
+     // per group...
+     size_t threads_per_group = (kWaveletBlockDim / 2) * (kWaveletBlockDim / 2);
+
+     // Make sure that we can launch enough kernels per group
+     assert(threads_per_group <=
+       _ctx->GetDeviceInfo<size_t>(CL_DEVICE_MAX_WORK_GROUP_SIZE));
+
+     // I don't know of a GPU implementation that uses more than 3 dims..
+     assert(3 ==
+       _ctx->GetDeviceInfo<cl_uint>(CL_DEVICE_MAX_WORK_ITEM_DIMENSIONS));
+
+     struct WorkGroupSizes {
+       size_t sizes[3];
+     };
+     WorkGroupSizes wgsz =
+       _ctx->GetDeviceInfo<WorkGroupSizes>(CL_DEVICE_MAX_WORK_ITEM_SIZES);
+     assert(threads_per_group <= wgsz.sizes[0]);
+#endif
+
+     size_t global_work_size[2] = {
+       static_cast<size_t>(blocks_x / 2),
+       static_cast<size_t>(blocks_y / 2) };
+
+     size_t local_work_size[2] = {
+       static_cast<size_t>(kWaveletBlockDim / 2),
+       static_cast<size_t>(kWaveletBlockDim / 2) };
+
+     gpu::GPUContext::LocalMemoryKernelArg local_mem;
+     local_mem._local_mem_sz = local_mem_sz;
+
+     CLKernelResult result;
+     result.num_events = 1;
+     result.output = _inv_wavelet_scratch[_inv_wavelet_iter++];
+
+     _ctx->EnqueueOpenCLKernel<2>(
+       // Queue to run on
+       _queue,
+
+       // Kernel to run...
+       GenTC::kOpenCLKernels[GenTC::eOpenCLKernel_InverseWavelet], "inv_wavelet",
+
+       // Work size (global and local)
+       global_work_size, local_work_size,
+
+       // Events to depend on and return
+       img.num_events, img.output_events, result.output_events,
+
+       // Kernel arguments
+       img.output, offset, local_mem, result.output);
+
+     return result;
+   }
+
+   const std::unique_ptr<GPUContext> &_ctx;
+   cl_command_queue _queue;
+   int _width;
+   int _height;
+
+   cl_mem _scratch;
+
+   int _ans_decode_iter;
+   cl_mem _ans_decode_scratch[kNumANSDecodeKernels];
+   cl_mem _build_table_scratch[kNumBuildTableKernels];
+
+   int _inv_wavelet_iter;
+   cl_mem _inv_wavelet_scratch[kNumInvWaveletKernels];
+};
 
 static void DecompressDXTImage(const std::unique_ptr<GPUContext> &gpu_ctx,
                                const GenTCHeader &hdr, cl_command_queue queue, cl_mem cmp_buf,
                                cl_event init_event, CLKernelResult *result) {
+  GenTCDecoder decoder(gpu_ctx, queue, hdr.width, hdr.height);
+
   assert((hdr.width & 0x3) == 0);
   assert((hdr.height & 0x3) == 0);
-  const int blocks_x = static_cast<int>(hdr.width) >> 2;
-  const int blocks_y = static_cast<int>(hdr.height) >> 2;
 
   size_t offset = 0;
-  CLKernelResult ep1_y = DecompressEndpoints(gpu_ctx, queue, init_event, cmp_buf, hdr.ep1_y,
-                                             &offset, -128, blocks_x, blocks_y);
-  CLKernelResult ep1_co = DecompressEndpoints(gpu_ctx, queue, init_event, cmp_buf, hdr.ep1_co,
-                                              &offset, -128, blocks_x, blocks_y);
-  CLKernelResult ep1_cg = DecompressEndpoints(gpu_ctx, queue, init_event, cmp_buf, hdr.ep1_cg,
-                                              &offset, -128, blocks_x, blocks_y);
+  CLKernelResult ep1_y = decoder.DecompressEndpoints(init_event, cmp_buf, hdr.ep1_y, &offset, -128);
+  CLKernelResult ep1_co = decoder.DecompressEndpoints(init_event, cmp_buf, hdr.ep1_co, &offset, -128);
+  CLKernelResult ep1_cg = decoder.DecompressEndpoints(init_event, cmp_buf, hdr.ep1_cg, &offset, -128);
 
-  CLKernelResult ep2_y = DecompressEndpoints(gpu_ctx, queue, init_event, cmp_buf, hdr.ep2_y,
-                                             &offset, -128, blocks_x, blocks_y);
-  CLKernelResult ep2_co = DecompressEndpoints(gpu_ctx, queue, init_event, cmp_buf, hdr.ep2_co,
-                                              &offset, -128, blocks_x, blocks_y);
-  CLKernelResult ep2_cg = DecompressEndpoints(gpu_ctx, queue, init_event, cmp_buf, hdr.ep2_cg,
-                                              &offset, -128, blocks_x, blocks_y);
+  CLKernelResult ep2_y = decoder.DecompressEndpoints(init_event, cmp_buf, hdr.ep2_y, &offset, -128);
+  CLKernelResult ep2_co = decoder.DecompressEndpoints(init_event, cmp_buf, hdr.ep2_co, &offset, -128);
+  CLKernelResult ep2_cg = decoder.DecompressEndpoints(init_event, cmp_buf, hdr.ep2_cg, &offset, -128);
 
   result->num_events = 3;
-  const size_t num_blocks = blocks_x * blocks_y;
-  result->output_events[0] =
-    CollectEndpoints(gpu_ctx, queue, result->output, num_blocks, ep1_y, ep1_co, ep1_cg, 0);
-  result->output_events[1] =
-    CollectEndpoints(gpu_ctx, queue, result->output, num_blocks, ep2_y, ep2_co, ep2_cg, 1);
-
-  result->output_events[2] = DecodeIndices(gpu_ctx, queue, init_event, result->output, cmp_buf,
-                                           offset, num_blocks, hdr.palette, hdr.indices);
+  result->output_events[0] = decoder.CollectEndpoints(result->output, ep1_y, ep1_co, ep1_cg, 0);
+  result->output_events[1] = decoder.CollectEndpoints(result->output, ep2_y, ep2_co, ep2_cg, 1);
+  result->output_events[2] = decoder.DecodeIndices(init_event, result->output, cmp_buf, offset, hdr.palette, hdr.indices);
 }
 
 cl_mem UploadData(const std::unique_ptr<GPUContext> &gpu_ctx,

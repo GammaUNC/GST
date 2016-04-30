@@ -429,8 +429,8 @@ class AsyncGenTCReq : public AsyncTexRequest {
     cl_buffer_region region;
     region.origin = _pbo.off;
     region.size = _pbo.sz;
-    assert((0x7 & gpu_ctx->GetDeviceInfo<cl_uint>(CL_DEVICE_MEM_BASE_ADDR_ALIGN)) == 0);
-    assert((region.origin % (gpu_ctx->GetDeviceInfo<cl_uint>(CL_DEVICE_MEM_BASE_ADDR_ALIGN) / 8)) == 0);
+    assert((0x7 & _ctx->GetDeviceInfo<cl_uint>(CL_DEVICE_MEM_BASE_ADDR_ALIGN)) == 0);
+    assert((region.origin % (_ctx->GetDeviceInfo<cl_uint>(CL_DEVICE_MEM_BASE_ADDR_ALIGN) / 8)) == 0);
 
     cl_int errCreateBuffer;
     cl_mem dst = clCreateSubBuffer(_pbo.dst_buf, CL_MEM_READ_WRITE, CL_BUFFER_CREATE_TYPE_REGION, &region, &errCreateBuffer);
@@ -813,6 +813,9 @@ std::vector<std::unique_ptr<Texture> > LoadTextures(const std::unique_ptr<gpu::G
 
     CHECK_CL(clReleaseEvent, acquire_event);
     CHECK_CL(clReleaseEvent, release_event);
+    for (cl_event e : dxt_events) {
+      CHECK_CL(clReleaseEvent, e);
+    }
   }
 
   // I think we're done now...
