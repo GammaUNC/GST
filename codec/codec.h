@@ -23,21 +23,17 @@ namespace GenTC {
                          const std::vector<uint8_t> &cmp_data);
 
   struct GenTCHeader {
-    struct rANSInfo {
-      uint32_t sz;
-      uint32_t num_offsets;
-    };
-
     uint32_t width;
     uint32_t height;
-    rANSInfo ep1_y;
-    rANSInfo ep1_co;
-    rANSInfo ep1_cg;
-    rANSInfo ep2_y;
-    rANSInfo ep2_co;
-    rANSInfo ep2_cg;
-    rANSInfo palette;
-    rANSInfo indices;
+    uint32_t palette_bytes;
+    uint32_t ep1_y_sz;
+    uint32_t ep1_co_sz;
+    uint32_t ep1_cg_sz;
+    uint32_t ep2_y_sz;
+    uint32_t ep2_co_sz;
+    uint32_t ep2_cg_sz;
+    uint32_t palette_sz;
+    uint32_t indices_sz;
 
     void Print() const;
     void LoadFrom(const uint8_t *buf);

@@ -77,15 +77,6 @@ RunDXTEndpointPipeline(const std::unique_ptr<Image<T> > &img) {
   return std::move(pipeline->Run(img));
 }
 
-static GenTCHeader::rANSInfo GetCompressedInfo(const std::unique_ptr<std::vector<uint8_t> > &cmp) {
-  const uint16_t *data_as_shorts = reinterpret_cast<const uint16_t *>(cmp->data());
-
-  GenTCHeader::rANSInfo info;
-  info.sz = static_cast<uint32_t>(cmp->size());
-  info.num_offsets = data_as_shorts[256];
-  return info;
-}
-
 static std::vector<uint8_t> CompressDXTImage(const DXTImage &dxt_img) {
   // Otherwise we can't really compress this...
   assert((dxt_img.Width() % 128) == 0);
@@ -163,14 +154,15 @@ static std::vector<uint8_t> CompressDXTImage(const DXTImage &dxt_img) {
   GenTCHeader hdr;
   hdr.width = dxt_img.Width();
   hdr.height = dxt_img.Height();
-  hdr.ep1_y = GetCompressedInfo(ep1_y_cmp);
-  hdr.ep1_co = GetCompressedInfo(ep1_co_cmp);
-  hdr.ep1_cg = GetCompressedInfo(ep1_cg_cmp);
-  hdr.ep2_y = GetCompressedInfo(ep2_y_cmp);
-  hdr.ep2_co = GetCompressedInfo(ep2_co_cmp);
-  hdr.ep2_cg = GetCompressedInfo(ep2_cg_cmp);
-  hdr.palette = GetCompressedInfo(palette_cmp);
-  hdr.indices = GetCompressedInfo(idx_cmp);
+  hdr.palette_bytes = static_cast<uint32_t>(palette_data->size());
+  hdr.ep1_y_sz = static_cast<uint32_t>(ep1_y_cmp->size());
+  hdr.ep1_co_sz = static_cast<uint32_t>(ep1_co_cmp->size());
+  hdr.ep1_cg_sz = static_cast<uint32_t>(ep1_cg_cmp->size());
+  hdr.ep2_y_sz = static_cast<uint32_t>(ep2_y_cmp->size());
+  hdr.ep2_co_sz = static_cast<uint32_t>(ep2_co_cmp->size());
+  hdr.ep2_cg_sz = static_cast<uint32_t>(ep2_cg_cmp->size());
+  hdr.palette_sz = static_cast<uint32_t>(palette_cmp->size());
+  hdr.indices_sz = static_cast<uint32_t>(idx_cmp->size());
 
   std::vector<uint8_t> result(sizeof(hdr), 0);
   memcpy(result.data(), &hdr, sizeof(hdr));
@@ -239,8 +231,8 @@ static const int kNumANSDecodeKernels = 8;
 static const int kNumInvWaveletKernels = 6;
 class GenTCDecoder {
  public:
-  GenTCDecoder(const std::unique_ptr<GPUContext> &ctx, cl_command_queue q, int w, int h)
-    : _ctx(ctx), _queue(q), _width(w), _height(h)
+  GenTCDecoder(const std::unique_ptr<GPUContext> &ctx, cl_command_queue q, int w, int h, int palette_sz)
+    : _ctx(ctx), _queue(q), _width(w), _height(h), _num_palette_entries(palette_sz)
     , _ans_decode_iter(0)
     , _inv_wavelet_iter(0) {
 
@@ -286,11 +278,14 @@ class GenTCDecoder {
     CHECK_CL(clReleaseMemObject, _scratch);
   }
 
-  CLKernelResult DecompressEndpoints(cl_event init, cl_mem cmp_data, const GenTCHeader::rANSInfo &rANS_info,
+  CLKernelResult DecompressEndpoints(cl_event init, cl_mem cmp_data, cl_uint sz,
                                      size_t *data_offset, cl_int val_offset) {
     size_t offset = *data_offset;
-    *data_offset += rANS_info.sz;
-    CLKernelResult decoded_ans = DecodeANS(cmp_data, offset, init, rANS_info);
+    *data_offset += sz;
+
+    cl_uint num_values = (_width * _height) / 16;
+
+    CLKernelResult decoded_ans = DecodeANS(cmp_data, sz, offset, num_values, init);
     CLKernelResult result = InverseWavelet(decoded_ans, val_offset);
     for (cl_uint i = 0; i < decoded_ans.num_events; ++i) {
       CHECK_CL(clReleaseEvent, decoded_ans.output_events[i]);
@@ -337,10 +332,10 @@ class GenTCDecoder {
   }
 
   cl_event DecodeIndices(cl_event init, cl_mem dst, cl_mem cmp_buf, size_t offset,
-                         const GenTCHeader::rANSInfo &palette_info,
-                         const GenTCHeader::rANSInfo &indices_info) {
-    CLKernelResult palette = DecodeANS(cmp_buf, offset, init, palette_info);
-    CLKernelResult indices = DecodeANS(cmp_buf, offset + palette_info.sz, init, indices_info);
+                         cl_uint palette_sz, cl_uint indices_sz) {
+    size_t num_vals = _width * _height / 16;
+    CLKernelResult palette = DecodeANS(cmp_buf, palette_sz, offset, _num_palette_entries, init);
+    CLKernelResult indices = DecodeANS(cmp_buf, indices_sz, offset + palette_sz, static_cast<cl_uint>(num_vals), init);
 
     static const size_t kLocalScanSz = 128;
     static const size_t kLocalScanSzLog = 7;
@@ -353,7 +348,6 @@ class GenTCDecoder {
     }
 
     cl_int stage = -1;
-    size_t num_vals = _width * _height / 16;
     while (num_vals > 1) {
       stage++;
 
@@ -454,8 +448,7 @@ class GenTCDecoder {
      return result;
    }
 
-   CLKernelResult DecodeANS(cl_mem input, const size_t offset, cl_event init_event,
-     const GenTCHeader::rANSInfo &info) {
+   CLKernelResult DecodeANS(cl_mem input, cl_uint sz, const size_t offset, cl_uint num_values, cl_event init_event) {
      int iter = _ans_decode_iter++;
      assert(iter < kNumANSDecodeKernels);
 
@@ -492,9 +485,6 @@ class GenTCDecoder {
 
        freqs_buffer, _build_table_scratch[iter]);
 
-     // Load all of the offsets to the different data streams...
-     cl_uint num_offsets = info.num_offsets;
-
      // Make sure we have enough space to use constant buffer...
      assert(static_cast<cl_ulong>(M * sizeof(AnsTableEntry)) <
        _ctx->GetDeviceInfo<cl_ulong>(CL_DEVICE_MAX_CONSTANT_BUFFER_SIZE));
@@ -502,7 +492,7 @@ class GenTCDecoder {
      cl_buffer_region data_sub_region;
      data_sub_region.origin = offset + 257 * 2;
      data_sub_region.origin = ((data_sub_region.origin + 511) / 512) * 512;
-     data_sub_region.size = (offset + info.sz) - data_sub_region.origin;
+     data_sub_region.size = (offset + sz) - data_sub_region.origin;
 
      assert((data_sub_region.origin % (_ctx->GetDeviceInfo<cl_uint>(CL_DEVICE_MEM_BASE_ADDR_ALIGN) / 8)) == 0);
 
@@ -511,9 +501,7 @@ class GenTCDecoder {
      CHECK_CL((cl_int), errCreateBuffer);
 
      // Allocate 256 * num interleaved slots for result
-     size_t total_encoded =
-       num_offsets * ans::ocl::kThreadsPerEncodingGroup * ans::ocl::kNumEncodedSymbols;
-     const size_t total_streams = total_encoded / ans::ocl::kNumEncodedSymbols;
+     const size_t total_streams = num_values / ans::ocl::kNumEncodedSymbols;
      const size_t streams_per_work_group = ans::ocl::kThreadsPerEncodingGroup;
 
      CLKernelResult result;
@@ -612,6 +600,7 @@ class GenTCDecoder {
    cl_command_queue _queue;
    int _width;
    int _height;
+   int _num_palette_entries;
 
    cl_mem _scratch;
 
@@ -626,24 +615,24 @@ class GenTCDecoder {
 static void DecompressDXTImage(const std::unique_ptr<GPUContext> &gpu_ctx,
                                const GenTCHeader &hdr, cl_command_queue queue, cl_mem cmp_buf,
                                cl_event init_event, CLKernelResult *result) {
-  GenTCDecoder decoder(gpu_ctx, queue, hdr.width, hdr.height);
+  GenTCDecoder decoder(gpu_ctx, queue, hdr.width, hdr.height, hdr.palette_bytes);
 
   assert((hdr.width & 0x3) == 0);
   assert((hdr.height & 0x3) == 0);
 
   size_t offset = 0;
-  CLKernelResult ep1_y = decoder.DecompressEndpoints(init_event, cmp_buf, hdr.ep1_y, &offset, -128);
-  CLKernelResult ep1_co = decoder.DecompressEndpoints(init_event, cmp_buf, hdr.ep1_co, &offset, -128);
-  CLKernelResult ep1_cg = decoder.DecompressEndpoints(init_event, cmp_buf, hdr.ep1_cg, &offset, -128);
+  CLKernelResult ep1_y = decoder.DecompressEndpoints(init_event, cmp_buf, hdr.ep1_y_sz, &offset, -128);
+  CLKernelResult ep1_co = decoder.DecompressEndpoints(init_event, cmp_buf, hdr.ep1_co_sz, &offset, -128);
+  CLKernelResult ep1_cg = decoder.DecompressEndpoints(init_event, cmp_buf, hdr.ep1_cg_sz, &offset, -128);
 
-  CLKernelResult ep2_y = decoder.DecompressEndpoints(init_event, cmp_buf, hdr.ep2_y, &offset, -128);
-  CLKernelResult ep2_co = decoder.DecompressEndpoints(init_event, cmp_buf, hdr.ep2_co, &offset, -128);
-  CLKernelResult ep2_cg = decoder.DecompressEndpoints(init_event, cmp_buf, hdr.ep2_cg, &offset, -128);
+  CLKernelResult ep2_y = decoder.DecompressEndpoints(init_event, cmp_buf, hdr.ep2_y_sz, &offset, -128);
+  CLKernelResult ep2_co = decoder.DecompressEndpoints(init_event, cmp_buf, hdr.ep2_co_sz, &offset, -128);
+  CLKernelResult ep2_cg = decoder.DecompressEndpoints(init_event, cmp_buf, hdr.ep2_cg_sz, &offset, -128);
 
   result->num_events = 3;
   result->output_events[0] = decoder.CollectEndpoints(result->output, ep1_y, ep1_co, ep1_cg, 0);
   result->output_events[1] = decoder.CollectEndpoints(result->output, ep2_y, ep2_co, ep2_cg, 1);
-  result->output_events[2] = decoder.DecodeIndices(init_event, result->output, cmp_buf, offset, hdr.palette, hdr.indices);
+  result->output_events[2] = decoder.DecodeIndices(init_event, result->output, cmp_buf, offset, hdr.palette_sz, hdr.indices_sz);
 }
 
 cl_mem UploadData(const std::unique_ptr<GPUContext> &gpu_ctx,
@@ -789,14 +778,15 @@ bool InitializeDecoder(const std::unique_ptr<gpu::GPUContext> &gpu_ctx) {
 void GenTCHeader::Print() const {
   std::cout << "Width: " << width << std::endl;
   std::cout << "Height: " << height << std::endl;
-  std::cout << "Endpoint One Y compressed size: " << ep1_y.sz << std::endl;
-  std::cout << "Endpoint One Co compressed size: " << ep1_co.sz << std::endl;
-  std::cout << "Endpoint One Cg compressed size: " << ep1_cg.sz << std::endl;
-  std::cout << "Endpoint Two Y compressed size: " << ep2_y.sz << std::endl;
-  std::cout << "Endpoint Two Co compressed size: " << ep2_co.sz << std::endl;
-  std::cout << "Endpoint Two Cg compressed size: " << ep2_cg.sz << std::endl;
-  std::cout << "Palette size compressed: " << palette.sz << std::endl;
-  std::cout << "Palette index deltas compressed: " << indices.sz << std::endl;
+  std::cout << "Num Palette Entries: " << (palette_bytes / 4) << std::endl;
+  std::cout << "Endpoint One Y compressed size: " << ep1_y_sz << std::endl;
+  std::cout << "Endpoint One Co compressed size: " << ep1_co_sz << std::endl;
+  std::cout << "Endpoint One Cg compressed size: " << ep1_cg_sz << std::endl;
+  std::cout << "Endpoint Two Y compressed size: " << ep2_y_sz << std::endl;
+  std::cout << "Endpoint Two Co compressed size: " << ep2_co_sz << std::endl;
+  std::cout << "Endpoint Two Cg compressed size: " << ep2_cg_sz << std::endl;
+  std::cout << "Palette size compressed: " << palette_sz << std::endl;
+  std::cout << "Palette index deltas compressed: " << indices_sz << std::endl;
 }
 
 void GenTCHeader::LoadFrom(const uint8_t *buf) {
