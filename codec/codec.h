@@ -25,7 +25,6 @@ namespace GenTC {
   struct GenTCHeader {
     struct rANSInfo {
       uint32_t sz;
-      uint32_t num_freqs;
       uint32_t num_offsets;
     };
 

@@ -234,10 +234,17 @@ ByteEncoder::EncodeBytes::Run(const ByteEncoder::Base::ArgType &in) const {
   }
 
   DataStream hdr;
-  hdr.WriteInt(static_cast<uint32_t>(non_zero_counts));
+  size_t num_counts = 0;
   for (auto c : counts) {
-    assert(static_cast<uint64_t>(c) < (1ULL << 32));
-    hdr.WriteInt(c);
+    assert(static_cast<uint64_t>(c) < (1ULL << 16));
+    hdr.WriteShort(c);
+    num_counts++;
+  }
+
+  // Pad it out...
+  while (num_counts < 256) {
+    hdr.WriteShort(0);
+    num_counts++;
   }
 
   assert(offsets.size() < 256);
@@ -268,7 +275,7 @@ ByteEncoder::EncodeBytes::Run(const ByteEncoder::Base::ArgType &in) const {
 ByteEncoder::Base::ReturnType
 ByteEncoder::DecodeBytes::Run(const ByteEncoder::Base::ArgType &in) const {
   DataStream hdr(*(in.get()));
-  uint8_t num_unique_symbols = hdr.ReadInt();
+  size_t num_unique_symbols = 256;
 
   std::vector<uint32_t> counts;
   counts.reserve(num_unique_symbols);

@@ -9,27 +9,20 @@ typedef struct AnsTableEntry_Struct {
 	uchar  symbol;
 } AnsTableEntry;
 
-__kernel void build_table(const __constant uint *frequencies,
+__kernel void build_table(const __constant ushort *frequencies,
                           __global AnsTableEntry *table)
 {
-  __local uint num_symbols;
-  __local uint cumulative_frequencies[MAX_NUM_SYMBOLS];
-
-  // Read the number of symbols from the frequencies table...
-  int lid = get_local_id(0);
-  if (0 == lid) {
-    num_symbols = frequencies[0];
-  }
-
-  barrier(CLK_LOCAL_MEM_FENCE);
+  const uint num_symbols = MAX_NUM_SYMBOLS;
+  __local ushort cumulative_frequencies[MAX_NUM_SYMBOLS];
 
   // Set the cumulative frequencies to the frequencies... if we have
   // more, then pad to zeros.
+  uint lid = get_local_id(0);
   if (lid < num_symbols) {
-    cumulative_frequencies[lid] = frequencies[lid + 1];
-  } else if (lid < MAX_NUM_SYMBOLS) {
-    cumulative_frequencies[lid] = 0;
+    cumulative_frequencies[lid] = frequencies[lid];
   }
+
+  barrier(CLK_LOCAL_MEM_FENCE);
 
   // Do a quick scan to build the cumulative frequencies...
   const int n = MAX_NUM_SYMBOLS;
@@ -83,7 +76,7 @@ __kernel void build_table(const __constant uint *frequencies,
   }
 
   // Write results
-  table[id].freq = frequencies[x + 1];
+  table[id].freq = frequencies[x];
   table[id].cum_freq = cumulative_frequencies[x];
   table[id].symbol = x;
 }

@@ -111,6 +111,10 @@ std::vector<cl_ushort> OpenCLDecoder::GetCumulativeFrequencies() const {
 void OpenCLDecoder::RebuildTable(const std::vector<uint32_t> &F) {
   std::vector<cl_uint> freqs = std::move(NormalizeFrequencies(F));
   assert(_M == std::accumulate(freqs.begin(), freqs.end(), 0U));
+  assert(freqs.size() <= 256);
+  freqs.resize(256, 0);
+
+  std::vector<cl_ushort> freq_shorts(freqs.begin(), freqs.end());
 
   size_t work_group_size = 256;
   assert(work_group_size <= _gpu_ctx->GetKernelWGInfo<size_t>(
@@ -118,14 +122,11 @@ void OpenCLDecoder::RebuildTable(const std::vector<uint32_t> &F) {
     CL_KERNEL_WORK_GROUP_SIZE));
 
   cl_mem_flags flags = GetHostReadOnlyFlags();
-  cl_uint num_freqs = static_cast<cl_uint>(freqs.size());
-  freqs.insert(freqs.begin(), num_freqs);
-
-  cl_uint *freqs_ptr = const_cast<cl_uint *>(freqs.data());
+  cl_ushort *freqs_ptr = const_cast<cl_ushort *>(freq_shorts.data());
 
   cl_int errCreateBuffer;
   cl_mem freqs_buffer = clCreateBuffer(_gpu_ctx->GetOpenCLContext(), flags,
-                                       freqs.size() * sizeof(freqs_ptr[0]), freqs_ptr, &errCreateBuffer);
+                                       freq_shorts.size() * sizeof(freqs_ptr[0]), freqs_ptr, &errCreateBuffer);
   CHECK_CL((cl_int), errCreateBuffer);
 
   cl_uint num_events = 0;

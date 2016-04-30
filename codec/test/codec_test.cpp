@@ -16,6 +16,7 @@ public:
     // Make sure to always initialize random number generator for
     // deterministic tests
     srand(0);
+    GenTC::InitializeDecoder(_ctx);
     is_setup = true;
   }
 

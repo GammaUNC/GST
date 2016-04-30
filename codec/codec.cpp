@@ -78,12 +78,11 @@ RunDXTEndpointPipeline(const std::unique_ptr<Image<T> > &img) {
 }
 
 static GenTCHeader::rANSInfo GetCompressedInfo(const std::unique_ptr<std::vector<uint8_t> > &cmp) {
-  const uint32_t *data_as_ints = reinterpret_cast<const uint32_t *>(cmp->data());
+  const uint16_t *data_as_shorts = reinterpret_cast<const uint16_t *>(cmp->data());
 
   GenTCHeader::rANSInfo info;
   info.sz = static_cast<uint32_t>(cmp->size());
-  info.num_freqs = data_as_ints[0];
-  info.num_offsets = data_as_ints[1 + info.num_freqs];
+  info.num_offsets = data_as_shorts[256];
   return info;
 }
 
@@ -461,7 +460,6 @@ class GenTCDecoder {
      assert(iter < kNumANSDecodeKernels);
 
      // First get the number of frequencies...
-     cl_uint num_freqs = info.num_freqs;
      const size_t M = ans::ocl::kANSTableSize;
      size_t build_table_local_work_size = 256;
      assert(build_table_local_work_size <= _ctx->GetKernelWGInfo<size_t>(
@@ -470,7 +468,7 @@ class GenTCDecoder {
 
      cl_buffer_region freqs_sub_region;
      freqs_sub_region.origin = offset;
-     freqs_sub_region.size = (num_freqs + 1) * 4;
+     freqs_sub_region.size = 256 * 2;
 
      assert((0x7 & _ctx->GetDeviceInfo<cl_uint>(CL_DEVICE_MEM_BASE_ADDR_ALIGN)) == 0);
      assert((freqs_sub_region.origin % (_ctx->GetDeviceInfo<cl_uint>(CL_DEVICE_MEM_BASE_ADDR_ALIGN) / 8)) == 0);
@@ -502,7 +500,7 @@ class GenTCDecoder {
        _ctx->GetDeviceInfo<cl_ulong>(CL_DEVICE_MAX_CONSTANT_BUFFER_SIZE));
 
      cl_buffer_region data_sub_region;
-     data_sub_region.origin = offset + (num_freqs + 2) * 4;
+     data_sub_region.origin = offset + 257 * 2;
      data_sub_region.origin = ((data_sub_region.origin + 511) / 512) * 512;
      data_sub_region.size = (offset + info.sz) - data_sub_region.origin;
 
