@@ -247,21 +247,13 @@ ByteEncoder::EncodeBytes::Run(const ByteEncoder::Base::ArgType &in) const {
     num_counts++;
   }
 
-  assert(offsets.size() < 256);
-  hdr.WriteInt(static_cast<uint32_t>(offsets.size()));
+  for (auto off : offsets) {
+    assert(static_cast<uint64_t>(off) < (1ULL << 32));
+    hdr.WriteInt(static_cast<uint32_t>(off));
+  }
 
   std::vector<uint8_t> *result = new std::vector<uint8_t>;
   result->insert(result->end(), hdr.GetData().begin(), hdr.GetData().end());
-
-  // Pad out to 512 bytes to match alignment of most GPUs...
-  result->resize(((result->size() + 511) / 512) * 512, 0);
-
-  for (auto off : offsets) {
-    assert(static_cast<uint64_t>(off) < (1ULL << 32));
-    uint32_t offset = static_cast<uint32_t>(off);
-    const uint8_t *offset_ptr = reinterpret_cast<const uint8_t *>(&offset);
-    result->insert(result->end(), offset_ptr, offset_ptr + 4);
-  }
 
   // Encode rANS data...
   result->insert(result->end(), encoded_stream.begin(), encoded_stream.end());

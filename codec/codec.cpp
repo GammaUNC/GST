@@ -490,9 +490,8 @@ class GenTCDecoder {
        _ctx->GetDeviceInfo<cl_ulong>(CL_DEVICE_MAX_CONSTANT_BUFFER_SIZE));
 
      cl_buffer_region data_sub_region;
-     data_sub_region.origin = offset + 257 * 2;
-     data_sub_region.origin = ((data_sub_region.origin + 511) / 512) * 512;
-     data_sub_region.size = (offset + sz) - data_sub_region.origin;
+     data_sub_region.origin = offset + 512;
+     data_sub_region.size = sz - 512;
 
      assert((data_sub_region.origin % (_ctx->GetDeviceInfo<cl_uint>(CL_DEVICE_MEM_BASE_ADDR_ALIGN) / 8)) == 0);
 
