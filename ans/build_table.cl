@@ -19,7 +19,8 @@ __kernel void build_table(const __constant ushort *frequencies,
   // more, then pad to zeros.
   uint lid = get_local_id(0);
   if (lid < num_symbols) {
-    cumulative_frequencies[lid] = frequencies[lid];
+      int gidx = lid + get_local_size(0) * get_global_id(1);
+      cumulative_frequencies[lid] = frequencies[gidx];
   }
 
   barrier(CLK_LOCAL_MEM_FENCE);
@@ -76,7 +77,9 @@ __kernel void build_table(const __constant ushort *frequencies,
   }
 
   // Write results
-  table[id].freq = frequencies[x];
-  table[id].cum_freq = cumulative_frequencies[x];
-  table[id].symbol = x;
+  int gid = id + get_global_size(0) * get_global_id(1);
+  int gx = x + get_local_size(0) * get_global_id(1);
+  table[gid].freq = frequencies[gx];
+  table[gid].cum_freq = cumulative_frequencies[x];
+  table[gid].symbol = x;
 }

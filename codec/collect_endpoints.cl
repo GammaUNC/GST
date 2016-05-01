@@ -1,13 +1,16 @@
 #pragma OPENCL EXTENSION cl_khr_byte_addressable_store : enable
 
-__kernel void collect_endpoints(const __global char *_y,
-                                const __global char *_co,
-                                const __global char *_cg,
-                                __global ushort *out,
-                                uint endpoint_index) {
-  int y = (int)(_y[get_global_id(0)]);
-  int co = (int)(_co[get_global_id(0)]);
-  int cg = (int)(_cg[get_global_id(0)]);
+__kernel void collect_endpoints(const __global char *in,
+                                __global ushort *out) {
+  const uint num_values_in_plane = get_global_size(0);
+  const uint global_offset = num_values_in_plane * 6 * get_global_id(2);
+  const uint y_idx = num_values_in_plane * get_global_id(1) + get_global_id(0);
+  const uint co_idx = num_values_in_plane * (2 + 2 * get_global_id(1)) + get_global_id(0);
+  const uint cg_idx = num_values_in_plane * (2 + 2 * get_global_id(1) + 1) + get_global_id(0);
+
+  int y = (int)(in[global_offset + y_idx]);
+  int co = (int)(in[global_offset + co_idx]);
+  int cg = (int)(in[global_offset + cg_idx]);
 
   int t = y - (cg / 2);
   int g = cg + t;
@@ -20,5 +23,5 @@ __kernel void collect_endpoints(const __global char *_y,
   pixel |= (g << 5);
   pixel |= b;
 
-  out[4*get_global_id(0) + endpoint_index] = pixel;
+  out[get_global_id(2) * 4 + 4*get_global_id(0) + get_global_id(1)] = pixel;
 }

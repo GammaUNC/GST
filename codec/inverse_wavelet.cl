@@ -55,16 +55,19 @@ void InverseWaveletOdd(__local int *src, __local int *scratch,
 // We use one thread per pixel, and the group size (local work size)
 // dictates how big the dimensions are of the 
 
-__kernel void inv_wavelet(const __global uchar *wavelet_data,
-                          const          int    value_offset,
-                                __local  int   *local_data,
-                                __global char  *out_data)
+__kernel void inv_wavelet(const __global   uchar *wavelet_data,
+                          const __constant uint  *output_offsets,
+                                __local    int   *local_data,
+                                __global   char  *out_data)
 {
-  int local_dim = 2 * get_local_size(1);
-  int wavelet_block_size = local_dim * local_dim;
-
   const uint local_x = get_local_id(0);
   const uint local_y = get_local_id(1);
+  const int local_dim = 2 * get_local_size(1);
+  const int wavelet_block_size = local_dim * local_dim;
+  const uint global_file_offset = get_global_id(2) / 6;
+  const uint global_offset_factor =
+    (get_global_id(2) % 6) * get_global_size(0) * get_global_size(1) * 4;
+  const uint global_offset = output_offsets[4 * global_file_offset] + global_offset_factor;
 
   // Grab global value and place it in local data in preparation for inv
   // wavelet transform. Data is expected to be linearized in the block.
@@ -76,11 +79,11 @@ __kernel void inv_wavelet(const __global uchar *wavelet_data,
   // with signed two-byte integers to reduce cache misses.
   {
     const uint group_idx = get_group_id(1) * get_num_groups(0) + get_group_id(0);
-    const __global uchar *global_data = wavelet_data + group_idx * wavelet_block_size;
+    const __global uchar *global_data = wavelet_data + global_offset + group_idx * wavelet_block_size;
 
     const uint lidx = 4 * (local_y * get_local_size(0) + local_x);
 	for (int i = 0; i < 4; ++i) {
-      local_data[lidx + i] = ((int)(global_data[lidx + i])) + value_offset;
+      local_data[lidx + i] = ((int)(global_data[lidx + i])) - 128;
 	}
 
     // We need a barrier to make sure that all threads read the data they needed
@@ -169,8 +172,9 @@ __kernel void inv_wavelet(const __global uchar *wavelet_data,
 	const uint gx = 4 * (get_global_id(0) >> 1);
     const uint gidx = gy * global_stride + gx;
 
+	const uint offset = get_global_id(2) * get_global_size(0) * get_global_size(1) * 4;
 	for (int i = 0; i < 4; ++i) {
-	    out_data[gidx + i] = (char)(local_data[lidx + i]);
+	    out_data[offset + gidx + i] = (char)(local_data[lidx + i]);
 	}
   }
 }

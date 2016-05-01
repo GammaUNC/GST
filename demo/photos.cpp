@@ -369,7 +369,6 @@ class AsyncGenTCReq : public AsyncTexRequest {
 
     static const size_t kHeaderSz = sizeof(_hdr);
     const size_t mem_sz = length - kHeaderSz;
-    assert(mem_sz % 512 == 0);
 
     is.read(reinterpret_cast<char *>(&_hdr), kHeaderSz);
 

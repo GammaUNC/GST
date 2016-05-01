@@ -258,8 +258,8 @@ ByteEncoder::EncodeBytes::Run(const ByteEncoder::Base::ArgType &in) const {
   // Encode rANS data...
   result->insert(result->end(), encoded_stream.begin(), encoded_stream.end());
 
-  // Pad out to 512 bytes to match alignment of most GPUs...
-  result->resize(((result->size() + 511) / 512) * 512, 0);
+  // Pad out to 4 bytes to match alignment of most GPUs...
+  result->resize(((result->size() + 3) / 4) * 4, 0);
 
   return std::move(std::unique_ptr<std::vector<uint8_t> >(result));
 }

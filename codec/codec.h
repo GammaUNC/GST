@@ -26,12 +26,8 @@ namespace GenTC {
     uint32_t width;
     uint32_t height;
     uint32_t palette_bytes;
-    uint32_t ep1_y_sz;
-    uint32_t ep1_co_sz;
-    uint32_t ep1_cg_sz;
-    uint32_t ep2_y_sz;
-    uint32_t ep2_co_sz;
-    uint32_t ep2_cg_sz;
+    uint32_t y_cmp_sz;
+    uint32_t chroma_cmp_sz;
     uint32_t palette_sz;
     uint32_t indices_sz;
 
@@ -42,6 +38,10 @@ namespace GenTC {
   std::vector<cl_event> LoadCompressedDXT(const std::unique_ptr<gpu::GPUContext> &gpu_ctx,
                                           const GenTCHeader &hdr, cl_command_queue queue,
                                           cl_mem cmp_data, cl_mem output, cl_event init);
+
+  std::vector<cl_event> LoadCompressedDXTs(const std::unique_ptr<gpu::GPUContext> &gpu_ctx,
+                                           const std::vector<GenTCHeader> &hdr, cl_command_queue queue,
+                                           cl_mem cmp_data, cl_mem output, cl_event init);
 
   bool TestDXT(const std::unique_ptr<gpu::GPUContext> &gpu_ctx,
                const char *filename, const char *cmp_fn);
