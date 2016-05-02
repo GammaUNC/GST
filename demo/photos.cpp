@@ -312,7 +312,7 @@ class AsyncTexRequest {
   std::queue<std::function<void()> > _fns;
 };
 
-#define USE_PINNED_MEMORY 1
+#define USE_PINNED_MEMORY 0
 class AsyncGenTCReq : public AsyncTexRequest {
  public:
   AsyncGenTCReq(const std::unique_ptr<gpu::GPUContext> &ctx, GLuint id)
@@ -349,10 +349,7 @@ class AsyncGenTCReq : public AsyncTexRequest {
 
     // We don't need the PBO anymore
     CHECK_CL(clReleaseMemObject, _cmp_buf);
-#if USE_PINNED_MEMORY
-    CHECK_CL(clReleaseMemObject, _cmp_buf_host);
     CHECK_CL(clReleaseEvent, _write_event);
-#endif
   }
 
   virtual void Preload(const std::string &fname) {
@@ -372,42 +369,8 @@ class AsyncGenTCReq : public AsyncTexRequest {
 
     is.read(reinterpret_cast<char *>(&_hdr), kHeaderSz);
 
-    cl_int errCreateBuffer;
-#if USE_PINNED_MEMORY
-    cl_context cl_ctx = _ctx->GetOpenCLContext();
-    cl_command_queue d_queue = _ctx->GetDefaultCommandQueue();
-
-    // Create pinned host memory and device memory
-    cl_mem_flags pinned_flags = CL_MEM_READ_WRITE | CL_MEM_ALLOC_HOST_PTR;
-    _cmp_buf_host = clCreateBuffer(cl_ctx, pinned_flags, mem_sz, NULL, &errCreateBuffer);
-    CHECK_CL((cl_int), errCreateBuffer);
-    _cmp_buf = clCreateBuffer(cl_ctx, CL_MEM_READ_ONLY, mem_sz, NULL, &errCreateBuffer);
-    CHECK_CL((cl_int), errCreateBuffer);
-
-    // Map the host memory to the application's address space...
-    cl_event map_event;
-    void *pinned_mem = clEnqueueMapBuffer(_queue, _cmp_buf_host, CL_TRUE, CL_MAP_WRITE | CL_MAP_READ, 0, mem_sz,
-                                          0, NULL, &map_event, &errCreateBuffer);
-    CHECK_CL((cl_int), errCreateBuffer);
-
-    is.read(reinterpret_cast<char *>(pinned_mem), mem_sz);
-
-    // Unmap and enqueue copy
-    cl_event unmap_event;
-    CHECK_CL(clEnqueueUnmapMemObject, _queue, _cmp_buf_host, pinned_mem, 1, &map_event, &unmap_event);
-    CHECK_CL(clEnqueueCopyBuffer, _queue, _cmp_buf_host, _cmp_buf, 0, 0, mem_sz,
-                                  1, &unmap_event, &_write_event);
-    CHECK_CL(clReleaseEvent, map_event);
-    CHECK_CL(clReleaseEvent, unmap_event);
-#else
     _cmp_data.resize(mem_sz);
     is.read(reinterpret_cast<char *>(_cmp_data.data()), _cmp_data.size());
-    _cmp_buf = clCreateBuffer(_ctx->GetOpenCLContext(),
-                              CL_MEM_READ_ONLY | CL_MEM_COPY_HOST_PTR | CL_MEM_HOST_NO_ACCESS,
-		                          _cmp_data.size(), _cmp_data.data(), &errCreateBuffer);
-    CHECK_CL((cl_int), errCreateBuffer);
-#endif
-
     assert(is);
     assert(is.tellg() == static_cast<std::streamoff>(length));
     is.close();
@@ -415,12 +378,49 @@ class AsyncGenTCReq : public AsyncTexRequest {
     _pbo.sz = (_hdr.width * _hdr.height) / 2;
   }
 
+  virtual void LoadCL() {
+    cl_int errCreateBuffer;
+#if USE_PINNED_MEMORY
+    cl_context cl_ctx = _ctx->GetOpenCLContext();
+    cl_command_queue d_queue = _ctx->GetDefaultCommandQueue();
+
+    // Create pinned host memory and device memory
+    cl_mem_flags pinned_flags = CL_MEM_READ_WRITE | CL_MEM_ALLOC_HOST_PTR;
+    cl_mem cmp_buf_host = clCreateBuffer(cl_ctx, pinned_flags, _cmp_data.size(), NULL, &errCreateBuffer);
+    CHECK_CL((cl_int), errCreateBuffer);
+    _cmp_buf = clCreateBuffer(cl_ctx, CL_MEM_READ_ONLY, _cmp_data.size(), NULL, &errCreateBuffer);
+    CHECK_CL((cl_int), errCreateBuffer);
+
+    // Map the host memory to the application's address space...
+    cl_event map_event;
+    void *pinned_mem = clEnqueueMapBuffer(d_queue, cmp_buf_host, CL_TRUE, CL_MAP_WRITE | CL_MAP_READ, 0, _cmp_data.size(),
+                                          0, NULL, &map_event, &errCreateBuffer);
+    CHECK_CL((cl_int), errCreateBuffer);
+
+    memcpy(pinned_mem, _cmp_data.data(), _cmp_data.size());
+
+    // Unmap and enqueue copy
+    cl_event unmap_event;
+    CHECK_CL(clEnqueueUnmapMemObject, d_queue, cmp_buf_host, pinned_mem, 1, &map_event, &unmap_event);
+    CHECK_CL(clEnqueueCopyBuffer, d_queue, cmp_buf_host, _cmp_buf, 0, 0, _cmp_data.size(),
+                                  1, &unmap_event, &_write_event);
+    CHECK_CL(clReleaseEvent, map_event);
+    CHECK_CL(clReleaseEvent, unmap_event);
+    CHECK_CL(clReleaseMemObject, cmp_buf_host);
+#else
+    _cmp_buf = clCreateBuffer(_ctx->GetOpenCLContext(), CL_MEM_READ_ONLY | CL_MEM_HOST_WRITE_ONLY,
+                              _cmp_data.size(), NULL, &errCreateBuffer);
+    CHECK_CL((cl_int), errCreateBuffer);
+
+    CHECK_CL(clEnqueueWriteBuffer, _queue, _cmp_buf, CL_FALSE, 0, _cmp_data.size(),
+                                   _cmp_data.data(), 0, NULL, &_write_event);
+#endif
+  }
+
   virtual std::vector<cl_event> QueueDXT() {
     // Load it
     cl_event wait_events[] = {
-#if USE_PINNED_MEMORY
 		  _write_event,
-#endif
 	  	_pbo.acquire_event
   	};
     cl_uint num_wait_events = sizeof(wait_events) / sizeof(wait_events[0]);
@@ -627,11 +627,14 @@ std::vector<std::unique_ptr<Texture> > LoadTextures(const std::unique_ptr<gpu::G
 
   // Load up a bunch of requests
   std::vector<std::unique_ptr<AsyncTexRequest> > reqs;
-  reqs.reserve(textures.size());
+  reqs.reserve(filenames.size());
 
   // Events that we need to wait on before we release GL objects...
   std::mutex dxt_events_mutex;
   std::vector<cl_event> dxt_events;
+
+  std::vector<GLuint> texIDs(filenames.size());
+  CHECK_GL(glGenTextures, static_cast<GLsizei>(texIDs.size()), texIDs.data());
 
   for (size_t i = 0; i < filenames.size(); ++i) {
 
@@ -639,8 +642,7 @@ std::vector<std::unique_ptr<Texture> > LoadTextures(const std::unique_ptr<gpu::G
     std::cout << "Loading texture: " << filenames[i] << std::endl;
 #endif
 
-    GLuint texID;
-    CHECK_GL(glGenTextures, 1, &texID);
+    GLuint texID = texIDs[i];
 
     size_t len = filenames[i].length();
     assert(len >= 4);
@@ -655,6 +657,11 @@ std::vector<std::unique_ptr<Texture> > LoadTextures(const std::unique_ptr<gpu::G
       });
 
       // Post-pbo
+      req->QueueWork([req]() {
+        reinterpret_cast<AsyncGenTCReq *>(req)->LoadCL();
+      });
+
+      // Post-acquire GL
       req->QueueWork([&fname, &ctx, &dxt_events, &dxt_events_mutex, req]() {
         std::vector<cl_event> es = reinterpret_cast<AsyncGenTCReq *>(req)->QueueDXT();
         std::unique_lock<std::mutex> lock(dxt_events_mutex);
@@ -698,7 +705,6 @@ std::vector<std::unique_ptr<Texture> > LoadTextures(const std::unique_ptr<gpu::G
   const unsigned kTotalNumThreads = async ? std::thread::hardware_concurrency() : 1;
   ctpl::thread_pool pool(kTotalNumThreads);
 
-  bool acquire = true;
   cl_event acquire_event;
   cl_event release_event;
 
@@ -706,7 +712,8 @@ std::vector<std::unique_ptr<Texture> > LoadTextures(const std::unique_ptr<gpu::G
   double idle_time = 0.0;
   double interop_time = 0.0;
 
-  for(int pass = 0; pass < 2; ++pass) {
+  GLsizeiptr total_pbo_size = 0;
+  for (int pass = 0;; ++pass) {
     // Queue up work
     std::mutex m;
     std::condition_variable done;
@@ -731,15 +738,30 @@ std::vector<std::unique_ptr<Texture> > LoadTextures(const std::unique_ptr<gpu::G
       break;
     }
 
+    if (1 == pass && total_pbo_size > 0) {
+      start = std::chrono::high_resolution_clock::now();
+      CHECK_GL(glGenBuffers, 1, &pbo);
+      CHECK_GL(glBindBuffer, GL_PIXEL_UNPACK_BUFFER, pbo);
+      CHECK_GL(glBufferData, GL_PIXEL_UNPACK_BUFFER, total_pbo_size, NULL, GL_STREAM_COPY);
+
+      // Wait for the GPU to finish
+      // !SPEED! This is synchronous with generating the input buffers for each image. This
+      // is kind of silly, we can do that asynchronously by just loading the headers for all
+      // of the images prior to allocating all of the necessary memory for them....
+      CHECK_GL(glFlush);
+      CHECK_GL(glFinish);
+      end = std::chrono::high_resolution_clock::now();
+      interop_time += std::chrono::duration<double>(end - start).count();
+    }
+
     // Wait for the work to finish
     {
       std::unique_lock<std::mutex> lock(m);
       done.wait(lock, [&]() { return num_running == num_finished; });
     }
 
-    if (acquire) {
-      // Collect all of our pbo requests if we need to acquire them
-      GLsizeiptr total_pbo_size = 0;
+    // Collect all of our pbo requests if we need to acquire them
+    if (pbo_reqs.size() == 0) {
       for (auto &req : reqs) {
         PBORequest *pbo_req;
         if (req->NeedsPBO(&pbo_req)) {
@@ -748,20 +770,12 @@ std::vector<std::unique_ptr<Texture> > LoadTextures(const std::unique_ptr<gpu::G
           total_pbo_size += pbo_req->sz;
         }
       }
+    }
 
-      if (total_pbo_size == 0) {
-        continue;
-      }
-
+    if (0 == pass || total_pbo_size == 0) {
+      continue;
+    } else if (1 == pass) {
       start = std::chrono::high_resolution_clock::now();
-      CHECK_GL(glGenBuffers, 1, &pbo);
-      CHECK_GL(glBindBuffer, GL_PIXEL_UNPACK_BUFFER, pbo);
-      CHECK_GL(glBufferData, GL_PIXEL_UNPACK_BUFFER, total_pbo_size, NULL, GL_STREAM_COPY);
-
-      // Wait for the GPU to finish
-      CHECK_GL(glFlush);
-      CHECK_GL(glFinish);
-
       // Get the PBO
       cl_int errCreateBuffer;
       pbo_cl = clCreateFromGLBuffer(ctx->GetOpenCLContext(), CL_MEM_READ_WRITE, pbo, &errCreateBuffer);
@@ -783,10 +797,7 @@ std::vector<std::unique_ptr<Texture> > LoadTextures(const std::unique_ptr<gpu::G
 
         offset += req->sz;
       }
-
-      // We're done, let's do the rest of the work...
-      acquire = false;
-    } else {
+    } else if (2 == pass) {
       start = std::chrono::high_resolution_clock::now();
       CHECK_CL(clEnqueueReleaseGLObjects, ctx->GetDefaultCommandQueue(), 1, &pbo_cl,
                                           static_cast<cl_uint>(dxt_events.size()), dxt_events.data(),
@@ -907,6 +918,10 @@ int main(int argc, char* argv[] ) {
     assert ( posLoc >= 0 );
     assert ( uvLoc >= 0 );
     assert ( texLoc >= 0 );
+
+    // Wait for the GPU to finish
+    CHECK_GL(glFlush);
+    CHECK_GL(glFinish);
 
     std::chrono::time_point<std::chrono::high_resolution_clock> start, end;
     start = std::chrono::high_resolution_clock::now();
