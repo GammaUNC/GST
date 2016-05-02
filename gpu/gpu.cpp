@@ -306,8 +306,10 @@ static cl_platform_id GetCLPlatform(bool share_opengl) {
   }
 
 #ifndef NDEBUG
-  platform_idx = platform_priority[0];
-  std::cout << std::endl << "Using platform " << platform_idx << std::endl;
+  if (platform_priority.size() > 0) {
+    platform_idx = platform_priority[0];
+    std::cout << std::endl << "Using platform " << platform_idx << std::endl;
+  }
 #endif
 
   if (platform_idx < 0) {
