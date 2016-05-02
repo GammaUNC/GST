@@ -108,9 +108,15 @@ namespace gpu {
       std::unique_lock<std::mutex> lock(_enqueue_mutex);
       cl_kernel k = GetOpenCLKernel(filename, kernel);
       SetArgument(k, 0, kernel_args...);
+#ifndef NDEBUG
+      CHECK_CL(clFinish, queue);
+#endif
       CHECK_CL(clEnqueueNDRangeKernel, queue, k,
                                        WorkDim, NULL, global_sz, local_sz,
                                        num_events, events, ret_event);
+#ifndef NDEBUG
+      CHECK_CL(clFinish, queue);
+#endif
     }
 
   private:
