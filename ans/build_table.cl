@@ -9,9 +9,8 @@ typedef struct AnsTableEntry_Struct {
 	uchar  symbol;
 } AnsTableEntry;
 
-__kernel void build_table(const __constant ushort *frequencies,
-                          __global AnsTableEntry *table)
-{
+__kernel void build_table(const __global ushort        *frequencies,
+                                __global AnsTableEntry *table) {
   const uint num_symbols = MAX_NUM_SYMBOLS;
   __local ushort cumulative_frequencies[MAX_NUM_SYMBOLS];
 

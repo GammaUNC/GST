@@ -303,10 +303,6 @@ static std::vector<cl_event> DecompressDXTImage(const std::unique_ptr<GPUContext
     freqs_buffer, table_region);
   CHECK_CL(clReleaseMemObject, freqs_buffer);
 
-  // Make sure we have enough space to use constant buffer...
-  assert(static_cast<cl_ulong>(4 * ans::ocl::kANSTableSize * sizeof(AnsTableEntry)) <
-    gpu_ctx->GetDeviceInfo<cl_ulong>(CL_DEVICE_MAX_CONSTANT_BUFFER_SIZE));
-
   // Setup ANS input
   std::vector<cl_uint> input_offsets(hdrs.size() * 4);
 
@@ -359,17 +355,22 @@ static std::vector<cl_event> DecompressDXTImage(const std::unique_ptr<GPUContext
 
   // Setup OpenCL buffers for input and output offsets
   cl_mem ans_input_offsets = clCreateBuffer(gpu_ctx->GetOpenCLContext(), CL_MEM_READ_ONLY | CL_MEM_COPY_HOST_PTR,
-                                            sizeof(input_offsets), input_offsets.data(), &errCreateBuffer);
+                                            input_offsets.size() * sizeof(input_offsets[0]),
+                                            input_offsets.data(), &errCreateBuffer);
   CHECK_CL((cl_int), errCreateBuffer);
 
   cl_mem ans_output_offsets = clCreateBuffer(gpu_ctx->GetOpenCLContext(), CL_MEM_READ_ONLY | CL_MEM_COPY_HOST_PTR,
-                                             sizeof(output_offsets), output_offsets.data(), &errCreateBuffer);
+                                             output_offsets.size() * sizeof(output_offsets[0]),
+                                             output_offsets.data(), &errCreateBuffer);
   CHECK_CL((cl_int), errCreateBuffer);
 
   // Allocate 256 * num interleaved slots for result
   const size_t rANS_global_work = output_offset / ans::ocl::kNumEncodedSymbols;
   const size_t rANS_local_work = ans::ocl::kThreadsPerEncodingGroup;
   assert(rANS_global_work % rANS_local_work == 0);
+
+  cl_uint num_offsets = static_cast<cl_uint>(input_offsets.size());
+  assert(num_offsets == output_offsets.size());
 
   cl_event decode_ans_event;
   gpu_ctx->EnqueueOpenCLKernel<1>(
@@ -386,7 +387,7 @@ static std::vector<cl_event> DecompressDXTImage(const std::unique_ptr<GPUContext
     1, &build_table_event, &decode_ans_event,
 
     // Kernel arguments
-    table_region, ans_input_offsets, ans_output_offsets, input_buf, decmp_buf);
+    table_region, num_offsets, ans_input_offsets, ans_output_offsets, input_buf, decmp_buf);
   CHECK_CL(clReleaseEvent, build_table_event);
   CHECK_CL(clReleaseMemObject, table_region);
   CHECK_CL(clReleaseMemObject, input_buf);
@@ -556,7 +557,7 @@ static std::vector<cl_event> DecompressDXTImage(const std::unique_ptr<GPUContext
     };
 
     cl_event next_event;
-    gpu_ctx->EnqueueOpenCLKernel<1>(
+    gpu_ctx->EnqueueOpenCLKernel<2>(
       // Queue to run on
       queue,
 
@@ -676,9 +677,9 @@ std::vector<cl_event> LoadCompressedDXT(const std::unique_ptr<gpu::GPUContext> &
 }
 
 std::vector<cl_event> LoadCompressedDXTs(const std::unique_ptr<gpu::GPUContext> &gpu_ctx,
-                                         const std::vector<GenTCHeader> &hdr, cl_command_queue queue,
+                                         const std::vector<GenTCHeader> &hdrs, cl_command_queue queue,
                                          cl_mem cmp_data, cl_mem output, cl_event init) {
-  return{};
+  return std::move(DecompressDXTImage(gpu_ctx, hdrs, queue, cmp_data, init, output));
 }
 
 

@@ -12,7 +12,7 @@ typedef struct AnsTableEntry_Struct {
 	uchar  symbol;
 } AnsTableEntry;
 
-void ans_decode_single(const    __constant AnsTableEntry *table,
+void ans_decode_single(const    __global   AnsTableEntry *table,
                        volatile __local    uint          *normalization_mask,
                        const               uint           stream_group_id,
                        const    __global   uchar         *data,
@@ -26,7 +26,7 @@ void ans_decode_single(const    __constant AnsTableEntry *table,
 
 	for (int i = 0; i < NUM_ENCODED_SYMBOLS; ++i) {
 		const uint symbol = state & (ANS_TABLE_SIZE - 1);
-		const __constant AnsTableEntry *entry = table + symbol;
+		const __global AnsTableEntry *entry = table + symbol;
 		state = (state >> ANS_TABLE_SIZE_LOG) * entry->freq
 			- entry->cum_freq + symbol;
 
@@ -64,7 +64,7 @@ void ans_decode_single(const    __constant AnsTableEntry *table,
 	}
 }
 
-__kernel void ans_decode(const __constant AnsTableEntry *global_table,
+__kernel void ans_decode(const __global   AnsTableEntry *global_table,
                          const __global   uchar         *data,
                                __global   uchar         *out_stream) {
 	// Load everything into local memory
@@ -85,7 +85,8 @@ __kernel void ans_decode(const __constant AnsTableEntry *global_table,
 	ans_decode_single(global_table, &normalization_mask, get_group_id(0), data, out_stream);
 }
 
-__kernel void ans_decode_multiple(const __constant AnsTableEntry *global_table,
+__kernel void ans_decode_multiple(const __global   AnsTableEntry *global_table,
+                                  const            uint           num_offsets,
                                   const __global   uint          *input_offsets,
 								  const __global   uint          *output_offsets,
                                   const __global   uchar         *data,
@@ -94,7 +95,7 @@ __kernel void ans_decode_multiple(const __constant AnsTableEntry *global_table,
   
   // Binary search...
   uint low = 0;
-  uint high = 3; // num_output_offsets - 1
+  uint high = num_offsets - 1;
   uint x = (high + low) / 2;
 
   // condition:
@@ -102,7 +103,7 @@ __kernel void ans_decode_multiple(const __constant AnsTableEntry *global_table,
   const uint iters = 32 - clz(high - low + 1);
   for (int i = 0; i < iters; ++i) {
     uint too_high = (uint)(id < output_offsets[x]);
-	uint too_low = (uint)(x < 3 && output_offsets[x + 1] <= id);
+	uint too_low = (uint)(x < (num_offsets - 1) && output_offsets[x + 1] <= id);
 
 	low = too_low * max(low + 1, x) + ((1 - too_low) * low);
 	high = too_high * min(high - 1, x) + ((1 - too_high) * high);
