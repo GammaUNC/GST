@@ -685,7 +685,6 @@ std::vector<std::unique_ptr<Texture> > LoadTextures(const std::unique_ptr<gpu::G
   //   - Run all of the requests that need it.
   //   - Collect GL/CL interop resources for each request
   GLuint pbo;
-  CHECK_GL(glGenBuffers, 1, &pbo);
   cl_mem pbo_cl;
 
   std::vector<PBORequest *> pbo_reqs;
@@ -733,13 +732,10 @@ std::vector<std::unique_ptr<Texture> > LoadTextures(const std::unique_ptr<gpu::G
     }
 
     // Wait for the work to finish
-    start = std::chrono::high_resolution_clock::now();
     {
       std::unique_lock<std::mutex> lock(m);
       done.wait(lock, [&]() { return num_running == num_finished; });
     }
-    end = std::chrono::high_resolution_clock::now();
-    idle_time += std::chrono::duration<double>(end-start).count();
 
     if (acquire) {
       // Collect all of our pbo requests if we need to acquire them
@@ -758,6 +754,7 @@ std::vector<std::unique_ptr<Texture> > LoadTextures(const std::unique_ptr<gpu::G
       }
 
       start = std::chrono::high_resolution_clock::now();
+      CHECK_GL(glGenBuffers, 1, &pbo);
       CHECK_GL(glBindBuffer, GL_PIXEL_UNPACK_BUFFER, pbo);
       CHECK_GL(glBufferData, GL_PIXEL_UNPACK_BUFFER, total_pbo_size, NULL, GL_STREAM_COPY);
 
@@ -772,8 +769,6 @@ std::vector<std::unique_ptr<Texture> > LoadTextures(const std::unique_ptr<gpu::G
       CHECK_CL(clEnqueueAcquireGLObjects, ctx->GetDefaultCommandQueue(), 1, &pbo_cl, 0, NULL, &acquire_event);
       end = std::chrono::high_resolution_clock::now();
       interop_time += std::chrono::duration<double>(end - start).count();
-
-      // Acquire all of the CL buffers at once...
       std::cout << "Loading textures acquire GL time: " << interop_time << "s" << std::endl;
 
       // Set the event for all the requests so that they know
@@ -822,6 +817,7 @@ std::vector<std::unique_ptr<Texture> > LoadTextures(const std::unique_ptr<gpu::G
     req->LoadTexture();
   }
 
+  // Acquire all of the CL buffers at once...
   std::cout << "Loading textures idle time: " << idle_time << "s" << std::endl;
   std::cout << "Loading textures interop time: " << interop_time << "s" << std::endl;
   CHECK_GL(glDeleteBuffers, 1, &pbo);
@@ -830,16 +826,26 @@ std::vector<std::unique_ptr<Texture> > LoadTextures(const std::unique_ptr<gpu::G
 
 int main(int argc, char* argv[] ) {
     if (argc <= 1) {
-      std::cerr << "Usage: " << argv[0] << " [-p] <directory>" << std::endl;
+      std::cerr << "Usage: " << argv[0] << " [-p|-s] <directory>" << std::endl;
       exit(EXIT_FAILURE);
     }
 
-    const char *dirname = argv[1];
     bool profiling = false;
-    if (argc == 3 && strncmp(argv[1], "-p", 2) == 0) {
-      profiling = true;
-      dirname = argv[2];
+    bool async = true;
+
+    uint32_t next_arg = 1;
+    for (;;) {
+      if (strncmp(argv[next_arg], "-p", 3) == 0) {
+        profiling = true;
+      } else if (strncmp(argv[next_arg], "-s", 3) == 0) {
+        async = false;
+      } else {
+        break;
+      }
+      next_arg++;
     }
+
+    const char *dirname = argv[next_arg];
 
     glfwSetErrorCallback(error_callback);
     if (!glfwInit())
@@ -905,8 +911,7 @@ int main(int argc, char* argv[] ) {
     std::chrono::time_point<std::chrono::high_resolution_clock> start, end;
     start = std::chrono::high_resolution_clock::now();
     std::vector<std::unique_ptr<Texture> > texs =
-      LoadTextures(ctx, texLoc, posLoc, uvLoc, true, dirname);
-      // LoadTextures(ctx, texLoc, posLoc, uvLoc, false, dirname);
+      LoadTextures(ctx, texLoc, posLoc, uvLoc, async, dirname);
     end = std::chrono::high_resolution_clock::now();
     std::cout << "Loaded " << texs.size() << " texture"
               << ((texs.size() == 1) ? "" : "s") << " in "

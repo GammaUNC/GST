@@ -649,7 +649,6 @@ std::vector<std::unique_ptr<Texture> > LoadTextures(const std::unique_ptr<gpu::G
     std::unique_lock<std::mutex> lock(m);
     done.wait(lock, [&]() { return num_running == num_finished; });
   } end = std::chrono::high_resolution_clock::now();
-
   idle_time += std::chrono::duration<double>(end-start).count();
 
   // Collect all of our pbo requests if we need to acquire them
@@ -668,59 +667,12 @@ std::vector<std::unique_ptr<Texture> > LoadTextures(const std::unique_ptr<gpu::G
 
   GLuint pbo;
   if (total_pbo_size > 0) {
-    CHECK_GL(glGenBuffers, 1, &pbo);
-
     cl_int errCreateBuffer;
     cl_context cl_ctx = ctx->GetOpenCLContext();
     cl_command_queue d_queue = ctx->GetDefaultCommandQueue();
 
-    size_t input_mem_sz = 0;
-    for (const auto &req : pbo_reqs) {
-      input_mem_sz += req->in_sz;
-    }
-
-    // Create pinned host memory and device memory
-    cl_mem_flags pinned_flags = CL_MEM_READ_WRITE | CL_MEM_ALLOC_HOST_PTR;
-    cl_mem cmp_buf_host = clCreateBuffer(cl_ctx, pinned_flags, input_mem_sz, NULL, &errCreateBuffer);
-    CHECK_CL((cl_int), errCreateBuffer);
-
-    cl_mem cmp_buf = clCreateBuffer(cl_ctx, CL_MEM_READ_ONLY, input_mem_sz, NULL, &errCreateBuffer);
-    CHECK_CL((cl_int), errCreateBuffer);
-
-    // Map the host memory to the application's address space...
-    cl_event map_event;
-    void *pinned_mem = clEnqueueMapBuffer(d_queue, cmp_buf_host, CL_TRUE, CL_MAP_WRITE | CL_MAP_READ,
-                                          0, input_mem_sz, 0, NULL, &map_event, &errCreateBuffer);
-    CHECK_CL((cl_int), errCreateBuffer);
-
-    size_t input_offset = 0;
-    for (const auto &req : pbo_reqs) {
-      memcpy(reinterpret_cast<uint8_t *>(pinned_mem) + input_offset, req->input, 4 * 512);
-      input_offset += 4 * 512;
-    }
-
-    std::vector<GenTC::GenTCHeader> input_hdrs (pbo_reqs.size());
-    auto next_hdr = input_hdrs.begin();
-    for (const auto &req : pbo_reqs) {
-      size_t req_sz = req->in_sz - 4 * 512;
-      memcpy(reinterpret_cast<uint8_t *>(pinned_mem) + input_offset, req->input + 4 * 512, req_sz);
-      input_offset += req_sz;
-
-      memcpy(&(*next_hdr), req->hdr, sizeof(GenTC::GenTCHeader));
-      next_hdr++;
-    }
-
-    // Unmap and enqueue copy
-    cl_event unmap_event;
-    CHECK_CL(clEnqueueUnmapMemObject, d_queue, cmp_buf_host, pinned_mem, 1, &map_event, &unmap_event);
-
-    cl_event copy_event;
-    CHECK_CL(clEnqueueCopyBuffer, d_queue, cmp_buf_host, cmp_buf, 0, 0, input_mem_sz,
-                                  1, &unmap_event, &copy_event);
-    CHECK_CL(clReleaseEvent, map_event);
-    CHECK_CL(clReleaseEvent, unmap_event);
-
     start = std::chrono::high_resolution_clock::now();
+    CHECK_GL(glGenBuffers, 1, &pbo);
     CHECK_GL(glBindBuffer, GL_PIXEL_UNPACK_BUFFER, pbo);
     CHECK_GL(glBufferData, GL_PIXEL_UNPACK_BUFFER, total_pbo_size, NULL, GL_STREAM_COPY);
 
@@ -731,22 +683,141 @@ std::vector<std::unique_ptr<Texture> > LoadTextures(const std::unique_ptr<gpu::G
     // Get the PBO
     cl_mem pbo_cl = clCreateFromGLBuffer(cl_ctx, CL_MEM_READ_WRITE, pbo, &errCreateBuffer);
     CHECK_CL((cl_int), errCreateBuffer);
-
-    cl_event acquire_event;
-    CHECK_CL(clEnqueueAcquireGLObjects, d_queue, 1, &pbo_cl, 0, NULL, &acquire_event);
     end = std::chrono::high_resolution_clock::now();
     interop_time += std::chrono::duration<double>(end - start).count();
 
-    cl_event init_event;
-    cl_event barrier_events[2] = { acquire_event, copy_event };
-    CHECK_CL(clEnqueueBarrierWithWaitList, d_queue, 2, barrier_events, &init_event);
-    CHECK_CL(clReleaseEvent, acquire_event);
-    CHECK_CL(clReleaseEvent, copy_event);
+    static const size_t kPageSize = 32;
+    const size_t kNumPages = pbo_reqs.size() / kPageSize;
+    std::vector<size_t> input_sizes;
+    input_sizes.reserve(pbo_reqs.size() / kPageSize);
 
-    std::vector<cl_event> dxt_events =
-      std::move(GenTC::LoadCompressedDXTs(ctx, input_hdrs, d_queue, cmp_buf, pbo_cl, init_event));
-    CHECK_CL(clReleaseEvent, init_event);
-    CHECK_CL(clReleaseMemObject, cmp_buf);
+    size_t input_mem_sz = 0;
+    for (size_t i = 0; i < pbo_reqs.size(); ++i) {
+      if (i % kPageSize == 0) {
+        input_sizes.push_back(input_mem_sz);
+      }
+      input_mem_sz += pbo_reqs[i]->in_sz;
+    }
+
+    // Create pinned host memory and device memory
+    cl_mem_flags pinned_flags = CL_MEM_READ_WRITE | CL_MEM_ALLOC_HOST_PTR;
+    cl_mem cmp_buf_host = clCreateBuffer(cl_ctx, pinned_flags, input_mem_sz, NULL, &errCreateBuffer);
+    CHECK_CL((cl_int), errCreateBuffer);
+
+    // Map the host memory to the application's address space...
+    void *pinned_mem = clEnqueueMapBuffer(d_queue, cmp_buf_host, CL_TRUE, CL_MAP_WRITE | CL_MAP_READ,
+                                          0, input_mem_sz, 0, NULL, NULL, &errCreateBuffer);
+    CHECK_CL((cl_int), errCreateBuffer);
+
+    cl_event user_event = clCreateUserEvent(cl_ctx, &errCreateBuffer);
+    CHECK_CL((cl_int), errCreateBuffer);
+
+    // Unmap and enqueue copy
+    cl_event unmap_event;
+    CHECK_CL(clEnqueueUnmapMemObject, d_queue, cmp_buf_host, pinned_mem, 1, &user_event, &unmap_event);
+
+    start = std::chrono::high_resolution_clock::now();
+    cl_event acquire_event;
+    CHECK_CL(clEnqueueAcquireGLObjects, d_queue, 1, &pbo_cl, 1, &user_event, &acquire_event);
+    end = std::chrono::high_resolution_clock::now();
+    interop_time += std::chrono::duration<double>(end - start).count();
+
+    // Queue up a few pages of work
+    std::vector<cl_event> dxt_events;
+    dxt_events.reserve(2 * pbo_reqs.size());
+
+    num_finished.store(0);
+    num_running = 0;
+
+    size_t page_id = 0;
+    auto page_start = pbo_reqs.begin();
+    auto page_end = pbo_reqs.begin() + kPageSize;
+    for (auto input_sz : input_sizes) {
+
+      if (page_id > 0) {
+        page_start = page_end;
+        page_end = std::min(page_end + kPageSize, pbo_reqs.end());
+      }
+
+      pool.push([page_start, page_end, pinned_mem, input_sz, page_id, unmap_event, user_event, kNumPages,
+                 acquire_event, cmp_buf_host, pbo_cl, &dxt_events, &m, &done, &num_finished, &ctx](int) {
+        size_t input_offset = input_sz;
+        for (auto it = page_start; it != page_end; it++) {
+          auto req = *it;
+          memcpy(reinterpret_cast<uint8_t *>(pinned_mem) + input_offset, req->input, 4 * 512);
+          input_offset += 4 * 512;
+        }
+
+        std::vector<GenTC::GenTCHeader> input_hdrs(page_end - page_start);
+        auto next_hdr = input_hdrs.begin();
+        for (auto it = page_start; it != page_end; it++) {
+          auto req = *it;
+          size_t req_sz = req->in_sz - 4 * 512;
+          memcpy(reinterpret_cast<uint8_t *>(pinned_mem) + input_offset, req->input + 4 * 512, req_sz);
+          input_offset += req_sz;
+
+          memcpy(&(*next_hdr), req->hdr, sizeof(GenTC::GenTCHeader));
+          next_hdr++;
+        }
+
+        // Set the user event
+        if (page_id == kNumPages - 1) {
+          CHECK_CL(clSetUserEventStatus, user_event, CL_COMPLETE);
+        }
+
+        cl_int errCreateBuffer;
+        cl_context cl_ctx = ctx->GetOpenCLContext();
+        cl_command_queue d_queue = ctx->GetDefaultCommandQueue();
+        cl_command_queue queue = ctx->GetNextQueue();
+
+        size_t cmp_buf_sz = input_offset - input_sz;
+        cl_mem cmp_buf = clCreateBuffer(cl_ctx, CL_MEM_READ_ONLY, cmp_buf_sz, NULL, &errCreateBuffer);
+        CHECK_CL((cl_int), errCreateBuffer);
+
+        cl_event copy_event;
+        CHECK_CL(clEnqueueCopyBuffer, queue, cmp_buf_host, cmp_buf, input_sz, 0, cmp_buf_sz,
+                                      1, &unmap_event, &copy_event);
+
+        cl_event init_event;
+        cl_event barrier_events[2] = { acquire_event, copy_event };
+        CHECK_CL(clEnqueueBarrierWithWaitList, queue, 2, barrier_events, &init_event);
+        CHECK_CL(clReleaseEvent, copy_event);
+
+        size_t kPageSizeBytes = kPageSize * input_hdrs[0].width * input_hdrs[0].height / 2;
+        cl_buffer_region dst_region;
+        dst_region.origin = page_id * kPageSizeBytes;
+        dst_region.size = kPageSizeBytes;
+        assert((dst_region.origin % (ctx->GetDeviceInfo<cl_uint>(CL_DEVICE_MEM_BASE_ADDR_ALIGN) / 8)) == 0);
+
+        cl_mem dst = clCreateSubBuffer(pbo_cl, CL_MEM_READ_WRITE, CL_BUFFER_CREATE_TYPE_REGION,
+                                       &dst_region, &errCreateBuffer);
+        CHECK_CL((cl_int), errCreateBuffer);
+
+        std::vector<cl_event> ret_events =
+          std::move(GenTC::LoadCompressedDXTs(ctx, input_hdrs, queue, cmp_buf, dst, init_event));
+        CHECK_CL(clReleaseEvent, init_event);
+        CHECK_CL(clReleaseMemObject, cmp_buf);
+        CHECK_CL(clReleaseMemObject, dst);
+
+        std::unique_lock<std::mutex> lock(m);
+        dxt_events.insert(dxt_events.end(), ret_events.begin(), ret_events.end());
+        num_finished++;
+        done.notify_one();
+      });
+
+      num_running++;
+      page_id++;
+    }
+
+    // Wait for work to finish
+    {
+      std::unique_lock<std::mutex> lock(m);
+      done.wait(lock, [&]() { return num_running == num_finished; });
+    }
+
+    CHECK_CL(clReleaseEvent, user_event);
+    CHECK_CL(clReleaseEvent, unmap_event);
+    CHECK_CL(clReleaseEvent, acquire_event);
     CHECK_CL(clReleaseMemObject, cmp_buf_host);
 
     // Acquire all of the CL buffers at once...
@@ -801,12 +872,24 @@ int main(int argc, char* argv[] ) {
       exit(EXIT_FAILURE);
     }
 
-    const char *dirname = argv[1];
     bool profiling = false;
-    if (argc == 3 && strncmp(argv[1], "-p", 2) == 0) {
-      profiling = true;
-      dirname = argv[2];
+    bool async = true;
+
+    uint32_t next_arg = 1;
+    for (;;) {
+      if (strncmp(argv[next_arg], "-p", 3) == 0) {
+        profiling = true;
+      }
+      else if (strncmp(argv[next_arg], "-s", 3) == 0) {
+        async = false;
+      }
+      else {
+        break;
+      }
+      next_arg++;
     }
+
+    const char *dirname = argv[next_arg];
 
     glfwSetErrorCallback(error_callback);
     if (!glfwInit())
@@ -872,8 +955,7 @@ int main(int argc, char* argv[] ) {
     std::chrono::time_point<std::chrono::high_resolution_clock> start, end;
     start = std::chrono::high_resolution_clock::now();
     std::vector<std::unique_ptr<Texture> > texs =
-      LoadTextures(ctx, texLoc, posLoc, uvLoc, true, dirname);
-      // LoadTextures(ctx, texLoc, posLoc, uvLoc, false, dirname);
+      LoadTextures(ctx, texLoc, posLoc, uvLoc, async, dirname);
     end = std::chrono::high_resolution_clock::now();
     std::cout << "Loaded " << texs.size() << " texture"
               << ((texs.size() == 1) ? "" : "s") << " in "
