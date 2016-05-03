@@ -187,14 +187,12 @@ void LoadGTC(const std::unique_ptr<gpu::GPUContext> &ctx,
   CHECK_CL(clEnqueueAcquireGLObjects, queue, 1, &output, 0, NULL, &acquire_event);
 
   // Load it
-  std::vector<cl_event> cmp_events =
-    std::move(GenTC::LoadCompressedDXT(ctx, hdr, ctx->GetDefaultCommandQueue(), cmp_buf, output, acquire_event));
+  cl_event cmp_event =
+    std::move(GenTC::LoadCompressedDXT(ctx, hdr, queue, cmp_buf, output, acquire_event));
 
   // Release the PBO
   cl_event release_event;
-  CHECK_CL(clEnqueueReleaseGLObjects, queue, 1, &output,
-                                      static_cast<cl_uint>(cmp_events.size()),
-                                      cmp_events.data(), &release_event);
+  CHECK_CL(clEnqueueReleaseGLObjects, queue, 1, &output, 1, &cmp_event, &release_event);
 
   CHECK_CL(clFlush, ctx->GetDefaultCommandQueue());
 
@@ -206,9 +204,7 @@ void LoadGTC(const std::unique_ptr<gpu::GPUContext> &ctx,
   CHECK_CL(clReleaseMemObject, output);
   CHECK_CL(clReleaseEvent, acquire_event);
   CHECK_CL(clReleaseEvent, release_event);
-  for (auto event : cmp_events) {
-    CHECK_CL(clReleaseEvent, event);
-  }
+  CHECK_CL(clReleaseEvent, cmp_event);
 
   // Copy the texture over
   GLsizei width = static_cast<GLsizei>(hdr.width);

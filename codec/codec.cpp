@@ -235,9 +235,9 @@ std::vector<uint8_t> CompressDXT(int width, int height, const std::vector<uint8_
 //
 ////////////////////////////////////////////////////////////////////////////////
 
-static std::vector<cl_event> DecompressDXTImage(const std::unique_ptr<GPUContext> &gpu_ctx,
-                                                const std::vector<GenTCHeader> &hdrs, cl_command_queue queue,
-                                                cl_mem cmp_data, cl_event init_event, cl_mem output) {
+static cl_event DecompressDXTImage(const std::unique_ptr<GPUContext> &gpu_ctx,
+                                   const std::vector<GenTCHeader> &hdrs, cl_command_queue queue,
+                                   cl_mem cmp_data, cl_event init_event, cl_mem output) {
   // Queue the decompression...
   cl_int errCreateBuffer;
 
@@ -586,7 +586,7 @@ static std::vector<cl_event> DecompressDXTImage(const std::unique_ptr<GPUContext
   CHECK_CL(clReleaseMemObject, scratch);
 
   // Send back the events...
-  return { assembly_event };
+  return assembly_event;
 }
 
 cl_mem UploadData(const std::unique_ptr<GPUContext> &gpu_ctx,
@@ -626,16 +626,15 @@ std::vector<uint8_t>  DecompressDXTBuffer(const std::unique_ptr<GPUContext> &gpu
 #endif
 
   // Queue the decompression...
-  std::vector<cl_event> dxt_events =
-    DecompressDXTImage(gpu_ctx, { hdr }, queue, cmp_buf, init_event, dxt_output);
+  cl_event dxt_event = DecompressDXTImage(gpu_ctx, { hdr }, queue, cmp_buf, init_event, dxt_output);
 
   // Block on read
   std::vector<uint8_t> decmp_data(dxt_size, 0xFF);
   CHECK_CL(clEnqueueReadBuffer, queue, dxt_output, CL_TRUE, 0, dxt_size, decmp_data.data(),
-                                static_cast<cl_uint>(dxt_events.size()), dxt_events.data(), NULL);
+                                1, &dxt_event, NULL);
 
   CHECK_CL(clReleaseMemObject, cmp_buf);
-  for (auto e : dxt_events) { CHECK_CL(clReleaseEvent, e); }
+  CHECK_CL(clReleaseEvent, dxt_event);
   CHECK_CL(clReleaseMemObject, dxt_output);
   CHECK_CL(clReleaseEvent, init_event);
   return std::move(decmp_data);
@@ -672,16 +671,16 @@ bool TestDXT(const std::unique_ptr<gpu::GPUContext> &gpu_ctx,
   return true;
 }
 
-std::vector<cl_event> LoadCompressedDXT(const std::unique_ptr<gpu::GPUContext> &gpu_ctx,
-                                        const GenTCHeader &hdr, cl_command_queue queue,
-                                        cl_mem cmp_data, cl_mem output, cl_event init) {
-  return std::move(DecompressDXTImage(gpu_ctx, { hdr }, queue, cmp_data, init, output));
+cl_event LoadCompressedDXT(const std::unique_ptr<gpu::GPUContext> &gpu_ctx,
+                           const GenTCHeader &hdr, cl_command_queue queue,
+                           cl_mem cmp_data, cl_mem output, cl_event init) {
+  return DecompressDXTImage(gpu_ctx, { hdr }, queue, cmp_data, init, output);
 }
 
-std::vector<cl_event> LoadCompressedDXTs(const std::unique_ptr<gpu::GPUContext> &gpu_ctx,
-                                         const std::vector<GenTCHeader> &hdrs, cl_command_queue queue,
-                                         cl_mem cmp_data, cl_mem output, cl_event init) {
-  return std::move(DecompressDXTImage(gpu_ctx, hdrs, queue, cmp_data, init, output));
+cl_event LoadCompressedDXTs(const std::unique_ptr<gpu::GPUContext> &gpu_ctx,
+                            const std::vector<GenTCHeader> &hdrs, cl_command_queue queue,
+                            cl_mem cmp_data, cl_mem output, cl_event init) {
+  return DecompressDXTImage(gpu_ctx, hdrs, queue, cmp_data, init, output);
 }
 
 

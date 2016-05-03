@@ -793,14 +793,13 @@ std::vector<std::unique_ptr<Texture> > LoadTextures(const std::unique_ptr<gpu::G
                                        &dst_region, &errCreateBuffer);
         CHECK_CL((cl_int), errCreateBuffer);
 
-        std::vector<cl_event> ret_events =
-          std::move(GenTC::LoadCompressedDXTs(ctx, input_hdrs, queue, cmp_buf, dst, init_event));
+        cl_event ret_event = GenTC::LoadCompressedDXTs(ctx, input_hdrs, queue, cmp_buf, dst, init_event);
         CHECK_CL(clReleaseEvent, init_event);
         CHECK_CL(clReleaseMemObject, cmp_buf);
         CHECK_CL(clReleaseMemObject, dst);
 
         std::unique_lock<std::mutex> lock(m);
-        dxt_events.insert(dxt_events.end(), ret_events.begin(), ret_events.end());
+        dxt_events.push_back(ret_event);
         num_finished++;
         done.notify_one();
       });

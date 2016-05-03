@@ -417,7 +417,7 @@ class AsyncGenTCReq : public AsyncTexRequest {
 #endif
   }
 
-  virtual std::vector<cl_event> QueueDXT() {
+  virtual cl_event QueueDXT() {
     // Load it
     cl_event wait_events[] = {
 		  _write_event,
@@ -437,7 +437,7 @@ class AsyncGenTCReq : public AsyncTexRequest {
 
     cl_event init_event;
     CHECK_CL(clEnqueueBarrierWithWaitList, _queue, num_wait_events, wait_events, &init_event);
-    std::vector<cl_event> result = std::move(GenTC::LoadCompressedDXT(_ctx, _hdr, _queue, _cmp_buf, dst, init_event));
+    cl_event result = GenTC::LoadCompressedDXT(_ctx, _hdr, _queue, _cmp_buf, dst, init_event);
     CHECK_CL(clReleaseEvent, init_event);
     CHECK_CL(clReleaseMemObject, dst);
     return result;
@@ -663,9 +663,9 @@ std::vector<std::unique_ptr<Texture> > LoadTextures(const std::unique_ptr<gpu::G
 
       // Post-acquire GL
       req->QueueWork([&fname, &ctx, &dxt_events, &dxt_events_mutex, req]() {
-        std::vector<cl_event> es = reinterpret_cast<AsyncGenTCReq *>(req)->QueueDXT();
+        cl_event e = reinterpret_cast<AsyncGenTCReq *>(req)->QueueDXT();
         std::unique_lock<std::mutex> lock(dxt_events_mutex);
-        dxt_events.insert(dxt_events.end(), es.begin(), es.end());
+        dxt_events.push_back(e);
       });
     } else {
       if (strncmp(filenames[i].c_str() + len - 4, ".ktx", 4) == 0 ||
