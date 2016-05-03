@@ -1,18 +1,36 @@
 #pragma OPENCL EXTENSION cl_khr_byte_addressable_store : enable
 
+int Get(const __global char *planes, uint offset) {
+  const uint idx = get_global_size(0) * offset + get_global_id(0);
+  return (int)(planes[idx]);
+}
+
+int GetY(const __global char *planes, uint endpoint_idx) {
+  return Get(planes, endpoint_idx);
+}
+
+int GetCo(const __global char *planes, uint endpoint_idx) {
+  return Get(planes, 2 + 2 * endpoint_idx);
+}
+
+int GetCg(const __global char *planes, uint endpoint_idx) {
+  return Get(planes, 2 + 2 * endpoint_idx + 1);
+}
+
+void YCoCgToRGB(int *y, int *co, int *cg) {
+  int t = *y - (*cg / 2);
+  int g = *cg + t;
+  *cg = (t - *co) / 2;
+  *y = *cg + *co;
+  *co = g;
+}
+
 ushort GetPixel(const __global char *planes, uint endpoint_idx) {
-  const uint y_idx = get_global_size(0) * endpoint_idx + get_global_id(0);
-  const uint co_idx = get_global_size(0) * (2 + 2 * endpoint_idx) + get_global_id(0);
-  const uint cg_idx = get_global_size(0) * (2 + 2 * endpoint_idx + 1) + get_global_id(0);
+  int r = GetY(planes, endpoint_idx);
+  int g = GetCo(planes, endpoint_idx);
+  int b = GetCg(planes, endpoint_idx);
 
-  int y = (int)(planes[y_idx]);
-  int co = (int)(planes[co_idx]);
-  int cg = (int)(planes[cg_idx]);
-
-  int t = y - (cg / 2);
-  int g = cg + t;
-  int b = (t - co) / 2;
-  int r = b + co;
+  YCoCgToRGB(&r, &g, &b);
 
   // RGB should be 565 at this point...
   ushort pixel = 0;
