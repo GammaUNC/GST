@@ -51,27 +51,18 @@ __kernel void decode_indices(const __global   uchar *global_index_data,
   out[2 * gidx + 1] = scratch[get_local_id(0)];
 }
 
-__kernel void collect_indices(const __global    int  *global_palette,
-                              const __constant uint  *global_offsets,
-							  const             int   stage,
+__kernel void collect_indices(const             int   stage,
 							  const            uint   num_vals,
 							        __global    int  *global_out) {
   __global int *out = global_out + 2 * num_vals * get_global_id(1);
-  const __global int *palette = global_palette + global_offsets[4 * get_global_id(1) + 2] / 4;
-  
-  // !SPEED! This should really just be two separate kernels
-  if (0 == stage) {
-	uint idx = 2 * get_global_id(0) + 1;
-    out[idx] = palette[out[idx]];
-  } else {
-    uint offset = 1 << (stage * LOCAL_SCAN_SIZE_LOG);
-    uint gidx = offset * get_group_id(0) - 1;
 
-    uint next_offset = 1 << ((stage - 1) * LOCAL_SCAN_SIZE_LOG);
-    uint tidx = next_offset * (get_global_id(0) + 1) - 1;
+  uint offset = 1 << (stage * LOCAL_SCAN_SIZE_LOG);
+  uint gidx = offset * get_group_id(0) - 1;
 
-    if (get_group_id(0) > 0 && get_local_id(0) != (LOCAL_SCAN_SIZE - 1)) {
-      out[2 * tidx + 1] += out[2 * gidx + 1];
-    }
+  uint next_offset = 1 << ((stage - 1) * LOCAL_SCAN_SIZE_LOG);
+  uint tidx = next_offset * (get_global_id(0) + 1) - 1;
+
+  if (get_group_id(0) > 0 && get_local_id(0) != (LOCAL_SCAN_SIZE - 1)) {
+	out[2 * tidx + 1] += out[2 * gidx + 1];
   }
 }

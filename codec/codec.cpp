@@ -460,31 +460,6 @@ static std::vector<cl_event> DecompressDXTImage(const std::unique_ptr<GPUContext
     // Kernel arguments
     decmp_buf, ans_output_offsets, local_mem, inv_wavelet_output);
 
-  size_t collect_endpoints_global_work_size[3] = {
-    static_cast<size_t>(blocks_x * blocks_y),
-    2, // Number of endpoints per texture
-    hdrs.size(), // Number of textures
-  };
-
-  cl_event collect_endpoints_event;
-  gpu_ctx->EnqueueOpenCLKernel<3>(
-    // Queue to run on
-    queue,
-
-    // Kernel to run...
-    GenTC::kOpenCLKernels[GenTC::eOpenCLKernel_Endpoints], "collect_endpoints",
-
-    // Work size (global and local)
-    collect_endpoints_global_work_size, NULL,
-
-    // Events to depend on and return
-    1, &inv_wavelet_event, &collect_endpoints_event,
-
-    // Kernel arguments
-    inv_wavelet_output, output);
-  CHECK_CL(clReleaseEvent, inv_wavelet_event);
-  CHECK_CL(clReleaseMemObject, inv_wavelet_output);
-
   static const size_t kLocalScanSz = 128;
   static const size_t kLocalScanSzLog = 7;
 
@@ -543,7 +518,7 @@ static std::vector<cl_event> DecompressDXTImage(const std::unique_ptr<GPUContext
     num_decode_indices_vals >>= kLocalScanSzLog;
   }
 
-  while (stage >= 0) {
+  while (stage > 0) {
     num_decode_indices_vals = std::min<size_t>(num_vals, num_decode_indices_vals << kLocalScanSzLog);
 
     size_t collect_indices_global_work_sz[2] = {
@@ -571,20 +546,47 @@ static std::vector<cl_event> DecompressDXTImage(const std::unique_ptr<GPUContext
       1, &decode_event, &next_event,
 
       // Kernel arguments
-      decmp_buf, ans_output_offsets, stage, total_num_indices, output);
+      stage, total_num_indices, output);
 
     CHECK_CL(clReleaseEvent, decode_event);
     decode_event = next_event;
 
     stage--;
   }
+
+  size_t collect_endpoints_global_work_size[3] = {
+    static_cast<size_t>(blocks_x * blocks_y),
+    1,
+    hdrs.size(), // Number of textures
+  };
+
+  cl_event assembly_events[2] = { inv_wavelet_event, decode_event };
+  cl_event assembly_event;
+  gpu_ctx->EnqueueOpenCLKernel<3>(
+    // Queue to run on
+    queue,
+
+    // Kernel to run...
+    GenTC::kOpenCLKernels[GenTC::eOpenCLKernel_Assemble], "assemble_dxt",
+
+    // Work size (global and local)
+    collect_endpoints_global_work_size, NULL,
+
+    // Events to depend on and return
+    2, assembly_events, &assembly_event,
+
+    // Kernel arguments
+    decmp_buf, ans_output_offsets, inv_wavelet_output, output);
+  CHECK_CL(clReleaseEvent, decode_event);
+  CHECK_CL(clReleaseEvent, inv_wavelet_event);
+  CHECK_CL(clReleaseMemObject, inv_wavelet_output);
   CHECK_CL(clReleaseMemObject, decmp_buf);
   CHECK_CL(clReleaseMemObject, ans_input_offsets);
   CHECK_CL(clReleaseMemObject, ans_output_offsets);
   CHECK_CL(clReleaseMemObject, scratch);
 
   // Send back the events...
-  return { decode_event, collect_endpoints_event };
+  return { assembly_event };
 }
 
 cl_mem UploadData(const std::unique_ptr<GPUContext> &gpu_ctx,
@@ -700,7 +702,7 @@ bool InitializeDecoder(const std::unique_ptr<gpu::GPUContext> &gpu_ctx) {
     CL_KERNEL_WORK_GROUP_SIZE);
 
   ok = ok && 1 <= gpu_ctx->GetKernelWGInfo<size_t>(
-    GenTC::kOpenCLKernels[GenTC::eOpenCLKernel_Endpoints], "collect_endpoints",
+    GenTC::kOpenCLKernels[GenTC::eOpenCLKernel_Assemble], "assemble_dxt",
     CL_KERNEL_WORK_GROUP_SIZE);
 
   ok = ok && 128 <= gpu_ctx->GetKernelWGInfo<size_t>(
