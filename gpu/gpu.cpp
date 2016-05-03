@@ -376,9 +376,9 @@ static std::vector<cl_device_id> GetAllDevicesForContext(cl_context ctx) {
 
 GPUContext::~GPUContext() {
   GPUKernelCache::Instance(_ctx, _type, _version, _device)->Clear();
-  CHECK_CL(clReleaseCommandQueue, _command_queue);
-  for (size_t i = 0; i < _num_in_order_queues; ++i) {
-    CHECK_CL(clReleaseCommandQueue, _in_order_queues[i]);
+  CHECK_CL(clReleaseCommandQueue, _default_command_queue);
+  for (size_t i = 0; i < _num_work_queues; ++i) {
+    CHECK_CL(clReleaseCommandQueue, _work_queues[i]);
   }
   CHECK_CL(clReleaseContext, _ctx);
 }
@@ -480,18 +480,19 @@ std::unique_ptr<GPUContext> GPUContext::InitializeOpenCL(bool share_opengl) {
   char name_buf[256];
   CHECK_CL(clGetDeviceInfo, devices[0], CL_DEVICE_NAME, sizeof(name_buf), name_buf, NULL);
 
-  gpu_ctx->_num_in_order_queues = static_cast<size_t>(kMaxNumInOrderQueues);
+  gpu_ctx->_num_work_queues = static_cast<size_t>(kMaxNumWorkQueues);
   if (strstr(name_buf, "Pitcairn")) {
-    gpu_ctx->_num_in_order_queues = static_cast<size_t>(std::min(2, kMaxNumInOrderQueues));
+    gpu_ctx->_num_work_queues = std::min<size_t>(2, gpu_ctx->_num_work_queues);
   }
 
 #ifndef CL_VERSION_2_0
-  gpu_ctx->_command_queue = clCreateCommandQueue(ctx, gpu_ctx->_device, cq_props, &errCreateCommandQueue);
+  gpu_ctx->_default_command_queue =
+    clCreateCommandQueue(ctx, gpu_ctx->_device, cq_props, &errCreateCommandQueue);
   CHECK_CL((cl_int), errCreateCommandQueue);
 
-  for (size_t i = 0; i < gpu_ctx->_num_in_order_queues; ++i) {
-    gpu_ctx->_in_order_queues[i] =
-      clCreateCommandQueue(ctx, gpu_ctx->_device, 0, &errCreateCommandQueue);
+  for (size_t i = 0; i < gpu_ctx->_num_work_queues; ++i) {
+    gpu_ctx->_work_queues[i] =
+      clCreateCommandQueue(ctx, gpu_ctx->_device, cq_props, &errCreateCommandQueue);
     CHECK_CL((cl_int), errCreateCommandQueue);
   }
 #else
@@ -501,13 +502,13 @@ std::unique_ptr<GPUContext> GPUContext::InitializeOpenCL(bool share_opengl) {
     0
   };
 
-  gpu_ctx->_command_queue =
+  gpu_ctx->_default_command_queue =
     clCreateCommandQueueWithProperties(ctx, gpu_ctx->_device, cq_props_list, &errCreateCommandQueue);
   CHECK_CL((cl_int), errCreateCommandQueue);
 
-  for (size_t i = 0; i < gpu_ctx->_num_in_order_queues; ++i) {
-    gpu_ctx->_in_order_queues[i] =
-      clCreateCommandQueueWithProperties(ctx, gpu_ctx->_device, 0, &errCreateCommandQueue);
+  for (size_t i = 0; i < gpu_ctx->_num_work_queues; ++i) {
+    gpu_ctx->_work_queues[i] =
+      clCreateCommandQueueWithProperties(ctx, gpu_ctx->_device, cq_props_list, &errCreateCommandQueue);
     CHECK_CL((cl_int), errCreateCommandQueue);
   }
 #endif

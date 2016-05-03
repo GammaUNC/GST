@@ -43,22 +43,22 @@ namespace gpu {
     eOpenCLVersion_20
   };
 
-  static const int kMaxNumInOrderQueues = 4;
+  static const int kMaxNumWorkQueues = 4;
   class GPUContext {
   public:
     ~GPUContext();
     static std::unique_ptr<GPUContext> InitializeOpenCL(bool share_opengl);
 
-    cl_command_queue GetDefaultCommandQueue() const { return _command_queue; }
+    cl_command_queue GetDefaultCommandQueue() const { return _default_command_queue; }
     cl_command_queue GetNextQueue() const {
-      int next = _next_in_order_queue++;
-      return _in_order_queues[next % _num_in_order_queues];
+      int next = _next_work_queue++;
+      return _work_queues[next % _num_work_queues];
     }
 
     void FlushAllQueues() const {
-      CHECK_CL(clFlush, _command_queue);
-      for (size_t i = 0; i < _num_in_order_queues; ++i) {
-        CHECK_CL(clFlush, _in_order_queues[i]);
+      CHECK_CL(clFlush, _default_command_queue);
+      for (size_t i = 0; i < _num_work_queues; ++i) {
+        CHECK_CL(clFlush, _work_queues[i]);
       }
     }
 
@@ -120,7 +120,7 @@ namespace gpu {
     }
 
   private:
-    GPUContext() : _num_in_order_queues(0), _next_in_order_queue(0) { }
+    GPUContext() : _num_work_queues(0), _next_work_queue(0) { }
     GPUContext(const GPUContext &) { }
 
     void SetArgument(cl_kernel kernel, unsigned idx, LocalMemoryKernelArg mem) {
@@ -144,13 +144,13 @@ namespace gpu {
       SetArgument(kernel, idx + 1, rest...);
     }
 
-    cl_command_queue _command_queue;
+    cl_command_queue _default_command_queue;
     cl_device_id _device;
     cl_context _ctx;
 
-    size_t _num_in_order_queues;
-    mutable std::atomic_int _next_in_order_queue;
-    cl_command_queue _in_order_queues[kMaxNumInOrderQueues];
+    size_t _num_work_queues;
+    mutable std::atomic_int _next_work_queue;
+    cl_command_queue _work_queues[kMaxNumWorkQueues];
 
     std::mutex _enqueue_mutex;
 
