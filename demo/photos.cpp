@@ -432,7 +432,7 @@ class AsyncGenTCReq : public AsyncTexRequest {
     assert((region.origin % (_ctx->GetDeviceInfo<cl_uint>(CL_DEVICE_MEM_BASE_ADDR_ALIGN) / 8)) == 0);
 
     cl_int errCreateBuffer;
-    cl_mem dst = clCreateSubBuffer(_pbo.dst_buf, CL_MEM_READ_WRITE, CL_BUFFER_CREATE_TYPE_REGION, &region, &errCreateBuffer);
+    cl_mem dst = clCreateSubBuffer(_pbo.dst_buf, CL_MEM_WRITE_ONLY, CL_BUFFER_CREATE_TYPE_REGION, &region, &errCreateBuffer);
     CHECK_CL((cl_int), errCreateBuffer);
 
     cl_event init_event;
@@ -778,7 +778,7 @@ std::vector<std::unique_ptr<Texture> > LoadTextures(const std::unique_ptr<gpu::G
       start = std::chrono::high_resolution_clock::now();
       // Get the PBO
       cl_int errCreateBuffer;
-      pbo_cl = clCreateFromGLBuffer(ctx->GetOpenCLContext(), CL_MEM_READ_WRITE, pbo, &errCreateBuffer);
+      pbo_cl = clCreateFromGLBuffer(ctx->GetOpenCLContext(), CL_MEM_WRITE_ONLY, pbo, &errCreateBuffer);
       CHECK_CL((cl_int), errCreateBuffer);
       CHECK_CL(clEnqueueAcquireGLObjects, ctx->GetDefaultCommandQueue(), 1, &pbo_cl, 0, NULL, &acquire_event);
       end = std::chrono::high_resolution_clock::now();

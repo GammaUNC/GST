@@ -45,8 +45,6 @@
 #define CRND_HEADER_FILE_ONLY
 #include "crn_decomp.h"
 
-#define TEST_GTC
-
 static void error_callback(int error, const char* description)
 {
     fputs(description, stderr);
@@ -477,35 +475,35 @@ int main(int argc, char* argv[])
       glClear(GL_COLOR_BUFFER_BIT);
 
       std::ostringstream stream;
-#ifdef TEST_GTC
-      stream << "../test/dump_gtc/frame";
-      for (int i = 1000; i > 0; i /= 10) {
-        stream << (((gFrameNumber + 1) / i) % 10);
+      if (strstr(argv[1], "gtc")) {
+        stream << "../test/dump_gtc/frame";
+        for (int i = 1000; i > 0; i /= 10) {
+          stream << (((gFrameNumber + 1) / i) % 10);
+        }
+        stream << ".gtc";
+        LoadGTC(ctx, pbo, texID, stream.str());
+      } else if (strstr(argv[1], "crn")) {
+        stream << "../test/dump_crn/frame";
+        for (int i = 1000; i > 0; i /= 10) {
+          stream << (((gFrameNumber + 1) / i) % 10);
+        }
+        stream << ".crn";
+        LoadCRN(ctx, pbo, texID, stream.str());
+      } else if (strstr(argv[1], "dds")) {
+        stream << "../test/dump_dds/frame";
+        for (int i = 1000; i > 0; i /= 10) {
+          stream << (((gFrameNumber + 1) / i) % 10);
+        }
+        stream << ".dds";
+        LoadDDS(ctx, pbo, texID, stream.str());
+      } else if (strstr(argv[1], "jpg")) {
+        stream << "../test/dump_jpg/frame";
+        for (int i = 1000; i > 0; i /= 10) {
+          stream << (((gFrameNumber + 1) / i) % 10);
+        }
+        stream << ".jpg";
+        LoadJPG(ctx, pbo, texID, stream.str());
       }
-      stream << ".gtc";
-      LoadGTC(ctx, pbo, texID, stream.str());
-#elif defined TEST_CRN
-      stream << "../test/dump_crn/frame";
-      for (int i = 1000; i > 0; i /= 10) {
-        stream << (((gFrameNumber + 1) / i) % 10);
-      }
-      stream << ".crn";
-      LoadCRN(ctx, pbo, texID, stream.str());
-#elif defined TEST_DDS
-      stream << "../test/dump_dds/frame";
-      for (int i = 1000; i > 0; i /= 10) {
-        stream << (((gFrameNumber + 1) / i) % 10);
-      }
-      stream << ".dds";
-      LoadDDS(ctx, pbo, texID, stream.str());
-#elif defined TEST_JPG
-      stream << "../test/dump_jpg/frame";
-      for (int i = 1000; i > 0; i /= 10) {
-        stream << (((gFrameNumber + 1) / i) % 10);
-      }
-      stream << ".jpg";
-      LoadJPG(ctx, pbo, texID, stream.str());
-#endif
 
       glActiveTexture(GL_TEXTURE0);
       glBindTexture(GL_TEXTURE_2D, texID);

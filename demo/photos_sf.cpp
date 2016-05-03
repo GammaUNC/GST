@@ -681,7 +681,7 @@ std::vector<std::unique_ptr<Texture> > LoadTextures(const std::unique_ptr<gpu::G
     CHECK_GL(glFinish);
 
     // Get the PBO
-    cl_mem pbo_cl = clCreateFromGLBuffer(cl_ctx, CL_MEM_READ_WRITE, pbo, &errCreateBuffer);
+    cl_mem pbo_cl = clCreateFromGLBuffer(cl_ctx, CL_MEM_WRITE_ONLY, pbo, &errCreateBuffer);
     CHECK_CL((cl_int), errCreateBuffer);
     end = std::chrono::high_resolution_clock::now();
     interop_time += std::chrono::duration<double>(end - start).count();
@@ -789,7 +789,7 @@ std::vector<std::unique_ptr<Texture> > LoadTextures(const std::unique_ptr<gpu::G
         dst_region.size = kPageSizeBytes;
         assert((dst_region.origin % (ctx->GetDeviceInfo<cl_uint>(CL_DEVICE_MEM_BASE_ADDR_ALIGN) / 8)) == 0);
 
-        cl_mem dst = clCreateSubBuffer(pbo_cl, CL_MEM_READ_WRITE, CL_BUFFER_CREATE_TYPE_REGION,
+        cl_mem dst = clCreateSubBuffer(pbo_cl, CL_MEM_WRITE_ONLY, CL_BUFFER_CREATE_TYPE_REGION,
                                        &dst_region, &errCreateBuffer);
         CHECK_CL((cl_int), errCreateBuffer);
 
