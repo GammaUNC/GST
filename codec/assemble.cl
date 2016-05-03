@@ -44,6 +44,7 @@ ushort GetPixel(const __global char *planes, uint endpoint_idx) {
 __kernel void assemble_dxt(const __global    int  *global_palette,
                            const __constant uint  *global_offsets,
                            const __global   char  *endpoint_planes,
+						   const __global    int  *indices,
 						         __global ushort  *global_out) {
 
   const uint global_offset = get_global_size(0) * 6 * get_global_id(1);
@@ -52,10 +53,11 @@ __kernel void assemble_dxt(const __global    int  *global_palette,
   ushort ep2 = GetPixel(endpoint_planes + global_offset, 1);
 
   __global ushort *out = global_out + get_global_id(1) * get_global_size(0) * 4;
-  out[4*get_global_id(0) + 0] = ep1;
-  out[4*get_global_id(0) + 1] = ep2;
+  out[4 * get_global_id(0) + 0] = ep1;
+  out[4 * get_global_id(0) + 1] = ep2;
 
-  __global uint *indices = (__global uint *)(out + 4*get_global_id(0) + 2);
   const __global int *palette = global_palette + global_offsets[4 * get_global_id(1) + 2] / 4;
-  *indices = palette[*indices];
+  const uint plt_idx = indices[get_global_id(1) * get_global_size(0) + get_global_id(0)];
+  __global uint *out_indices = (__global uint *)(out) + 2 * get_global_id(0) + 1;
+  *out_indices = palette[plt_idx];
 }

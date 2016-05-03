@@ -7,19 +7,21 @@ __kernel void decode_indices(const __global   uchar *global_index_data,
                              const __constant uint  *global_offsets,
                              const            uint   stage,
 							 const            uint   num_vals,
-							       __global    int  *global_out) {
+							       __global   int   *global_out) {
   const __global uchar *const index_data =
     global_index_data + global_offsets[4 * get_global_id(1) + 3];
-  __global int *const out = global_out + 2 * num_vals * get_global_id(1);
+
+  __global int *const out = global_out + num_vals * get_global_id(1);
   __local int scratch[LOCAL_SCAN_SIZE];
 
   // First read in data
+  // !SPEED! This almost definitely causes bank conflicts for stage > 0.
   const uint idx_offset = (1 << (stage * LOCAL_SCAN_SIZE_LOG));
   const uint gidx = idx_offset * (get_global_id(0) + 1) - 1;
   if (0 == stage) {
     scratch[get_local_id(0)] = (int)(index_data[get_global_id(0)]) - 128;
   } else {
-    scratch[get_local_id(0)] = out[2 * gidx + 1];
+    scratch[get_local_id(0)] = out[gidx];
   }
 
   const int tid = get_local_id(0);
@@ -48,13 +50,13 @@ __kernel void decode_indices(const __global   uchar *global_index_data,
   }
 
   barrier(CLK_LOCAL_MEM_FENCE);
-  out[2 * gidx + 1] = scratch[get_local_id(0)];
+  out[gidx] = scratch[get_local_id(0)];
 }
 
-__kernel void collect_indices(const             int   stage,
+__kernel void collect_indices(const            int    stage,
 							  const            uint   num_vals,
-							        __global    int  *global_out) {
-  __global int *out = global_out + 2 * num_vals * get_global_id(1);
+							        __global   int   *global_out) {
+  __global int *const out = global_out + num_vals * get_global_id(1);
 
   uint offset = 1 << (stage * LOCAL_SCAN_SIZE_LOG);
   uint gidx = offset * get_group_id(0) - 1;
@@ -62,7 +64,7 @@ __kernel void collect_indices(const             int   stage,
   uint next_offset = 1 << ((stage - 1) * LOCAL_SCAN_SIZE_LOG);
   uint tidx = next_offset * (get_global_id(0) + 1) - 1;
 
-  if (get_group_id(0) > 0 && get_local_id(0) != (LOCAL_SCAN_SIZE - 1)) {
-	out[2 * tidx + 1] += out[2 * gidx + 1];
-  }
+  int factor = (int)(get_group_id(0) > 0);
+  factor *= (int)(get_local_id(0) != (LOCAL_SCAN_SIZE - 1));
+  out[tidx] += factor * out[gidx];
 }

@@ -253,7 +253,7 @@ static cl_event DecompressDXTImage(const std::unique_ptr<GPUContext> &gpu_ctx,
     assert(hdr.height / 4 == blocks_y);
 
     scratch_mem_sz += 4 * ans::ocl::kANSTableSize * sizeof(AnsTableEntry);
-    scratch_mem_sz += 13 * num_vals;
+    scratch_mem_sz += 17 * num_vals;
     scratch_mem_sz += hdr.palette_bytes;
   }
   cl_mem scratch = clCreateBuffer(gpu_ctx->GetOpenCLContext(), CL_MEM_READ_WRITE, scratch_mem_sz, NULL, &errCreateBuffer);
@@ -388,8 +388,10 @@ static cl_event DecompressDXTImage(const std::unique_ptr<GPUContext> &gpu_ctx,
 
     // Kernel arguments
     table_region, num_offsets, ans_input_offsets, ans_output_offsets, input_buf, decmp_buf);
+
   CHECK_CL(clReleaseEvent, build_table_event);
   CHECK_CL(clReleaseMemObject, table_region);
+  CHECK_CL(clReleaseMemObject, ans_input_offsets);
   CHECK_CL(clReleaseMemObject, input_buf);
 
   // Run inverse wavelet
@@ -460,6 +462,15 @@ static cl_event DecompressDXTImage(const std::unique_ptr<GPUContext> &gpu_ctx,
     // Kernel arguments
     decmp_buf, ans_output_offsets, local_mem, inv_wavelet_output);
 
+  cl_buffer_region decoded_indices_region;
+  decoded_indices_region.origin = inv_wavelet_output_region.origin + inv_wavelet_output_region.size;
+  decoded_indices_region.size = 4 * num_vals * hdrs.size();
+  assert((decoded_indices_region.origin % (gpu_ctx->GetDeviceInfo<cl_uint>(CL_DEVICE_MEM_BASE_ADDR_ALIGN) / 8)) == 0);
+
+  cl_mem decoded_indices = clCreateSubBuffer(scratch, CL_MEM_READ_WRITE, CL_BUFFER_CREATE_TYPE_REGION,
+                                             &decoded_indices_region, &errCreateBuffer);
+  CHECK_CL((cl_int), errCreateBuffer);
+
   static const size_t kLocalScanSz = 128;
   static const size_t kLocalScanSzLog = 7;
 
@@ -505,7 +516,7 @@ static cl_event DecompressDXTImage(const std::unique_ptr<GPUContext> &gpu_ctx,
       1, &decode_event, &next_event,
 
       // Kernel arguments
-      decmp_buf, ans_output_offsets, stage, total_num_indices, output);
+      decmp_buf, ans_output_offsets, stage, total_num_indices, decoded_indices);
 
     CHECK_CL(clReleaseEvent, decode_event);
     decode_event = next_event;
@@ -546,7 +557,7 @@ static cl_event DecompressDXTImage(const std::unique_ptr<GPUContext> &gpu_ctx,
       1, &decode_event, &next_event,
 
       // Kernel arguments
-      stage, total_num_indices, output);
+      stage, total_num_indices, decoded_indices);
 
     CHECK_CL(clReleaseEvent, decode_event);
     decode_event = next_event;
@@ -554,15 +565,14 @@ static cl_event DecompressDXTImage(const std::unique_ptr<GPUContext> &gpu_ctx,
     stage--;
   }
 
-  size_t collect_endpoints_global_work_size[3] = {
+  size_t collect_endpoints_global_work_size[2] = {
     static_cast<size_t>(blocks_x * blocks_y),
-    1,
     hdrs.size(), // Number of textures
   };
 
   cl_event assembly_events[2] = { inv_wavelet_event, decode_event };
   cl_event assembly_event;
-  gpu_ctx->EnqueueOpenCLKernel<3>(
+  gpu_ctx->EnqueueOpenCLKernel<2>(
     // Queue to run on
     queue,
 
@@ -576,12 +586,13 @@ static cl_event DecompressDXTImage(const std::unique_ptr<GPUContext> &gpu_ctx,
     2, assembly_events, &assembly_event,
 
     // Kernel arguments
-    decmp_buf, ans_output_offsets, inv_wavelet_output, output);
+    decmp_buf, ans_output_offsets, inv_wavelet_output, decoded_indices, output);
+
   CHECK_CL(clReleaseEvent, decode_event);
   CHECK_CL(clReleaseEvent, inv_wavelet_event);
+  CHECK_CL(clReleaseMemObject, decoded_indices);
   CHECK_CL(clReleaseMemObject, inv_wavelet_output);
   CHECK_CL(clReleaseMemObject, decmp_buf);
-  CHECK_CL(clReleaseMemObject, ans_input_offsets);
   CHECK_CL(clReleaseMemObject, ans_output_offsets);
   CHECK_CL(clReleaseMemObject, scratch);
 
