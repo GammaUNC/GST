@@ -237,6 +237,7 @@ std::vector<uint8_t> CompressDXT(int width, int height, const std::vector<uint8_
 
 static cl_event DecompressDXTImage(const std::unique_ptr<GPUContext> &gpu_ctx,
                                    const std::vector<GenTCHeader> &hdrs, cl_command_queue queue,
+                                   const std::string &assembly_kernel,
                                    cl_mem cmp_data, cl_event init_event, cl_mem output) {
   // Queue the decompression...
   cl_int errCreateBuffer;
@@ -345,7 +346,7 @@ static cl_event DecompressDXTImage(const std::unique_ptr<GPUContext> &gpu_ctx,
   assert(output_offset % ans::ocl::kNumEncodedSymbols == 0);
 
   cl_buffer_region decmp_region;
-  decmp_region.origin = 4 * ans::ocl::kANSTableSize * sizeof(AnsTableEntry) * hdrs.size();
+  decmp_region.origin = table_sub_region.origin + table_sub_region.size;
   decmp_region.size = output_offset;
   assert((decmp_region.origin % (gpu_ctx->GetDeviceInfo<cl_uint>(CL_DEVICE_MEM_BASE_ADDR_ALIGN) / 8)) == 0);
 
@@ -433,8 +434,7 @@ static cl_event DecompressDXTImage(const std::unique_ptr<GPUContext> &gpu_ctx,
   };
 
   cl_buffer_region inv_wavelet_output_region;
-  inv_wavelet_output_region.origin =
-    4 * hdrs.size() * sizeof(AnsTableEntry) * ans::ocl::kANSTableSize + output_offset;
+  inv_wavelet_output_region.origin = decmp_region.origin + decmp_region.size;
   inv_wavelet_output_region.size = 6 * num_vals * hdrs.size();
   assert((inv_wavelet_output_region.origin % (gpu_ctx->GetDeviceInfo<cl_uint>(CL_DEVICE_MEM_BASE_ADDR_ALIGN) / 8)) == 0);
 
@@ -565,22 +565,23 @@ static cl_event DecompressDXTImage(const std::unique_ptr<GPUContext> &gpu_ctx,
     stage--;
   }
 
-  size_t collect_endpoints_global_work_size[2] = {
-    static_cast<size_t>(blocks_x * blocks_y),
+  size_t assembly_global_work_size[3] = {
+    blocks_x,
+    blocks_y,
     hdrs.size(), // Number of textures
   };
 
   cl_event assembly_events[2] = { inv_wavelet_event, decode_event };
   cl_event assembly_event;
-  gpu_ctx->EnqueueOpenCLKernel<2>(
+  gpu_ctx->EnqueueOpenCLKernel<3>(
     // Queue to run on
     queue,
 
     // Kernel to run...
-    GenTC::kOpenCLKernels[GenTC::eOpenCLKernel_Assemble], "assemble_dxt",
+    GenTC::kOpenCLKernels[GenTC::eOpenCLKernel_Assemble], assembly_kernel,
 
     // Work size (global and local)
-    collect_endpoints_global_work_size, NULL,
+    assembly_global_work_size, NULL,
 
     // Events to depend on and return
     2, assembly_events, &assembly_event,
@@ -637,7 +638,7 @@ std::vector<uint8_t>  DecompressDXTBuffer(const std::unique_ptr<GPUContext> &gpu
 #endif
 
   // Queue the decompression...
-  cl_event dxt_event = DecompressDXTImage(gpu_ctx, { hdr }, queue, cmp_buf, init_event, dxt_output);
+  cl_event dxt_event = DecompressDXTImage(gpu_ctx, { hdr }, queue, "assemble_dxt", cmp_buf, init_event, dxt_output);
 
   // Block on read
   std::vector<uint8_t> decmp_data(dxt_size, 0xFF);
@@ -685,15 +686,26 @@ bool TestDXT(const std::unique_ptr<gpu::GPUContext> &gpu_ctx,
 cl_event LoadCompressedDXT(const std::unique_ptr<gpu::GPUContext> &gpu_ctx,
                            const GenTCHeader &hdr, cl_command_queue queue,
                            cl_mem cmp_data, cl_mem output, cl_event init) {
-  return DecompressDXTImage(gpu_ctx, { hdr }, queue, cmp_data, init, output);
+  return DecompressDXTImage(gpu_ctx, { hdr }, queue, "assemble_dxt", cmp_data, init, output);
 }
 
 cl_event LoadCompressedDXTs(const std::unique_ptr<gpu::GPUContext> &gpu_ctx,
                             const std::vector<GenTCHeader> &hdrs, cl_command_queue queue,
                             cl_mem cmp_data, cl_mem output, cl_event init) {
-  return DecompressDXTImage(gpu_ctx, hdrs, queue, cmp_data, init, output);
+  return DecompressDXTImage(gpu_ctx, hdrs, queue, "assemble_dxt", cmp_data, init, output);
 }
 
+cl_event LoadRGB(const std::unique_ptr<gpu::GPUContext> &gpu_ctx,
+                 const GenTCHeader &hdr, cl_command_queue queue,
+                 cl_mem cmp_data, cl_mem output, cl_event init) {
+  return DecompressDXTImage(gpu_ctx, { hdr }, queue, "assemble_rgb", cmp_data, init, output);
+}
+
+cl_event LoadRGBs(const std::unique_ptr<gpu::GPUContext> &gpu_ctx,
+                  const std::vector<GenTCHeader> &hdrs, cl_command_queue queue,
+                  cl_mem cmp_data, cl_mem output, cl_event init) {
+  return DecompressDXTImage(gpu_ctx, hdrs, queue, "assemble_rgb", cmp_data, init, output);
+}
 
 bool InitializeDecoder(const std::unique_ptr<gpu::GPUContext> &gpu_ctx) {
   bool ok = true;
@@ -713,6 +725,10 @@ bool InitializeDecoder(const std::unique_ptr<gpu::GPUContext> &gpu_ctx) {
 
   ok = ok && 1 <= gpu_ctx->GetKernelWGInfo<size_t>(
     GenTC::kOpenCLKernels[GenTC::eOpenCLKernel_Assemble], "assemble_dxt",
+    CL_KERNEL_WORK_GROUP_SIZE);
+
+  ok = ok && 1 <= gpu_ctx->GetKernelWGInfo<size_t>(
+    GenTC::kOpenCLKernels[GenTC::eOpenCLKernel_Assemble], "assemble_rgb",
     CL_KERNEL_WORK_GROUP_SIZE);
 
   ok = ok && 128 <= gpu_ctx->GetKernelWGInfo<size_t>(

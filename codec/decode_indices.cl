@@ -64,7 +64,7 @@ __kernel void collect_indices(const            int    stage,
   uint next_offset = 1 << ((stage - 1) * LOCAL_SCAN_SIZE_LOG);
   uint tidx = next_offset * (get_global_id(0) + 1) - 1;
 
-  int factor = (int)(get_group_id(0) > 0);
-  factor *= (int)(get_local_id(0) != (LOCAL_SCAN_SIZE - 1));
-  out[tidx] += factor * out[gidx];
+  if (get_group_id(0) > 0 && get_local_id(0) != (LOCAL_SCAN_SIZE - 1)) {
+    out[tidx] += out[gidx];
+  }
 }

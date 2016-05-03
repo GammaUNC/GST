@@ -43,6 +43,14 @@ namespace GenTC {
                               const std::vector<GenTCHeader> &hdr, cl_command_queue queue,
                               cl_mem cmp_data, cl_mem output, cl_event init);
 
+  cl_event LoadRGB(const std::unique_ptr<gpu::GPUContext> &gpu_ctx,
+                   const GenTCHeader &hdr, cl_command_queue queue,
+                   cl_mem cmp_data, cl_mem output, cl_event init);
+
+  cl_event LoadRGBs(const std::unique_ptr<gpu::GPUContext> &gpu_ctx,
+                    const std::vector<GenTCHeader> &hdr, cl_command_queue queue,
+                    cl_mem cmp_data, cl_mem output, cl_event init);
+
   bool TestDXT(const std::unique_ptr<gpu::GPUContext> &gpu_ctx,
                const char *filename, const char *cmp_fn);
 

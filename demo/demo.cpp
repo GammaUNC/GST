@@ -138,7 +138,11 @@ GLuint LoadShaders() {
   return prog;
 }
 
-void LoadGTC(const std::unique_ptr<gpu::GPUContext> &ctx,
+static const int kNumDiskLoadTimes = 8;
+static double disk_load_times[kNumDiskLoadTimes] = { 0 };
+static int disk_load_idx = 0;
+
+void LoadGTC(const std::unique_ptr<gpu::GPUContext> &ctx, bool has_dxt,
              GLuint pbo, GLuint texID, const std::string &filePath) {
   // Load in compressed data.
   std::ifstream is (filePath.c_str(), std::ifstream::binary);
@@ -151,10 +155,13 @@ void LoadGTC(const std::unique_ptr<gpu::GPUContext> &ctx,
   size_t length = static_cast<size_t>(is.tellg());
   is.seekg(0, is.beg);
 
+  double start_time = glfwGetTime();
   std::vector<uint8_t> cmp_data(length);
   is.read(reinterpret_cast<char *>(cmp_data.data()), length);
   assert(is);
   is.close();
+  disk_load_times[disk_load_idx] = glfwGetTime() - start_time;
+  disk_load_idx = (disk_load_idx + 1) % 8;
 
   // glFlush();
   // glFinish();
@@ -185,8 +192,12 @@ void LoadGTC(const std::unique_ptr<gpu::GPUContext> &ctx,
   CHECK_CL(clEnqueueAcquireGLObjects, queue, 1, &output, 0, NULL, &acquire_event);
 
   // Load it
-  cl_event cmp_event =
-    std::move(GenTC::LoadCompressedDXT(ctx, hdr, queue, cmp_buf, output, acquire_event));
+  cl_event cmp_event;
+  if (has_dxt) {
+    cmp_event = GenTC::LoadCompressedDXT(ctx, hdr, queue, cmp_buf, output, acquire_event);
+  } else {
+    cmp_event = GenTC::LoadRGB(ctx, hdr, queue, cmp_buf, output, acquire_event);
+  }
 
   // Release the PBO
   cl_event release_event;
@@ -210,8 +221,12 @@ void LoadGTC(const std::unique_ptr<gpu::GPUContext> &ctx,
   GLsizei dxt_size = (width * height) / 2;
   CHECK_GL(glBindBuffer, GL_PIXEL_UNPACK_BUFFER, pbo);
   CHECK_GL(glBindTexture, GL_TEXTURE_2D, texID);
-  CHECK_GL(glCompressedTexSubImage2D, GL_TEXTURE_2D, 0, 0, 0, hdr.width, hdr.height,
-                                      GL_COMPRESSED_RGB_S3TC_DXT1_EXT, dxt_size, 0);
+  if (has_dxt) {
+    CHECK_GL(glCompressedTexSubImage2D, GL_TEXTURE_2D, 0, 0, 0, hdr.width, hdr.height,
+                                        GL_COMPRESSED_RGB_S3TC_DXT1_EXT, dxt_size, 0);
+  } else {
+    CHECK_GL(glTexSubImage2D, GL_TEXTURE_2D, 0, 0, 0, hdr.width, hdr.height, GL_RGB, GL_UNSIGNED_BYTE, 0);
+  }
   CHECK_GL(glBindTexture, GL_TEXTURE_2D, 0);
 }
 
@@ -229,10 +244,13 @@ void LoadDDS(const std::unique_ptr<gpu::GPUContext> &ctx,
   size_t length = static_cast<size_t>(is.tellg());
   is.seekg(0, is.beg);
 
+  double start_time = glfwGetTime();
   std::vector<uint8_t> cmp_data(length);
   is.read(reinterpret_cast<char *>(cmp_data.data()), length);
   assert(is);
   is.close();
+  disk_load_times[disk_load_idx] = glfwGetTime() - start_time;
+  disk_load_idx = (disk_load_idx + 1) % 8;
 
   gliml::context gliml_ctx;
   gliml_ctx.enable_dxt(true);
@@ -269,7 +287,10 @@ void LoadDDS(const std::unique_ptr<gpu::GPUContext> &ctx,
 void LoadJPG(const std::unique_ptr<gpu::GPUContext> &ctx,
              GLuint pbo, GLuint texID, const std::string &filePath) {
   int width, height, comp;
+  double start_time = glfwGetTime();
   unsigned char *img = stbi_load(filePath.c_str(), &width, &height, &comp, 3);
+  disk_load_times[disk_load_idx] = glfwGetTime() - start_time;
+  disk_load_idx = (disk_load_idx + 1) % 8;
   CHECK_GL(glTexSubImage2D, GL_TEXTURE_2D, 0, 0, 0, width, height, GL_RGB, GL_UNSIGNED_BYTE, img);
   CHECK_GL(glBindTexture, GL_TEXTURE_2D, 0);
   stbi_image_free(img);
@@ -288,10 +309,13 @@ void LoadCRN(const std::unique_ptr<gpu::GPUContext> &ctx,
   size_t length = static_cast<size_t>(is.tellg());
   is.seekg(0, is.beg);
 
+  double start_time = glfwGetTime();
   std::vector<uint8_t> cmp_data(length);
   is.read(reinterpret_cast<char *>(cmp_data.data()), length);
   assert(is);
   is.close();
+  disk_load_times[disk_load_idx] = glfwGetTime() - start_time;
+  disk_load_idx = (disk_load_idx + 1) % 8;
 
   crnd::uint32 crn_data_sz = static_cast<crnd::uint32>(cmp_data.size());
 
@@ -354,7 +378,6 @@ int main(int argc, char* argv[])
     fprintf(stdout, "GL Shading Language Version: %s\n",
             glGetString(GL_SHADING_LANGUAGE_VERSION));
 
-#ifndef NDEBUG
     std::string extensionsString(reinterpret_cast<const char *>(glGetString(GL_EXTENSIONS)));
     std::vector<char> extensionVector(extensionsString.begin(), extensionsString.end());
     for (size_t i = 0; i < extensionVector.size(); ++i) {
@@ -363,14 +386,26 @@ int main(int argc, char* argv[])
       }
     }
 
+    bool has_dxt = false;
+#ifndef NDEBUG
     fprintf(stdout, "GL extensions:\n");
     fprintf(stdout, "  %s\n", &(extensionVector[0]));
+#endif
     for (size_t i = 1; i < extensionVector.size(); i++) {
       if (extensionVector[i] == '\0' && i < extensionVector.size() - 1) {
+#ifndef NDEBUG
         fprintf(stdout, "  %s\n", &(extensionVector[i + 1]));
+#endif
+        if (strstr(&extensionVector[i + 1], "GL_EXT_texture_compression_s3tc") != NULL) {
+          has_dxt = true;
+        }
       }
     }
-#endif
+
+    // JPGs don't use DXT.
+    if (strstr(argv[1], "jpg")) {
+      has_dxt = false;
+    }
 
 #ifdef _WIN32
     if (GLEW_OK != glewInit()) {
@@ -395,28 +430,34 @@ int main(int argc, char* argv[])
     assert ( texLoc >= 0 );
 
     GLuint texID, pbo;
-    glGenTextures(1, &texID);
+    CHECK_GL(glGenTextures, 1, &texID);
 
     // Initialize the texture...
     glBindTexture(GL_TEXTURE_2D, texID);
-#ifdef TEST_JPG
-    glTexStorage2D(GL_TEXTURE_2D, 1, GL_RGB8, 1792, 1024);
-#else
-    glTexStorage2D(GL_TEXTURE_2D, 1, GL_COMPRESSED_RGB_S3TC_DXT1_EXT, 1792, 1024);
-#endif
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_BASE_LEVEL, 0);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAX_LEVEL, 0);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
-    glBindTexture(GL_TEXTURE_2D, 0);
+    if (has_dxt) {
+      CHECK_GL(glTexStorage2D, GL_TEXTURE_2D, 1, GL_COMPRESSED_RGB_S3TC_DXT1_EXT, 1792, 1024);
+    } else {
+      std::cout << "Not loading DXT textures!" << std::endl;
+      CHECK_GL(glTexStorage2D, GL_TEXTURE_2D, 1, GL_RGB8, 1792, 1024);
+    }
 
-    glGenBuffers(1, &pbo);
+    CHECK_GL(glTexParameteri, GL_TEXTURE_2D, GL_TEXTURE_BASE_LEVEL, 0);
+    CHECK_GL(glTexParameteri, GL_TEXTURE_2D, GL_TEXTURE_MAX_LEVEL, 0);
+    CHECK_GL(glTexParameteri, GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
+    CHECK_GL(glTexParameteri, GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
+    CHECK_GL(glTexParameteri, GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    CHECK_GL(glTexParameteri, GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
+    CHECK_GL(glBindTexture, GL_TEXTURE_2D, 0);
 
-    glBindBuffer(GL_PIXEL_UNPACK_BUFFER, pbo);
-    glBufferData(GL_PIXEL_UNPACK_BUFFER, 1792 * 1024 / 2, NULL, GL_DYNAMIC_DRAW);
-    glBindBuffer(GL_PIXEL_UNPACK_BUFFER, 0);
+    CHECK_GL(glGenBuffers, 1, &pbo);
+
+    CHECK_GL(glBindBuffer, GL_PIXEL_UNPACK_BUFFER, pbo);
+    if (has_dxt) {
+      CHECK_GL(glBufferData, GL_PIXEL_UNPACK_BUFFER, 1792 * 1024 / 2, NULL, GL_DYNAMIC_DRAW);
+    } else {
+      CHECK_GL(glBufferData, GL_PIXEL_UNPACK_BUFFER, 1792 * 1024 * 3, NULL, GL_DYNAMIC_DRAW);
+    }
+    CHECK_GL(glBindBuffer, GL_PIXEL_UNPACK_BUFFER, 0);
 
     static const GLfloat g_FullScreenQuad[] = {
       -1.0f, -1.0f, 0.0f,
@@ -426,11 +467,11 @@ int main(int argc, char* argv[])
     };
 
     GLuint vertexBuffer;
-    glGenBuffers(1, &vertexBuffer);
+    CHECK_GL(glGenBuffers, 1, &vertexBuffer);
 
-    glBindBuffer(GL_ARRAY_BUFFER, vertexBuffer);
-    glBufferData(GL_ARRAY_BUFFER, sizeof(g_FullScreenQuad), g_FullScreenQuad, GL_STATIC_DRAW);
-    glBindBuffer(GL_ARRAY_BUFFER, 0);
+    CHECK_GL(glBindBuffer, GL_ARRAY_BUFFER, vertexBuffer);
+    CHECK_GL(glBufferData, GL_ARRAY_BUFFER, sizeof(g_FullScreenQuad), g_FullScreenQuad, GL_STATIC_DRAW);
+    CHECK_GL(glBindBuffer, GL_ARRAY_BUFFER, 0);
 
     static const GLfloat g_FullScreenUVs[] = {
       0.0f, 1.0f,
@@ -451,7 +492,7 @@ int main(int argc, char* argv[])
     static int gFrameNumber = 0;
     static const int kNumFrames = 2000;
 
-    double frame_times[8] = { 0 };
+    double frame_times[kNumDiskLoadTimes] = { 0 };
     int frame_time_idx = 0;
 
     while (!glfwWindowShouldClose(window)) {
@@ -469,11 +510,6 @@ int main(int argc, char* argv[])
 
       glfwGetFramebufferSize(window, &width, &height);
 
-      glUseProgram(prog);
-
-      glViewport(0, 0, width, height);
-      glClear(GL_COLOR_BUFFER_BIT);
-
       std::ostringstream stream;
       if (strstr(argv[1], "gtc")) {
         stream << "../test/dump_gtc/frame";
@@ -481,7 +517,7 @@ int main(int argc, char* argv[])
           stream << (((gFrameNumber + 1) / i) % 10);
         }
         stream << ".gtc";
-        LoadGTC(ctx, pbo, texID, stream.str());
+        LoadGTC(ctx, has_dxt, pbo, texID, stream.str());
       } else if (strstr(argv[1], "crn")) {
         stream << "../test/dump_crn/frame";
         for (int i = 1000; i > 0; i /= 10) {
@@ -504,6 +540,11 @@ int main(int argc, char* argv[])
         stream << ".jpg";
         LoadJPG(ctx, pbo, texID, stream.str());
       }
+
+      glUseProgram(prog);
+
+      glViewport(0, 0, width, height);
+      glClear(GL_COLOR_BUFFER_BIT);
 
       glActiveTexture(GL_TEXTURE0);
       glBindTexture(GL_TEXTURE_2D, texID);
@@ -528,16 +569,19 @@ int main(int argc, char* argv[])
 
       double end_time = glfwGetTime();
       frame_times[frame_time_idx] = (end_time - start_time) * 1000.0;
-      frame_time_idx = (frame_time_idx + 1) % 8;
+      frame_time_idx = (frame_time_idx + 1) % kNumDiskLoadTimes;
       gFrameNumber = (gFrameNumber + 1) % kNumFrames;
 
       static double last_end_time = 0.0;
       if (end_time - last_end_time > 1) {
-        double time = std::accumulate(frame_times, frame_times + 8, 0.0);
-        double frame_time = time / 8.0;
-        double fps = 1000.0 / frame_time;
+        double total_frame_time = std::accumulate(frame_times, frame_times + kNumDiskLoadTimes, 0.0);
+        double avg_frame_time = total_frame_time / static_cast<double>(kNumDiskLoadTimes);
+        double fps = 1000.0 / avg_frame_time;
+
+        double total_load_time = std::accumulate(disk_load_times, disk_load_times + 8, 0.0);
+        double avg_load_time = total_load_time / static_cast<double>(kNumDiskLoadTimes);
         std::cout << "\r";
-        std::cout << "FPS: " << fps;
+        std::cout << "FPS: " << fps << "\tAvg load time: " << avg_load_time;
         std::cout.flush();
         last_end_time = end_time;
       }
