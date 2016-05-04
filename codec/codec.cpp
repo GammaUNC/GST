@@ -246,7 +246,11 @@ static cl_event DecompressDXTImage(const std::unique_ptr<GPUContext> &gpu_ctx,
   size_t blocks_y = hdrs[0].height / 4;
   size_t num_vals = blocks_x * blocks_y;
 
-  size_t scratch_mem_sz = 0;
+  size_t offsets_scratch_sz =
+    4 /* offsets per hdr */ * sizeof(cl_uint) * 2 /* input/output offsets */ * hdrs.size();
+  offsets_scratch_sz = ((offsets_scratch_sz + 511) / 512) * 512; // Align to 512 byte size...
+
+  size_t scratch_mem_sz = offsets_scratch_sz;
   for (const auto &hdr : hdrs) {
     // If the images don't match in each dimension, then our inverse wavelet calculation
     // doesn't do a good job. =(
@@ -260,6 +264,36 @@ static cl_event DecompressDXTImage(const std::unique_ptr<GPUContext> &gpu_ctx,
   cl_mem scratch = clCreateBuffer(gpu_ctx->GetOpenCLContext(), CL_MEM_READ_WRITE, scratch_mem_sz, NULL, &errCreateBuffer);
   CHECK_CL((cl_int), errCreateBuffer);
 
+  // Setup ANS input offsets
+  cl_uint input_offset = 0;
+  for (size_t i = 0; i < hdrs.size(); ++i) {
+    input_offset += hdrs[i].y_cmp_sz;
+    input_offset += hdrs[i].chroma_cmp_sz;
+    input_offset += hdrs[i].palette_sz;
+    input_offset += hdrs[i].indices_sz;
+  }
+
+  // Setup ANS output offsets
+  cl_uint output_offset = 0;
+  for (size_t i = 0; i < hdrs.size(); ++i) {
+    cl_uint nvals = static_cast<cl_uint>(num_vals);
+    output_offset += 2 * nvals; // Y planes
+    output_offset += 4 * nvals; // Chroma planes
+    output_offset += static_cast<cl_uint>(hdrs[i].palette_bytes); // Palette
+    output_offset += nvals; // Indices
+  }
+  assert(output_offset % ans::ocl::kNumEncodedSymbols == 0);
+
+  // Setup OpenCL buffers for input and output offsets
+  cl_buffer_region ans_offsets_region;
+  ans_offsets_region.origin = 0;
+  ans_offsets_region.size = offsets_scratch_sz;
+  assert((ans_offsets_region.origin % (gpu_ctx->GetDeviceInfo<cl_uint>(CL_DEVICE_MEM_BASE_ADDR_ALIGN) / 8)) == 0);
+
+  cl_mem ans_offsets_buf = clCreateSubBuffer(cmp_data, CL_MEM_READ_ONLY, CL_BUFFER_CREATE_TYPE_REGION,
+                                             &ans_offsets_region, &errCreateBuffer);
+  CHECK_CL((cl_int), errCreateBuffer);
+
   assert((0x7 & gpu_ctx->GetDeviceInfo<cl_uint>(CL_DEVICE_MEM_BASE_ADDR_ALIGN)) == 0);
 
   // First get the number of frequencies...
@@ -271,7 +305,7 @@ static cl_event DecompressDXTImage(const std::unique_ptr<GPUContext> &gpu_ctx,
     CL_KERNEL_WORK_GROUP_SIZE));
 
   cl_buffer_region freqs_sub_region;
-  freqs_sub_region.origin = 0;
+  freqs_sub_region.origin = ans_offsets_region.origin + ans_offsets_region.size;
   freqs_sub_region.size = 4 * 512 * hdrs.size();
 
   assert((0x7 & gpu_ctx->GetDeviceInfo<cl_uint>(CL_DEVICE_MEM_BASE_ADDR_ALIGN)) == 0);
@@ -282,7 +316,7 @@ static cl_event DecompressDXTImage(const std::unique_ptr<GPUContext> &gpu_ctx,
   CHECK_CL((cl_int), errCreateBuffer);
 
   cl_buffer_region table_sub_region;
-  table_sub_region.origin = 0;
+  table_sub_region.origin = offsets_scratch_sz;
   table_sub_region.size = hdrs.size() * 4 * ans::ocl::kANSTableSize * sizeof(AnsTableEntry);
   assert((table_sub_region.origin % (gpu_ctx->GetDeviceInfo<cl_uint>(CL_DEVICE_MEM_BASE_ADDR_ALIGN) / 8)) == 0);
   cl_mem table_region = clCreateSubBuffer(scratch, CL_MEM_READ_WRITE, CL_BUFFER_CREATE_TYPE_REGION,
@@ -304,47 +338,17 @@ static cl_event DecompressDXTImage(const std::unique_ptr<GPUContext> &gpu_ctx,
     freqs_buffer, table_region);
   CHECK_CL(clReleaseMemObject, freqs_buffer);
 
-  // Setup ANS input
-  std::vector<cl_uint> input_offsets(hdrs.size() * 4);
+  // Setup ans input sub-buffer
+  cl_buffer_region ans_input_region;
+  ans_input_region.origin = freqs_sub_region.origin + freqs_sub_region.size;
+  ans_input_region.size = input_offset;
+  assert((ans_input_region.origin % (gpu_ctx->GetDeviceInfo<cl_uint>(CL_DEVICE_MEM_BASE_ADDR_ALIGN) / 8)) == 0);
 
-  cl_uint input_offset = 0;
-  for (size_t i = 0; i < hdrs.size(); ++i) {
-    input_offsets[4 * i + 0] = input_offset; input_offset += hdrs[i].y_cmp_sz;
-    input_offsets[4 * i + 1] = input_offset; input_offset += hdrs[i].chroma_cmp_sz;
-    input_offsets[4 * i + 2] = input_offset; input_offset += hdrs[i].palette_sz;
-    input_offsets[4 * i + 3] = input_offset; input_offset += hdrs[i].indices_sz;
-  }
-
-  cl_buffer_region input_region;
-  input_region.origin = 4 * 512 * hdrs.size();
-  input_region.size = input_offset;
-  assert((input_region.origin % (gpu_ctx->GetDeviceInfo<cl_uint>(CL_DEVICE_MEM_BASE_ADDR_ALIGN) / 8)) == 0);
-
-  cl_mem input_buf = clCreateSubBuffer(cmp_data, CL_MEM_READ_ONLY, CL_BUFFER_CREATE_TYPE_REGION,
-                                       &input_region, &errCreateBuffer);
+  cl_mem ans_input_buf = clCreateSubBuffer(cmp_data, CL_MEM_READ_ONLY, CL_BUFFER_CREATE_TYPE_REGION,
+    &ans_input_region, &errCreateBuffer);
   CHECK_CL((cl_int), errCreateBuffer);
 
-  // Setup ANS output
-  std::vector<cl_uint> output_offsets (4 * hdrs.size());
-
-  cl_uint output_offset = 0;
-  for (size_t i = 0; i < hdrs.size(); ++i) {
-    cl_uint nvals = static_cast<cl_uint>(num_vals);
-
-    output_offsets[4 * i + 0] = output_offset;
-    output_offset += 2 * nvals; // Y planes
-    
-    output_offsets[4 * i + 1] = output_offset;
-    output_offset += 4 * nvals; // Chroma planes
-    
-    output_offsets[4 * i + 2] = output_offset;
-    output_offset += static_cast<cl_uint>(hdrs[i].palette_bytes); // Palette
-    
-    output_offsets[4 * i + 3] = output_offset;
-    output_offset += nvals; // Indices
-  }
-  assert(output_offset % ans::ocl::kNumEncodedSymbols == 0);
-
+  // Setup ans output sub-buffer
   cl_buffer_region decmp_region;
   decmp_region.origin = table_sub_region.origin + table_sub_region.size;
   decmp_region.size = output_offset;
@@ -354,24 +358,12 @@ static cl_event DecompressDXTImage(const std::unique_ptr<GPUContext> &gpu_ctx,
                                        &decmp_region, &errCreateBuffer);
   CHECK_CL((cl_int), errCreateBuffer);
 
-  // Setup OpenCL buffers for input and output offsets
-  cl_mem ans_input_offsets = clCreateBuffer(gpu_ctx->GetOpenCLContext(), CL_MEM_READ_ONLY | CL_MEM_COPY_HOST_PTR,
-                                            input_offsets.size() * sizeof(input_offsets[0]),
-                                            input_offsets.data(), &errCreateBuffer);
-  CHECK_CL((cl_int), errCreateBuffer);
-
-  cl_mem ans_output_offsets = clCreateBuffer(gpu_ctx->GetOpenCLContext(), CL_MEM_READ_ONLY | CL_MEM_COPY_HOST_PTR,
-                                             output_offsets.size() * sizeof(output_offsets[0]),
-                                             output_offsets.data(), &errCreateBuffer);
-  CHECK_CL((cl_int), errCreateBuffer);
-
   // Allocate 256 * num interleaved slots for result
   const size_t rANS_global_work = output_offset / ans::ocl::kNumEncodedSymbols;
   const size_t rANS_local_work = ans::ocl::kThreadsPerEncodingGroup;
   assert(rANS_global_work % rANS_local_work == 0);
 
-  cl_uint num_offsets = static_cast<cl_uint>(input_offsets.size());
-  assert(num_offsets == output_offsets.size());
+  cl_uint num_offsets = static_cast<cl_uint>(4 * hdrs.size());
 
   cl_event decode_ans_event;
   gpu_ctx->EnqueueOpenCLKernel<1>(
@@ -388,12 +380,11 @@ static cl_event DecompressDXTImage(const std::unique_ptr<GPUContext> &gpu_ctx,
     1, &build_table_event, &decode_ans_event,
 
     // Kernel arguments
-    table_region, num_offsets, ans_input_offsets, ans_output_offsets, input_buf, decmp_buf);
+    table_region, num_offsets, ans_offsets_buf, ans_input_buf, decmp_buf);
 
   CHECK_CL(clReleaseEvent, build_table_event);
   CHECK_CL(clReleaseMemObject, table_region);
-  CHECK_CL(clReleaseMemObject, ans_input_offsets);
-  CHECK_CL(clReleaseMemObject, input_buf);
+  CHECK_CL(clReleaseMemObject, ans_input_buf);
 
   // Run inverse wavelet
   assert(blocks_x % kWaveletBlockDim == 0);
@@ -460,7 +451,7 @@ static cl_event DecompressDXTImage(const std::unique_ptr<GPUContext> &gpu_ctx,
     1, &decode_ans_event, &inv_wavelet_event,
 
     // Kernel arguments
-    decmp_buf, ans_output_offsets, local_mem, inv_wavelet_output);
+    decmp_buf, ans_offsets_buf, local_mem, inv_wavelet_output);
 
   cl_buffer_region decoded_indices_region;
   decoded_indices_region.origin = inv_wavelet_output_region.origin + inv_wavelet_output_region.size;
@@ -516,7 +507,7 @@ static cl_event DecompressDXTImage(const std::unique_ptr<GPUContext> &gpu_ctx,
       1, &decode_event, &next_event,
 
       // Kernel arguments
-      decmp_buf, ans_output_offsets, stage, total_num_indices, decoded_indices);
+      decmp_buf, ans_offsets_buf, stage, total_num_indices, decoded_indices);
 
     CHECK_CL(clReleaseEvent, decode_event);
     decode_event = next_event;
@@ -587,14 +578,14 @@ static cl_event DecompressDXTImage(const std::unique_ptr<GPUContext> &gpu_ctx,
     2, assembly_events, &assembly_event,
 
     // Kernel arguments
-    decmp_buf, ans_output_offsets, inv_wavelet_output, decoded_indices, output);
+    decmp_buf, ans_offsets_buf, inv_wavelet_output, decoded_indices, output);
 
   CHECK_CL(clReleaseEvent, decode_event);
   CHECK_CL(clReleaseEvent, inv_wavelet_event);
   CHECK_CL(clReleaseMemObject, decoded_indices);
   CHECK_CL(clReleaseMemObject, inv_wavelet_output);
   CHECK_CL(clReleaseMemObject, decmp_buf);
-  CHECK_CL(clReleaseMemObject, ans_output_offsets);
+  CHECK_CL(clReleaseMemObject, ans_offsets_buf);
   CHECK_CL(clReleaseMemObject, scratch);
 
   // Send back the events...
@@ -605,13 +596,48 @@ cl_mem UploadData(const std::unique_ptr<GPUContext> &gpu_ctx,
                   const std::vector<uint8_t> &cmp_data, GenTCHeader *hdr) {
   hdr->LoadFrom(cmp_data.data());
 
+  std::vector<cl_uint> ans_offsets(8);
+  size_t ans_offsets_scratch_sz = 512;
+
+  cl_uint *input_offsets = ans_offsets.data() + 4;
+  cl_uint *output_offsets = ans_offsets.data();
+
+  // Setup ANS input offsets
+  cl_uint input_offset = 0;
+  input_offsets[0] = input_offset; input_offset += hdr->y_cmp_sz;
+  input_offsets[1] = input_offset; input_offset += hdr->chroma_cmp_sz;
+  input_offsets[2] = input_offset; input_offset += hdr->palette_sz;
+  input_offsets[3] = input_offset; input_offset += hdr->indices_sz;
+
+  // Setup ANS output offsets
+  cl_uint nvals = static_cast<cl_uint>(hdr->width * hdr->height / 16);
+  cl_uint output_offset = 0;
+
+  output_offsets[0] = output_offset;
+  output_offset += 2 * nvals; // Y planes
+
+  output_offsets[1] = output_offset;
+  output_offset += 4 * nvals; // Chroma planes
+
+  output_offsets[2] = output_offset;
+  output_offset += static_cast<cl_uint>(hdr->palette_bytes); // Palette
+
+  output_offsets[3] = output_offset;
+  output_offset += nvals; // Indices
+  assert(output_offset % ans::ocl::kNumEncodedSymbols == 0);
+
   // Upload everything but the header
   cl_int errCreateBuffer;
   static const size_t kHeaderSz = sizeof(*hdr);
-  cl_mem cmp_buf = clCreateBuffer(gpu_ctx->GetOpenCLContext(), GetHostReadOnlyFlags(),
-                                  cmp_data.size() - kHeaderSz, const_cast<uint8_t *>(cmp_data.data() + kHeaderSz),
-                                  &errCreateBuffer);
+  cl_mem cmp_buf = clCreateBuffer(gpu_ctx->GetOpenCLContext(), CL_MEM_READ_ONLY,
+                                  cmp_data.size() - kHeaderSz + 512, NULL, &errCreateBuffer);
   CHECK_CL((cl_int), errCreateBuffer);
+
+  cl_command_queue q = gpu_ctx->GetDefaultCommandQueue();
+  CHECK_CL(clEnqueueWriteBuffer, q, cmp_buf, CL_TRUE, 0, ans_offsets.size() * sizeof(ans_offsets[0]),
+                                 ans_offsets.data(), 0, NULL, NULL);
+  CHECK_CL(clEnqueueWriteBuffer, q, cmp_buf, CL_TRUE, 512, cmp_data.size() - kHeaderSz,
+                                 cmp_data.data() + kHeaderSz, 0, NULL, NULL);
   return cmp_buf;
 }
   

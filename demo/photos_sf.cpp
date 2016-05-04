@@ -686,7 +686,7 @@ std::vector<std::unique_ptr<Texture> > LoadTextures(const std::unique_ptr<gpu::G
     end = std::chrono::high_resolution_clock::now();
     interop_time += std::chrono::duration<double>(end - start).count();
 
-    static const size_t kPageSize = 32;
+    static const size_t kPageSize = 8;
     const size_t kNumPages = pbo_reqs.size() / kPageSize;
     std::vector<size_t> input_sizes;
     input_sizes.reserve(pbo_reqs.size() / kPageSize);
@@ -695,6 +695,7 @@ std::vector<std::unique_ptr<Texture> > LoadTextures(const std::unique_ptr<gpu::G
     for (size_t i = 0; i < pbo_reqs.size(); ++i) {
       if (i % kPageSize == 0) {
         input_sizes.push_back(input_mem_sz);
+        input_mem_sz += ((kPageSize * 4 * 4 * 2 + 511) / 512) * 512;
       }
       input_mem_sz += pbo_reqs[i]->in_sz;
     }
@@ -741,28 +742,52 @@ std::vector<std::unique_ptr<Texture> > LoadTextures(const std::unique_ptr<gpu::G
 
       pool.push([page_start, page_end, pinned_mem, input_sz, page_id, unmap_event, user_event, kNumPages,
                  acquire_event, cmp_buf_host, pbo_cl, &dxt_events, &m, &done, &num_finished, &ctx](int) {
-        size_t input_offset = input_sz;
-        for (auto it = page_start; it != page_end; it++) {
-          auto req = *it;
-          memcpy(reinterpret_cast<uint8_t *>(pinned_mem) + input_offset, req->input, 4 * 512);
-          input_offset += 4 * 512;
-        }
+        size_t num_hdrs = static_cast<size_t>(page_end - page_start);
+        cl_uint num_blocks = static_cast<cl_uint>((*page_start)->hdr->width * (*page_start)->hdr->height / 16);
+        uint8_t *page_buf = reinterpret_cast<uint8_t *>(pinned_mem) + input_sz;
 
-        std::vector<GenTC::GenTCHeader> input_hdrs(page_end - page_start);
-        auto next_hdr = input_hdrs.begin();
+        cl_uint *offsets_buf = reinterpret_cast<cl_uint *>(page_buf);
+        cl_uint *input_offsets = offsets_buf + 4 * num_hdrs;
+        cl_uint *output_offsets = offsets_buf;
+        size_t offsets_sz = (((num_hdrs * 4 * 2) + 127) / 128) * 128;
+
+        uint8_t *freqs_buf = reinterpret_cast<uint8_t *>(offsets_buf + offsets_sz);
+        uint8_t *data_buf = freqs_buf + 4 * 512 * num_hdrs;
+
+        size_t output_offset_idx = 0;
+        size_t input_offset_idx = 0;
+
+        cl_uint output_offset = 0;
+        cl_uint input_offset = 0;
+
+        std::vector<GenTC::GenTCHeader> hdrs(num_hdrs);
+        auto next_hdr = hdrs.begin();
         for (auto it = page_start; it != page_end; it++) {
           auto req = *it;
+
+          const uint8_t *in_mem = reinterpret_cast<const uint8_t *>(req->input);
+          memcpy(freqs_buf, in_mem, 4 * 512);
+          in_mem += 4 * 512;
+          freqs_buf += 4 * 512;
+
           size_t req_sz = req->in_sz - 4 * 512;
-          memcpy(reinterpret_cast<uint8_t *>(pinned_mem) + input_offset, req->input + 4 * 512, req_sz);
-          input_offset += req_sz;
+          memcpy(data_buf, in_mem, req_sz);
+          data_buf += req_sz;
+
+          // Setup ANS input offsets
+          input_offsets[input_offset_idx++] = input_offset; input_offset += req->hdr->y_cmp_sz;
+          input_offsets[input_offset_idx++] = input_offset; input_offset += req->hdr->chroma_cmp_sz;
+          input_offsets[input_offset_idx++] = input_offset; input_offset += req->hdr->palette_sz;
+          input_offsets[input_offset_idx++] = input_offset; input_offset += req->hdr->indices_sz;
+
+          // Setup ANS output offsets
+          output_offsets[output_offset_idx++] = output_offset; output_offset += 2 * num_blocks; // Y planes
+          output_offsets[output_offset_idx++] = output_offset; output_offset += 4 * num_blocks; // Chroma planes
+          output_offsets[output_offset_idx++] = output_offset; output_offset += static_cast<cl_uint>(req->hdr->palette_bytes); // Palette
+          output_offsets[output_offset_idx++] = output_offset; output_offset += num_blocks; // Indices
 
           memcpy(&(*next_hdr), req->hdr, sizeof(GenTC::GenTCHeader));
           next_hdr++;
-        }
-
-        // Set the user event
-        if (page_id == kNumPages - 1) {
-          CHECK_CL(clSetUserEventStatus, user_event, CL_COMPLETE);
         }
 
         cl_int errCreateBuffer;
@@ -770,7 +795,7 @@ std::vector<std::unique_ptr<Texture> > LoadTextures(const std::unique_ptr<gpu::G
         cl_command_queue d_queue = ctx->GetDefaultCommandQueue();
         cl_command_queue queue = ctx->GetNextQueue();
 
-        size_t cmp_buf_sz = input_offset - input_sz;
+        size_t cmp_buf_sz = (offsets_sz * 4) + input_offset + num_hdrs * 4 * 512;
         cl_mem cmp_buf = clCreateBuffer(cl_ctx, CL_MEM_READ_ONLY, cmp_buf_sz, NULL, &errCreateBuffer);
         CHECK_CL((cl_int), errCreateBuffer);
 
@@ -783,7 +808,7 @@ std::vector<std::unique_ptr<Texture> > LoadTextures(const std::unique_ptr<gpu::G
         CHECK_CL(clEnqueueBarrierWithWaitList, queue, 2, barrier_events, &init_event);
         CHECK_CL(clReleaseEvent, copy_event);
 
-        size_t kPageSizeBytes = kPageSize * input_hdrs[0].width * input_hdrs[0].height / 2;
+        size_t kPageSizeBytes = kPageSize * num_blocks * 8;
         cl_buffer_region dst_region;
         dst_region.origin = page_id * kPageSizeBytes;
         dst_region.size = kPageSizeBytes;
@@ -793,7 +818,7 @@ std::vector<std::unique_ptr<Texture> > LoadTextures(const std::unique_ptr<gpu::G
                                        &dst_region, &errCreateBuffer);
         CHECK_CL((cl_int), errCreateBuffer);
 
-        cl_event ret_event = GenTC::LoadCompressedDXTs(ctx, input_hdrs, queue, cmp_buf, dst, init_event);
+        cl_event ret_event = GenTC::LoadCompressedDXTs(ctx, hdrs, queue, cmp_buf, dst, init_event);
         CHECK_CL(clReleaseEvent, init_event);
         CHECK_CL(clReleaseMemObject, cmp_buf);
         CHECK_CL(clReleaseMemObject, dst);
@@ -813,6 +838,9 @@ std::vector<std::unique_ptr<Texture> > LoadTextures(const std::unique_ptr<gpu::G
       std::unique_lock<std::mutex> lock(m);
       done.wait(lock, [&]() { return num_running == num_finished; });
     }
+
+    // Go go go!
+    CHECK_CL(clSetUserEventStatus, user_event, CL_COMPLETE);
 
     CHECK_CL(clReleaseEvent, user_event);
     CHECK_CL(clReleaseEvent, unmap_event);

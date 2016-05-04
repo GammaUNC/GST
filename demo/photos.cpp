@@ -369,11 +369,25 @@ class AsyncGenTCReq : public AsyncTexRequest {
 
     is.read(reinterpret_cast<char *>(&_hdr), kHeaderSz);
 
-    _cmp_data.resize(mem_sz);
-    is.read(reinterpret_cast<char *>(_cmp_data.data()), _cmp_data.size());
+    _cmp_data.resize(mem_sz + 512);
+    is.read(reinterpret_cast<char *>(_cmp_data.data()) + 512, mem_sz);
     assert(is);
     assert(is.tellg() == static_cast<std::streamoff>(length));
     is.close();
+
+    const cl_uint num_blocks = _hdr.height * _hdr.width / 16;
+    cl_uint *offsets = reinterpret_cast<cl_uint *>(_cmp_data.data());
+    cl_uint output_offset = 0;
+    offsets[0] = output_offset; output_offset += 2 * num_blocks; // Y planes
+    offsets[1] = output_offset; output_offset += 4 * num_blocks; // Chroma planes
+    offsets[2] = output_offset; output_offset += static_cast<cl_uint>(_hdr.palette_bytes); // Palette
+    offsets[3] = output_offset; output_offset += num_blocks; // Indices
+
+    cl_uint input_offset = 0;
+    offsets[4] = input_offset; input_offset += _hdr.y_cmp_sz;
+    offsets[5] = input_offset; input_offset += _hdr.chroma_cmp_sz;
+    offsets[6] = input_offset; input_offset += _hdr.palette_sz;
+    offsets[7] = input_offset; input_offset += _hdr.indices_sz;
 
     _pbo.sz = (_hdr.width * _hdr.height) / 2;
   }

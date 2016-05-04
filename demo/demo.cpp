@@ -144,7 +144,9 @@ static int disk_load_idx = 0;
 
 void LoadGTC(const std::unique_ptr<gpu::GPUContext> &ctx, bool has_dxt,
              GLuint pbo, GLuint texID, const std::string &filePath) {
+  GenTC::GenTCHeader hdr;
   // Load in compressed data.
+  double start_time = glfwGetTime();
   std::ifstream is (filePath.c_str(), std::ifstream::binary);
   if (!is) {
     assert(!"Error opening GenTC texture!");
@@ -155,28 +157,38 @@ void LoadGTC(const std::unique_ptr<gpu::GPUContext> &ctx, bool has_dxt,
   size_t length = static_cast<size_t>(is.tellg());
   is.seekg(0, is.beg);
 
-  double start_time = glfwGetTime();
-  std::vector<uint8_t> cmp_data(length);
-  is.read(reinterpret_cast<char *>(cmp_data.data()), length);
+  static const size_t kHeaderSz = sizeof(hdr);
+  const size_t mem_sz = length - kHeaderSz;
+
+  is.read(reinterpret_cast<char *>(&hdr), kHeaderSz);
+
+  std::vector<uint8_t> cmp_data(mem_sz + 512);
+  is.read(reinterpret_cast<char *>(cmp_data.data()) + 512, mem_sz);
   assert(is);
+  assert(is.tellg() == static_cast<std::streamoff>(length));
   is.close();
   disk_load_times[disk_load_idx] = glfwGetTime() - start_time;
   disk_load_idx = (disk_load_idx + 1) % 8;
 
-  // glFlush();
-  // glFinish();
+  const cl_uint num_blocks = hdr.height * hdr.width / 16;
+  cl_uint *offsets = reinterpret_cast<cl_uint *>(cmp_data.data());
+  cl_uint output_offset = 0;
+  offsets[0] = output_offset; output_offset += 2 * num_blocks; // Y planes
+  offsets[1] = output_offset; output_offset += 4 * num_blocks; // Chroma planes
+  offsets[2] = output_offset; output_offset += static_cast<cl_uint>(hdr.palette_bytes); // Palette
+  offsets[3] = output_offset; output_offset += num_blocks; // Indices
 
-  // Grab the header from the data
-  GenTC::GenTCHeader hdr;
-  hdr.LoadFrom(cmp_data.data());
+  cl_uint input_offset = 0;
+  offsets[4] = input_offset; input_offset += hdr.y_cmp_sz;
+  offsets[5] = input_offset; input_offset += hdr.chroma_cmp_sz;
+  offsets[6] = input_offset; input_offset += hdr.palette_sz;
+  offsets[7] = input_offset; input_offset += hdr.indices_sz;
 
   // Create the data for OpenCL
   cl_int errCreateBuffer;
-  static const size_t kHeaderSz = sizeof(hdr);
   cl_mem_flags flags = CL_MEM_READ_ONLY | CL_MEM_COPY_HOST_PTR | CL_MEM_HOST_NO_ACCESS;
-  cl_mem cmp_buf = clCreateBuffer(ctx->GetOpenCLContext(), flags, cmp_data.size() - kHeaderSz,
-                                  const_cast<uint8_t *>(cmp_data.data() + kHeaderSz),
-                                  &errCreateBuffer);
+  cl_mem cmp_buf = clCreateBuffer(ctx->GetOpenCLContext(), flags, cmp_data.size(),
+                                  const_cast<uint8_t *>(cmp_data.data()), &errCreateBuffer);
   CHECK_CL((cl_int), errCreateBuffer);
 
   // Create an OpenGL handle to our pbo

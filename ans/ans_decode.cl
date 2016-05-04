@@ -87,10 +87,11 @@ __kernel void ans_decode(const __global   AnsTableEntry *global_table,
 
 __kernel void ans_decode_multiple(const __global   AnsTableEntry *global_table,
                                   const            uint           num_offsets,
-                                  const __global   uint          *input_offsets,
-								  const __global   uint          *output_offsets,
+								  const __global   uint          *offsets,
                                   const __global   uchar         *data,
                                         __global   uchar         *out_stream) {
+  const __global uint *input_offsets = offsets + num_offsets;
+  const __global uint *output_offsets = offsets;
   uint id = get_group_id(0) * get_local_size(0) * NUM_ENCODED_SYMBOLS;
   
   // Binary search...
