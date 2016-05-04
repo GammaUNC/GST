@@ -234,6 +234,54 @@ std::vector<uint8_t> CompressDXT(int width, int height, const std::vector<uint8_
 // Decoder
 //
 ////////////////////////////////////////////////////////////////////////////////
+class PreloadedMemory {
+private:
+  cl_mem _scratch;
+  size_t _mem_sz;
+  size_t _offset;
+
+  std::mutex offset_mutex;
+
+public:
+  PreloadedMemory() : _mem_sz(0), _offset(0) { }
+  void Allocate(const std::unique_ptr<GPUContext> &gpu_ctx, size_t mem_sz) {
+    cl_int errCreateBuffer;
+    _scratch = clCreateBuffer(gpu_ctx->GetOpenCLContext(), CL_MEM_READ_WRITE, mem_sz, NULL, &errCreateBuffer);
+    CHECK_CL((cl_int), errCreateBuffer);
+
+    _mem_sz = mem_sz;
+    _offset = 0;
+  }
+
+  ~PreloadedMemory() {
+    if (_mem_sz > 0) {
+      CHECK_CL(clReleaseMemObject, _scratch);
+    }
+  }
+
+  cl_mem GetNextRegion(size_t sz) {
+    assert((sz % 512) == 0);
+    size_t origin = 0;
+    {
+      std::unique_lock<std::mutex> lock(offset_mutex);
+      assert(_offset + sz <= _mem_sz);
+      origin = _offset;
+      _offset += sz;
+    }
+
+    cl_int errCreateBuffer;
+    cl_buffer_region sub_region;
+    sub_region.origin = origin;
+    sub_region.size = sz;
+
+    cl_mem sub_buffer = clCreateSubBuffer(_scratch, CL_MEM_READ_WRITE, CL_BUFFER_CREATE_TYPE_REGION,
+      &sub_region, &errCreateBuffer);
+    CHECK_CL((cl_int), errCreateBuffer);
+
+    return sub_buffer;
+  }
+};
+static std::unique_ptr<PreloadedMemory> gPreloader;
 
 static cl_event DecompressDXTImage(const std::unique_ptr<GPUContext> &gpu_ctx,
                                    const std::vector<GenTCHeader> &hdrs, cl_command_queue queue,
@@ -250,19 +298,24 @@ static cl_event DecompressDXTImage(const std::unique_ptr<GPUContext> &gpu_ctx,
     4 /* offsets per hdr */ * sizeof(cl_uint) * 2 /* input/output offsets */ * hdrs.size();
   offsets_scratch_sz = ((offsets_scratch_sz + 511) / 512) * 512; // Align to 512 byte size...
 
-  size_t scratch_mem_sz = offsets_scratch_sz;
-  for (const auto &hdr : hdrs) {
-    // If the images don't match in each dimension, then our inverse wavelet calculation
-    // doesn't do a good job. =(
-    assert(hdr.width / 4 == blocks_x);
-    assert(hdr.height / 4 == blocks_y);
+  PreloadedMemory _scratch_mem;
+  PreloadedMemory *scratch_mem = NULL;
+  if (nullptr == gPreloader) {
+    size_t scratch_mem_sz = 0;
+    for (const auto &hdr : hdrs) {
+      // If the images don't match in each dimension, then our inverse wavelet calculation
+      // doesn't do a good job. =(
+      assert(hdr.width / 4 == blocks_x);
+      assert(hdr.height / 4 == blocks_y);
 
-    scratch_mem_sz += 4 * ans::ocl::kANSTableSize * sizeof(AnsTableEntry);
-    scratch_mem_sz += 17 * num_vals;
-    scratch_mem_sz += hdr.palette_bytes;
+      scratch_mem_sz += hdr.RequiredScratchMem();
+    }
+
+    scratch_mem = &_scratch_mem;
+    scratch_mem->Allocate(gpu_ctx, scratch_mem_sz);
+  } else {
+    scratch_mem = gPreloader.get();
   }
-  cl_mem scratch = clCreateBuffer(gpu_ctx->GetOpenCLContext(), CL_MEM_READ_WRITE, scratch_mem_sz, NULL, &errCreateBuffer);
-  CHECK_CL((cl_int), errCreateBuffer);
 
   // Setup ANS input offsets
   cl_uint input_offset = 0;
@@ -315,13 +368,7 @@ static cl_event DecompressDXTImage(const std::unique_ptr<GPUContext> &gpu_ctx,
                                           &freqs_sub_region, &errCreateBuffer);
   CHECK_CL((cl_int), errCreateBuffer);
 
-  cl_buffer_region table_sub_region;
-  table_sub_region.origin = offsets_scratch_sz;
-  table_sub_region.size = hdrs.size() * 4 * ans::ocl::kANSTableSize * sizeof(AnsTableEntry);
-  assert((table_sub_region.origin % (gpu_ctx->GetDeviceInfo<cl_uint>(CL_DEVICE_MEM_BASE_ADDR_ALIGN) / 8)) == 0);
-  cl_mem table_region = clCreateSubBuffer(scratch, CL_MEM_READ_WRITE, CL_BUFFER_CREATE_TYPE_REGION,
-                                          &table_sub_region, &errCreateBuffer);
-  CHECK_CL((cl_int), errCreateBuffer);
+  cl_mem table_region = scratch_mem->GetNextRegion(hdrs.size() * 4 * ans::ocl::kANSTableSize * sizeof(AnsTableEntry));
 
   cl_event build_table_event;
   gpu_ctx->EnqueueOpenCLKernel<2>(
@@ -349,14 +396,7 @@ static cl_event DecompressDXTImage(const std::unique_ptr<GPUContext> &gpu_ctx,
   CHECK_CL((cl_int), errCreateBuffer);
 
   // Setup ans output sub-buffer
-  cl_buffer_region decmp_region;
-  decmp_region.origin = table_sub_region.origin + table_sub_region.size;
-  decmp_region.size = output_offset;
-  assert((decmp_region.origin % (gpu_ctx->GetDeviceInfo<cl_uint>(CL_DEVICE_MEM_BASE_ADDR_ALIGN) / 8)) == 0);
-
-  cl_mem decmp_buf = clCreateSubBuffer(scratch, CL_MEM_READ_WRITE, CL_BUFFER_CREATE_TYPE_REGION,
-                                       &decmp_region, &errCreateBuffer);
-  CHECK_CL((cl_int), errCreateBuffer);
+  cl_mem decmp_buf = scratch_mem->GetNextRegion(output_offset);
 
   // Allocate 256 * num interleaved slots for result
   const size_t rANS_global_work = output_offset / ans::ocl::kNumEncodedSymbols;
@@ -424,14 +464,7 @@ static cl_event DecompressDXTImage(const std::unique_ptr<GPUContext> &gpu_ctx,
     1
   };
 
-  cl_buffer_region inv_wavelet_output_region;
-  inv_wavelet_output_region.origin = decmp_region.origin + decmp_region.size;
-  inv_wavelet_output_region.size = 6 * num_vals * hdrs.size();
-  assert((inv_wavelet_output_region.origin % (gpu_ctx->GetDeviceInfo<cl_uint>(CL_DEVICE_MEM_BASE_ADDR_ALIGN) / 8)) == 0);
-
-  cl_mem inv_wavelet_output = clCreateSubBuffer(scratch, CL_MEM_READ_WRITE, CL_BUFFER_CREATE_TYPE_REGION,
-                                                &inv_wavelet_output_region, &errCreateBuffer);
-  CHECK_CL((cl_int), errCreateBuffer);
+  cl_mem inv_wavelet_output = scratch_mem->GetNextRegion(6 * num_vals * hdrs.size());
 
   gpu::GPUContext::LocalMemoryKernelArg local_mem;
   local_mem._local_mem_sz = local_mem_sz;
@@ -453,14 +486,7 @@ static cl_event DecompressDXTImage(const std::unique_ptr<GPUContext> &gpu_ctx,
     // Kernel arguments
     decmp_buf, ans_offsets_buf, local_mem, inv_wavelet_output);
 
-  cl_buffer_region decoded_indices_region;
-  decoded_indices_region.origin = inv_wavelet_output_region.origin + inv_wavelet_output_region.size;
-  decoded_indices_region.size = 4 * num_vals * hdrs.size();
-  assert((decoded_indices_region.origin % (gpu_ctx->GetDeviceInfo<cl_uint>(CL_DEVICE_MEM_BASE_ADDR_ALIGN) / 8)) == 0);
-
-  cl_mem decoded_indices = clCreateSubBuffer(scratch, CL_MEM_READ_WRITE, CL_BUFFER_CREATE_TYPE_REGION,
-                                             &decoded_indices_region, &errCreateBuffer);
-  CHECK_CL((cl_int), errCreateBuffer);
+  cl_mem decoded_indices = scratch_mem->GetNextRegion(4 * num_vals * hdrs.size());
 
   static const size_t kLocalScanSz = 128;
   static const size_t kLocalScanSzLog = 7;
@@ -586,7 +612,6 @@ static cl_event DecompressDXTImage(const std::unique_ptr<GPUContext> &gpu_ctx,
   CHECK_CL(clReleaseMemObject, inv_wavelet_output);
   CHECK_CL(clReleaseMemObject, decmp_buf);
   CHECK_CL(clReleaseMemObject, ans_offsets_buf);
-  CHECK_CL(clReleaseMemObject, scratch);
 
   // Send back the events...
   return assembly_event;
@@ -639,6 +664,15 @@ cl_mem UploadData(const std::unique_ptr<GPUContext> &gpu_ctx,
   CHECK_CL(clEnqueueWriteBuffer, q, cmp_buf, CL_TRUE, 512, cmp_data.size() - kHeaderSz,
                                  cmp_data.data() + kHeaderSz, 0, NULL, NULL);
   return cmp_buf;
+}
+
+void PreallocateDecompressor(const std::unique_ptr<gpu::GPUContext> &gpu_ctx, size_t req_sz) {
+  gPreloader = std::unique_ptr<PreloadedMemory>(new PreloadedMemory);
+  gPreloader->Allocate(gpu_ctx, req_sz);
+}
+
+void FreeDecompressor() {
+  gPreloader = nullptr;
 }
   
 std::vector<uint8_t>  DecompressDXTBuffer(const std::unique_ptr<GPUContext> &gpu_ctx,
@@ -784,6 +818,14 @@ void GenTCHeader::LoadFrom(const uint8_t *buf) {
 #ifndef NDEBUG
   Print();
 #endif
+}
+
+size_t GenTCHeader::RequiredScratchMem() const {
+  size_t scratch_mem_sz = 0;
+  scratch_mem_sz += 4 * ans::ocl::kANSTableSize * sizeof(AnsTableEntry);
+  scratch_mem_sz += 17 * width * height / 16;
+  scratch_mem_sz += palette_bytes;
+  return scratch_mem_sz; 
 }
 
 }

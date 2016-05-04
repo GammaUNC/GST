@@ -664,7 +664,6 @@ std::vector<std::unique_ptr<Texture> > LoadTextures(const std::unique_ptr<gpu::G
     }
   }
 
-
   GLuint pbo;
   if (total_pbo_size > 0) {
     cl_int errCreateBuffer;
@@ -686,11 +685,12 @@ std::vector<std::unique_ptr<Texture> > LoadTextures(const std::unique_ptr<gpu::G
     end = std::chrono::high_resolution_clock::now();
     interop_time += std::chrono::duration<double>(end - start).count();
 
-    static const size_t kPageSize = 8;
+    static const size_t kPageSize = 16;
     const size_t kNumPages = pbo_reqs.size() / kPageSize;
     std::vector<size_t> input_sizes;
     input_sizes.reserve(pbo_reqs.size() / kPageSize);
 
+    size_t out_mem_sz = 0;
     size_t input_mem_sz = 0;
     for (size_t i = 0; i < pbo_reqs.size(); ++i) {
       if (i % kPageSize == 0) {
@@ -698,7 +698,11 @@ std::vector<std::unique_ptr<Texture> > LoadTextures(const std::unique_ptr<gpu::G
         input_mem_sz += ((kPageSize * 4 * 4 * 2 + 511) / 512) * 512;
       }
       input_mem_sz += pbo_reqs[i]->in_sz;
+
+      out_mem_sz += pbo_reqs[i]->hdr->RequiredScratchMem();
     }
+
+    GenTC::PreallocateDecompressor(ctx, out_mem_sz);
 
     // Create pinned host memory and device memory
     cl_mem_flags pinned_flags = CL_MEM_READ_WRITE | CL_MEM_ALLOC_HOST_PTR;
@@ -880,6 +884,8 @@ std::vector<std::unique_ptr<Texture> > LoadTextures(const std::unique_ptr<gpu::G
     end = std::chrono::high_resolution_clock::now();
     idle_time += std::chrono::duration<double>(end-start).count();
     CHECK_CL(clReleaseEvent, release_event);
+
+    GenTC::FreeDecompressor();
   }
 
   // I think we're done now...

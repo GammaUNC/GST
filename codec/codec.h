@@ -31,6 +31,7 @@ namespace GenTC {
     uint32_t palette_sz;
     uint32_t indices_sz;
 
+    size_t RequiredScratchMem() const;
     void Print() const;
     void LoadFrom(const uint8_t *buf);
   };
@@ -50,6 +51,9 @@ namespace GenTC {
   cl_event LoadRGBs(const std::unique_ptr<gpu::GPUContext> &gpu_ctx,
                     const std::vector<GenTCHeader> &hdr, cl_command_queue queue,
                     cl_mem cmp_data, cl_mem output, cl_event init);
+
+  void PreallocateDecompressor(const std::unique_ptr<gpu::GPUContext> &gpu_ctx, size_t req_sz);
+  void FreeDecompressor();
 
   bool TestDXT(const std::unique_ptr<gpu::GPUContext> &gpu_ctx,
                const char *filename, const char *cmp_fn);
