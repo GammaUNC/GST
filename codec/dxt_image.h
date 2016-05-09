@@ -39,6 +39,7 @@ namespace GenTC {
   class DXTImage {
    public:
     DXTImage(const char *orig_fn, const char *cmp_fn);
+    DXTImage(int width, int height, const uint8_t *rgb_data);
     DXTImage(int width, int height, const std::vector<uint8_t> &rgb_data,
              const std::vector<uint8_t> &dxt_data);
     DXTImage(int width, int height, const std::vector<uint8_t> &dxt_data);

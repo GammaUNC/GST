@@ -434,25 +434,17 @@ DXTImage::DXTImage(const char *orig_fn, const char *cmp_fn) {
   _src_img.resize(src_img_sz);
   memcpy(_src_img.data(), data, src_img_sz);
 
-  _blocks_width = (_width + 3) / 4;
-  _blocks_height = (_height + 3) / 4;
-  const int num_blocks = _blocks_width * _blocks_height;
-
-  if (_physical_blocks.size() == 0) {
-    // Compress the DXT data
-    _physical_blocks.resize(num_blocks);
-    for (int physical_idx = 0; physical_idx < num_blocks; ++physical_idx) {
-      uint16_t i, j;
-      i = static_cast<uint16_t>(physical_idx % _blocks_width);
-      j = static_cast<uint16_t>(physical_idx / _blocks_width);
-
-      int block_idx = j * _blocks_width + i;
-      const unsigned char *offset_data = data + (j * 4 * _width + i * 4) * 3;
-      _physical_blocks[block_idx].dxt_block = CompressRGB(offset_data, _width);
-    }
-  }
-
   // Optimize it...
+  Reencode();
+}
+
+DXTImage::DXTImage(int width, int height, const uint8_t *rgb_data)
+  : _width(width)
+  , _height(height)
+  , _blocks_width((width + 3) / 4)
+  , _blocks_height((height + 3) / 4)
+  , _src_img(rgb_data, rgb_data + width * height * 3)
+{
   Reencode();
 }
 
@@ -515,6 +507,24 @@ double DXTImage::PSNR() const {
 static const int kErrThreshold = 35;
 static const size_t kNumPrevLookup = 128;
 void DXTImage::Reencode() {
+  _blocks_width = (_width + 3) / 4;
+  _blocks_height = (_height + 3) / 4;
+  const int num_blocks = _blocks_width * _blocks_height;
+
+  if (_physical_blocks.size() == 0) {
+    // Compress the DXT data
+    _physical_blocks.resize(num_blocks);
+    for (int physical_idx = 0; physical_idx < num_blocks; ++physical_idx) {
+      uint16_t i, j;
+      i = static_cast<uint16_t>(physical_idx % _blocks_width);
+      j = static_cast<uint16_t>(physical_idx / _blocks_width);
+
+      int block_idx = j * _blocks_width + i;
+      const unsigned char *offset_data = _src_img.data() + (j * 4 * _width + i * 4) * 3;
+      _physical_blocks[block_idx].dxt_block = CompressRGB(offset_data, _width);
+    }
+  }
+
   _logical_blocks = std::move(PhysicalToLogicalBlocks(_physical_blocks));
   std::cout << "DXT Compressed PSNR: " << PSNR() << std::endl;
 
@@ -524,7 +534,6 @@ void DXTImage::Reencode() {
   // Now do the dxt compression...
   int last_index = 0;
 
-  const int num_blocks = _blocks_width * _blocks_height;
   for (int physical_idx = 0; physical_idx < num_blocks; ++physical_idx) {
     uint16_t i, j;
     Deinterleave(static_cast<uint32_t>(physical_idx), &i, &j);
