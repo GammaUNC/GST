@@ -6,8 +6,8 @@
 __kernel void decode_indices(const __global   uchar *global_index_data,
                              const __constant uint  *global_offsets,
                              const            uint   stage,
-							 const            uint   num_vals,
-							       __global   int   *global_out) {
+                             const            uint   num_vals,
+                                   __global   int   *global_out) {
   const __global uchar *const index_data =
     global_index_data + global_offsets[4 * get_global_id(1) + 3];
 
@@ -17,11 +17,17 @@ __kernel void decode_indices(const __global   uchar *global_index_data,
   // First read in data
   // !SPEED! This almost definitely causes bank conflicts for stage > 0.
   const uint idx_offset = (1 << (stage * LOCAL_SCAN_SIZE_LOG));
-  const uint gidx = idx_offset * (get_global_id(0) + 1) - 1;
+  const int gidx = idx_offset * (get_global_id(0) + 1) - 1;
+  const int pgidx = idx_offset * get_global_id(0) - 1;
+
   if (0 == stage) {
     scratch[get_local_id(0)] = (int)(index_data[get_global_id(0)]) - 128;
-  } else {
+  } else if (gidx < num_vals) {
     scratch[get_local_id(0)] = out[gidx];
+  } else if (pgidx < num_vals) {
+    scratch[get_local_id(0)] = out[num_vals - 1];
+  } else {
+    scratch[get_local_id(0)] = 0;
   }
 
   const int tid = get_local_id(0);
@@ -50,12 +56,16 @@ __kernel void decode_indices(const __global   uchar *global_index_data,
   }
 
   barrier(CLK_LOCAL_MEM_FENCE);
-  out[gidx] = scratch[get_local_id(0)];
+  if (0 == stage || gidx < num_vals) {
+    out[gidx] = scratch[get_local_id(0)];
+  } else if (pgidx < num_vals && gidx >= num_vals) {
+    out[num_vals - 1] = scratch[get_local_id(0)];
+  }
 }
 
 __kernel void collect_indices(const            int    stage,
-							  const            uint   num_vals,
-							        __global   int   *global_out) {
+                              const            uint   num_vals,
+                                    __global   int   *global_out) {
   __global int *const out = global_out + num_vals * get_global_id(1);
 
   uint offset = 1 << (stage * LOCAL_SCAN_SIZE_LOG);
@@ -64,7 +74,7 @@ __kernel void collect_indices(const            int    stage,
   uint next_offset = 1 << ((stage - 1) * LOCAL_SCAN_SIZE_LOG);
   uint tidx = next_offset * (get_global_id(0) + 1) - 1;
 
-  if (get_group_id(0) > 0 && get_local_id(0) != (LOCAL_SCAN_SIZE - 1)) {
+  if (tidx < (num_vals - 1) && gidx < (num_vals - 1) && get_group_id(0) > 0 && get_local_id(0) != (LOCAL_SCAN_SIZE - 1)) {
     out[tidx] += out[gidx];
   }
 }

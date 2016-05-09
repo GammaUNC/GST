@@ -498,17 +498,19 @@ static cl_event DecompressDXTImage(const std::unique_ptr<GPUContext> &gpu_ctx,
 
   // !SPEED! We don't really need to allocate here...
   cl_event decode_event = decode_ans_event;
-
-  size_t num_decode_indices_vals = num_vals;
-  cl_uint total_num_indices = static_cast<cl_uint>(num_vals);
+  const cl_uint total_num_indices = static_cast<cl_uint>(num_vals);
 
   cl_int stage = -1;
-  while (num_decode_indices_vals > 1) {
+  while (true) {
     stage++;
+    size_t num_decode_indices_vals = total_num_indices >> (stage * kLocalScanSzLog);
+    if (0 == num_decode_indices_vals) {
+      break;
+    }
 
     cl_event next_event;
     size_t decode_indices_global_work_sz[2] = {
-      num_decode_indices_vals,
+      ((num_decode_indices_vals + kLocalScanSz - 1) / kLocalScanSz) * kLocalScanSz,
       hdrs.size()
     };
 
@@ -518,7 +520,6 @@ static cl_event DecompressDXTImage(const std::unique_ptr<GPUContext> &gpu_ctx,
     };
 
 #ifndef NDEBUG
-    assert((num_vals % decode_indices_local_work_sz[0]) == 0);
     assert(decode_indices_local_work_sz[0] <= gpu_ctx->GetKernelWGInfo<size_t>(
       GenTC::kOpenCLKernels[GenTC::eOpenCLKernel_DecodeIndices], "decode_indices",
       CL_KERNEL_WORK_GROUP_SIZE));
@@ -542,22 +543,16 @@ static cl_event DecompressDXTImage(const std::unique_ptr<GPUContext> &gpu_ctx,
 
     CHECK_CL(clReleaseEvent, decode_event);
     decode_event = next_event;
-
-    num_decode_indices_vals >>= kLocalScanSzLog;
-  }
-
-  num_decode_indices_vals = num_vals;
-  while ((num_decode_indices_vals >> kLocalScanSzLog) > 1) {
-    num_decode_indices_vals >>= kLocalScanSzLog;
   }
 
   while (stage > 0) {
-    num_decode_indices_vals = std::min<size_t>(num_vals, num_decode_indices_vals << kLocalScanSzLog);
+    size_t num_decode_indices_vals = total_num_indices >> std::max<int>(0, ((stage - 1) * kLocalScanSzLog));
 
     size_t collect_indices_global_work_sz[2] = {
-      num_decode_indices_vals,
+      ((num_decode_indices_vals + kLocalScanSz - 1) / kLocalScanSz) * kLocalScanSz,
       hdrs.size()
     };
+    assert(collect_indices_global_work_sz[0] % kLocalScanSz == 0);
 
     size_t collect_indices_local_work_sz[2] = {
       kLocalScanSz,
