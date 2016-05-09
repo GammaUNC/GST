@@ -230,6 +230,10 @@ std::vector<uint8_t> CompressDXT(int width, int height, const std::vector<uint8_
   return std::move(CompressDXTImage(dxt_img));
 }
 
+std::vector<uint8_t> CompressDXT(const DXTImage &dxt_img) {
+  return std::move(CompressDXTImage(dxt_img));
+}
+
 ////////////////////////////////////////////////////////////////////////////////
 //
 // Decoder

@@ -15,6 +15,7 @@ namespace GenTC {
   std::vector<uint8_t> CompressDXT(int width, int height,
                                    const std::vector<uint8_t> &rgb_data,
                                    const std::vector<uint8_t> &dxt_data);
+  std::vector<uint8_t> CompressDXT(const DXTImage &dxt_img);
 
   // Optional to compile kernels so that we don't have to do it at runtime.
   // Returns true if our platform meets all of the expectations...
