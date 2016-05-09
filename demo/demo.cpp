@@ -593,7 +593,7 @@ int main(int argc, char* argv[])
         double total_load_time = std::accumulate(disk_load_times, disk_load_times + 8, 0.0);
         double avg_load_time = total_load_time / static_cast<double>(kNumDiskLoadTimes);
         std::cout << "\r";
-        std::cout << "FPS: " << fps << "\tAvg load time: " << avg_load_time;
+        std::cout << "FPS: " << fps << "\tAvg load time (ms): " << avg_load_time * 1000.0;
         std::cout.flush();
         last_end_time = end_time;
       }
