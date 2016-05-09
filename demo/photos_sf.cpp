@@ -807,10 +807,6 @@ std::vector<std::unique_ptr<Texture> > LoadTextures(const std::unique_ptr<gpu::G
         CHECK_CL(clEnqueueCopyBuffer, queue, cmp_buf_host, cmp_buf, input_sz, 0, cmp_buf_sz,
                                       1, &unmap_event, &copy_event);
 
-        cl_event init_event;
-        cl_event barrier_events[2] = { acquire_event, copy_event };
-        CHECK_CL(clEnqueueBarrierWithWaitList, queue, 2, barrier_events, &init_event);
-        CHECK_CL(clReleaseEvent, copy_event);
 
         size_t kPageSizeBytes = kPageSize * num_blocks * 8;
         cl_buffer_region dst_region;
@@ -822,8 +818,9 @@ std::vector<std::unique_ptr<Texture> > LoadTextures(const std::unique_ptr<gpu::G
                                        &dst_region, &errCreateBuffer);
         CHECK_CL((cl_int), errCreateBuffer);
 
-        cl_event ret_event = GenTC::LoadCompressedDXTs(ctx, hdrs, queue, cmp_buf, dst, init_event);
-        CHECK_CL(clReleaseEvent, init_event);
+        cl_event init_events[2] = { acquire_event, copy_event };
+        cl_event ret_event = GenTC::LoadCompressedDXTs(ctx, hdrs, queue, cmp_buf, dst, 2, init_events);
+        CHECK_CL(clReleaseEvent, copy_event);
         CHECK_CL(clReleaseMemObject, cmp_buf);
         CHECK_CL(clReleaseMemObject, dst);
 

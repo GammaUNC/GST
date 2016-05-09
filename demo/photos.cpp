@@ -449,10 +449,7 @@ class AsyncGenTCReq : public AsyncTexRequest {
     cl_mem dst = clCreateSubBuffer(_pbo.dst_buf, CL_MEM_WRITE_ONLY, CL_BUFFER_CREATE_TYPE_REGION, &region, &errCreateBuffer);
     CHECK_CL((cl_int), errCreateBuffer);
 
-    cl_event init_event;
-    CHECK_CL(clEnqueueBarrierWithWaitList, _queue, num_wait_events, wait_events, &init_event);
-    cl_event result = GenTC::LoadCompressedDXT(_ctx, _hdr, _queue, _cmp_buf, dst, init_event);
-    CHECK_CL(clReleaseEvent, init_event);
+    cl_event result = GenTC::LoadCompressedDXT(_ctx, _hdr, _queue, _cmp_buf, dst, num_wait_events, wait_events);
     CHECK_CL(clReleaseMemObject, dst);
     return result;
   }

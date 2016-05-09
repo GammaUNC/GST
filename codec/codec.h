@@ -39,19 +39,19 @@ namespace GenTC {
 
   cl_event LoadCompressedDXT(const std::unique_ptr<gpu::GPUContext> &gpu_ctx,
                              const GenTCHeader &hdr, cl_command_queue queue,
-                             cl_mem cmp_data, cl_mem output, cl_event init);
+                             cl_mem cmp_data, cl_mem output, cl_uint num_init, const cl_event *init);
 
   cl_event LoadCompressedDXTs(const std::unique_ptr<gpu::GPUContext> &gpu_ctx,
                               const std::vector<GenTCHeader> &hdr, cl_command_queue queue,
-                              cl_mem cmp_data, cl_mem output, cl_event init);
+                              cl_mem cmp_data, cl_mem output, cl_uint num_init, const cl_event *init);
 
   cl_event LoadRGB(const std::unique_ptr<gpu::GPUContext> &gpu_ctx,
                    const GenTCHeader &hdr, cl_command_queue queue,
-                   cl_mem cmp_data, cl_mem output, cl_event init);
+                   cl_mem cmp_data, cl_mem output, cl_uint num_init, const cl_event *init);
 
   cl_event LoadRGBs(const std::unique_ptr<gpu::GPUContext> &gpu_ctx,
                     const std::vector<GenTCHeader> &hdr, cl_command_queue queue,
-                    cl_mem cmp_data, cl_mem output, cl_event init);
+                    cl_mem cmp_data, cl_mem output, cl_uint num_init, const cl_event *init);
 
   void PreallocateDecompressor(const std::unique_ptr<gpu::GPUContext> &gpu_ctx, size_t req_sz);
   void FreeDecompressor();

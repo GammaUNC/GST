@@ -206,9 +206,9 @@ void LoadGTC(const std::unique_ptr<gpu::GPUContext> &ctx, bool has_dxt,
   // Load it
   cl_event cmp_event;
   if (has_dxt) {
-    cmp_event = GenTC::LoadCompressedDXT(ctx, hdr, queue, cmp_buf, output, acquire_event);
+    cmp_event = GenTC::LoadCompressedDXT(ctx, hdr, queue, cmp_buf, output, 1, &acquire_event);
   } else {
-    cmp_event = GenTC::LoadRGB(ctx, hdr, queue, cmp_buf, output, acquire_event);
+    cmp_event = GenTC::LoadRGB(ctx, hdr, queue, cmp_buf, output, 1, &acquire_event);
   }
 
   // Release the PBO
