@@ -81,11 +81,6 @@ static std::vector<uint8_t> CompressDXTImage(const DXTImage &dxt_img) {
   assert((dxt_img.Width() % 128) == 0);
   assert((dxt_img.Height() % 128) == 0);
 
-  std::cout << "Original DXT size: " <<
-    (dxt_img.Width() * dxt_img.Height()) / 2 << std::endl;
-  std::cout << "Half original DXT size: " <<
-    (dxt_img.Width() * dxt_img.Height()) / 4 << std::endl;
-
   auto endpoint_one = dxt_img.EndpointOneValues();
   auto endpoint_two = dxt_img.EndpointTwoValues();
 
@@ -100,27 +95,27 @@ static std::vector<uint8_t> CompressDXTImage(const DXTImage &dxt_img) {
   auto ep1_planes = initial_endpoint_pipeline->Run(endpoint_one);
   auto ep2_planes = initial_endpoint_pipeline->Run(endpoint_two);
 
-  std::cout << "Compressing Y plane for EP 1... ";
+  std::cout << "Processing Y plane for EP 1... ";
   auto ep1_y_cmp = RunDXTEndpointPipeline(std::get<0>(*ep1_planes));
   std::cout << "Done. " << std::endl;
 
-  std::cout << "Compressing Co plane for EP 1... ";
+  std::cout << "Processing Co plane for EP 1... ";
   auto ep1_co_cmp = RunDXTEndpointPipeline(std::get<1>(*ep1_planes));
   std::cout << "Done. " << std::endl;
 
-  std::cout << "Compressing Cg plane for EP 1... ";
+  std::cout << "Processing Cg plane for EP 1... ";
   auto ep1_cg_cmp = RunDXTEndpointPipeline(std::get<2>(*ep1_planes));
   std::cout << "Done. " << std::endl;
 
-  std::cout << "Compressing Y plane for EP 2... ";
+  std::cout << "Processing Y plane for EP 2... ";
   auto ep2_y_cmp = RunDXTEndpointPipeline(std::get<0>(*ep2_planes));
   std::cout << "Done. " << std::endl;
 
-  std::cout << "Compressing Co plane for EP 2... ";
+  std::cout << "Processing Co plane for EP 2... ";
   auto ep2_co_cmp = RunDXTEndpointPipeline(std::get<1>(*ep2_planes));
   std::cout << "Done. " << std::endl;
 
-  std::cout << "Compressing Cg plane for EP 2... ";
+  std::cout << "Processing Cg plane for EP 2... ";
   auto ep2_cg_cmp = RunDXTEndpointPipeline(std::get<2>(*ep2_planes));
   std::cout << "Done. " << std::endl;
 
@@ -130,13 +125,17 @@ static std::vector<uint8_t> CompressDXTImage(const DXTImage &dxt_img) {
 
   // Concatenate Y planes
   ep1_y_cmp->insert(ep1_y_cmp->end(), ep2_y_cmp->begin(), ep2_y_cmp->end());
+  std::cout << "Compressing luma planes (" << ep1_y_cmp->size() << " bytes)...";
   auto y_planes = cmp_pipeline->Run(ep1_y_cmp);
+  std::cout << "Done. (" << y_planes->size() << " bytes)" << std::endl;
 
   // Concatenate Chroma planes
   ep1_co_cmp->insert(ep1_co_cmp->end(), ep1_cg_cmp->begin(), ep1_cg_cmp->end());
   ep1_co_cmp->insert(ep1_co_cmp->end(), ep2_co_cmp->begin(), ep2_co_cmp->end());
   ep1_co_cmp->insert(ep1_co_cmp->end(), ep2_cg_cmp->begin(), ep2_cg_cmp->end());
+  std::cout << "Compressing chroma planes (" << ep1_co_cmp->size() << " bytes)...";
   auto chroma_planes = cmp_pipeline->Run(ep1_co_cmp);
+  std::cout << "Done. (" << chroma_planes->size() << " bytes)" << std::endl;
 
   std::unique_ptr<std::vector<uint8_t> > palette_data(
     new std::vector<uint8_t>(std::move(dxt_img.PaletteData())));
@@ -212,6 +211,8 @@ static std::vector<uint8_t> CompressDXTImage(const DXTImage &dxt_img) {
 
   double bpp = static_cast<double>(result.size() * 8) /
     static_cast<double>(dxt_img.Width() * dxt_img.Height());
+  std::cout << "Original DXT size: " <<
+	  (dxt_img.Width() * dxt_img.Height()) / 2 << std::endl;
   std::cout << "Compressed DXT size: " << result.size()
             << " (" << bpp << " bpp)" << std::endl;
 
