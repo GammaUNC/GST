@@ -622,7 +622,6 @@ cl_mem UploadData(const std::unique_ptr<GPUContext> &gpu_ctx,
   hdr->LoadFrom(cmp_data.data());
 
   std::vector<cl_uint> ans_offsets(8);
-  size_t ans_offsets_scratch_sz = 512;
 
   cl_uint *input_offsets = ans_offsets.data() + 4;
   cl_uint *output_offsets = ans_offsets.data();

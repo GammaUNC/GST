@@ -28,6 +28,9 @@
 #include <memory>
 #include <mutex>
 #include <vector>
+#ifndef NDEBUG
+#include <iostream>
+#endif
 
 namespace gpu {
 

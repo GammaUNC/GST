@@ -796,7 +796,6 @@ std::vector<std::unique_ptr<Texture> > LoadTextures(const std::unique_ptr<gpu::G
 
         cl_int errCreateBuffer;
         cl_context cl_ctx = ctx->GetOpenCLContext();
-        cl_command_queue d_queue = ctx->GetDefaultCommandQueue();
         cl_command_queue queue = ctx->GetNextQueue();
 
         size_t cmp_buf_sz = (offsets_sz * 4) + input_offset + num_hdrs * 4 * 512;

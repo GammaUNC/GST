@@ -26,7 +26,6 @@ FOREACH(prg photos photos_sf demo viewer)
   TARGET_LINK_LIBRARIES( ${prg} gentc_codec )
   TARGET_LINK_LIBRARIES( ${prg} ${OPENCL_LIBRARIES} )
   TARGET_LINK_LIBRARIES( ${prg} ${OPENGL_gl_LIBRARY} )
-  TARGET_LINK_LIBRARIES( ${prg} ${OPENGL_glu_LIBRARY} )
 
   IF ( MSVC )
     IF( ${CMAKE_SIZEOF_VOID_P} EQUAL 8 )
