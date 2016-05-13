@@ -114,13 +114,16 @@ namespace gpu {
 #ifndef NDEBUG
       CHECK_CL(clFinish, queue);
       std::cout << "enqueuing: " << kernel.c_str();
+      std::cout.flush();
 #endif
       CHECK_CL(clEnqueueNDRangeKernel, queue, k,
                                        WorkDim, NULL, global_sz, local_sz,
                                        num_events, events, ret_event);
 #ifndef NDEBUG
+      std::cout << " ...";
+      std::cout.flush();
       CHECK_CL(clFinish, queue);
-      std::cout << "...Done" << std::endl;
+      std::cout << "Done" << std::endl;
 #endif
     }
 

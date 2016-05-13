@@ -397,7 +397,7 @@ static cl_event DecompressDXTImage(const std::unique_ptr<GPUContext> &gpu_ctx,
   assert((ans_input_region.origin % (gpu_ctx->GetDeviceInfo<cl_uint>(CL_DEVICE_MEM_BASE_ADDR_ALIGN) / 8)) == 0);
 
   cl_mem ans_input_buf = clCreateSubBuffer(cmp_data, CL_MEM_READ_ONLY, CL_BUFFER_CREATE_TYPE_REGION,
-    &ans_input_region, &errCreateBuffer);
+                                           &ans_input_region, &errCreateBuffer);
   CHECK_CL((cl_int), errCreateBuffer);
 
   // Setup ans output sub-buffer
@@ -673,7 +673,7 @@ void PreallocateDecompressor(const std::unique_ptr<gpu::GPUContext> &gpu_ctx, si
 void FreeDecompressor() {
   gPreloader = nullptr;
 }
-  
+
 std::vector<uint8_t>  DecompressDXTBuffer(const std::unique_ptr<GPUContext> &gpu_ctx,
                                           const std::vector<uint8_t> &cmp_data) {
   cl_command_queue queue = gpu_ctx->GetNextQueue();
@@ -697,7 +697,8 @@ std::vector<uint8_t>  DecompressDXTBuffer(const std::unique_ptr<GPUContext> &gpu
 #endif
 
   // Queue the decompression...
-  cl_event dxt_event = DecompressDXTImage(gpu_ctx, { hdr }, queue, "assemble_dxt", cmp_buf, 1, &init_event, dxt_output);
+  cl_event dxt_event =
+    DecompressDXTImage(gpu_ctx, { hdr }, queue, "assemble_dxt", cmp_buf, 1, &init_event, dxt_output);
 
   // Block on read
   std::vector<uint8_t> decmp_data(dxt_size, 0xFF);

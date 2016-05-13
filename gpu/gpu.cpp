@@ -249,7 +249,7 @@ static cl_platform_id GetCLPlatform(bool share_opengl) {
 #ifndef NDEBUG
     std::cout << "Platform vendor: " << strBuf << std::endl;
 #else
-    ok = ok && !is_cpu;
+    ok = ok && (nPlatforms == 1 || !is_cpu);
 #endif
 
     // Make sure that if we want to share opengl we have the extension
