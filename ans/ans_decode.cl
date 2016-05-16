@@ -58,9 +58,8 @@ void ans_decode_single(const    __global   AnsTableEntry *table,
         // !SPEED! We might be hitting bank conflicts here, but upon trying to work
         // around this issue, there wasn't any significantly observable speedup. This
         // may be a more significant concern where we read from the stream data...
-		const int gidx =
-		(get_local_id(0) + stream_group_id * get_local_size(0)) * NUM_ENCODED_SYMBOLS + (255 - i);
-		out_stream[gidx] = entry->symbol;
+		const int gidx = (get_local_id(0) + stream_group_id * get_local_size(0)) * NUM_ENCODED_SYMBOLS;
+		out_stream[gidx + NUM_ENCODED_SYMBOLS - 1 - i] = entry->symbol;
 	}
 }
 
