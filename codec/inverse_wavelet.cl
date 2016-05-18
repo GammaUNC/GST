@@ -1,5 +1,16 @@
 #pragma OPENCL EXTENSION cl_khr_byte_addressable_store : enable
 
+#ifdef GENTC_APPLE
+static int NormalizeIndex(int idx, int range);
+static int GetAt(__local int *ptr, uint x, uint y);
+static void PutAt(__local int *ptr, uint x, uint y, int val);
+static void InverseWaveletEven(__local int *src, __local int *scratch,
+                               uint x, uint y, uint len, uint mid);
+static void InverseWaveletOdd(__local int *src, __local int *scratch,
+                              uint x, uint y, uint len, uint mid);
+#endif
+
+
 int NormalizeIndex(int idx, int range) {
   return abs(idx - (int)(idx >= range) * (idx - range + 2));
 }
@@ -60,14 +71,14 @@ __kernel void inv_wavelet(const __global   uchar *global_wavelet_data,
                                 __local    int   *local_data,
                                 __global   char  *global_out_data)
 {
-  const uint local_x = get_local_id(0);
-  const uint local_y = get_local_id(1);
+  const int local_x = get_local_id(0);
+  const int local_y = get_local_id(1);
   const int local_dim = 2 * get_local_size(1);
   const int wavelet_block_size = local_dim * local_dim;
   const int total_num_vals = 4 * get_global_size(0) * get_global_size(1);
   const __global uchar *wavelet_data = global_wavelet_data
     + output_offsets[4 * (get_global_id(2) / 6)]
-	+ (get_global_id(2) % 6) * total_num_vals;
+    + (get_global_id(2) % 6) * total_num_vals;
 
   __global char *out_data = global_out_data + get_global_id(2) * total_num_vals;
 
@@ -84,9 +95,9 @@ __kernel void inv_wavelet(const __global   uchar *global_wavelet_data,
     const __global uchar *global_data = wavelet_data + group_idx * wavelet_block_size;
 
     const uint lidx = 4 * (local_y * get_local_size(0) + local_x);
-	for (int i = 0; i < 4; ++i) {
+    for (int i = 0; i < 4; ++i) {
       local_data[lidx + i] = ((int)(global_data[lidx + i])) - 128;
-	}
+    }
 
     // We need a barrier to make sure that all threads read the data they needed
     barrier(CLK_LOCAL_MEM_FENCE);
@@ -165,17 +176,17 @@ __kernel void inv_wavelet(const __global   uchar *global_wavelet_data,
     const uint local_stride = local_dim;
     const uint global_stride = local_stride * get_num_groups(0);
 
-	const uint odd_column = local_x & 0x1;
-	const uint ly = 2 * local_y + odd_column;
-	const uint lx = 4 * (local_x >> 1);
+    const uint odd_column = local_x & 0x1;
+    const uint ly = 2 * local_y + odd_column;
+    const uint lx = 4 * (local_x >> 1);
     const uint lidx = ly * local_stride + lx;
 
-	const uint gy = get_group_id(1) * local_dim + 2 * local_y + odd_column;
-	const uint gx = 4 * (get_global_id(0) >> 1);
+    const uint gy = get_group_id(1) * local_dim + 2 * local_y + odd_column;
+    const uint gx = 4 * (get_global_id(0) >> 1);
     const uint gidx = gy * global_stride + gx;
 
-	for (int i = 0; i < 4; ++i) {
-	    out_data[gidx + i] = (char)(local_data[lidx + i]);
-	}
+    for (int i = 0; i < 4; ++i) {
+      out_data[gidx + i] = (char)(local_data[lidx + i]);
+    }
   }
 }

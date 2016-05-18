@@ -1,5 +1,16 @@
 #pragma OPENCL EXTENSION cl_khr_byte_addressable_store : enable
 
+#ifdef GENTC_APPLE
+static uint NumBlocks();
+static uint ThreadIdx();
+static int Get(const __global char *planes, uint offset);
+static int GetY(const __global char *planes, uint endpoint_idx);
+static int GetCo(const __global char *planes, uint endpoint_idx);
+static int GetCg(const __global char *planes, uint endpoint_idx);
+static int4 YCoCgToRGB(int4 in);
+static ushort GetPixel(const __global char *planes, uint endpoint_idx);
+#endif
+
 uint NumBlocks() {
   return get_global_size(0) * get_global_size(1);
 }
@@ -53,8 +64,8 @@ ushort GetPixel(const __global char *planes, uint endpoint_idx) {
 __kernel void assemble_dxt(const __global    int  *global_palette,
                            const __constant uint  *global_offsets,
                            const __global   char  *endpoint_planes,
-						   const __global    int  *indices,
-						         __global ushort  *global_out) {
+                           const __global    int  *indices,
+                                 __global ushort  *global_out) {
   const uint global_offset = NumBlocks() * 6 * get_global_id(2);
 
   ushort ep1 = GetPixel(endpoint_planes + global_offset, 0);
@@ -104,16 +115,16 @@ __kernel void assemble_rgb(const __global   uint  *global_palette,
 
   __global uchar *out = global_out + NumBlocks() * 3 * 16 * get_global_id(2);
   for (int i = 0; i < 16; ++i) {
-	int4 rgb = palette[idx & 3];
+    int4 rgb = palette[idx & 3];
 
-	uint x = 4 * get_global_id(0) + (i % 4);
-	uint y = 4 * get_global_id(1) + (i / 4);
+    uint x = 4 * get_global_id(0) + (i % 4);
+    uint y = 4 * get_global_id(1) + (i / 4);
 
-	uint out_offset  = 3 * (4 * get_global_size(0) * y + x);
-	out[out_offset + 0] = rgb.x;
-	out[out_offset + 1] = rgb.y;
-	out[out_offset + 2] = rgb.z;
+    uint out_offset  = 3 * (4 * get_global_size(0) * y + x);
+    out[out_offset + 0] = rgb.x;
+    out[out_offset + 1] = rgb.y;
+    out[out_offset + 2] = rgb.z;
 
-	idx >>= 2;
+    idx >>= 2;
   }
 }

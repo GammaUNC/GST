@@ -64,7 +64,12 @@ static cl_program CompileProgram(const char *source_filename, cl_context ctx,
   cl_program program = clCreateProgramWithSource(ctx, 1, &progCStr, NULL, &errCreateProgram);
   CHECK_CL((cl_int), errCreateProgram);
 
+#ifdef __APPLE__
+  // Apple calls error fn on warning so don't really need -Werror here.
+  std::string args("-Werror -D GENTC_APPLE ");
+#else
   std::string args("-Werror ");
+#endif
 
   if (ctx_ty == eContextType_IntelCPU && ver >= eOpenCLVersion_20) {
     // !FIXME! Currently crashes build_table kernel
@@ -77,9 +82,9 @@ static cl_program CompileProgram(const char *source_filename, cl_context ctx,
 
   cl_int build_program_result = clBuildProgram(program, 1, &device, args.c_str(), NULL, NULL);
   if (build_program_result == CL_BUILD_PROGRAM_FAILURE) {
-    size_t bufferSz;
-    clGetProgramBuildInfo(program, device, CL_PROGRAM_BUILD_LOG,
-                          sizeof(size_t), NULL, &bufferSz);
+    size_t bufferSz = 0;
+    CHECK_CL(clGetProgramBuildInfo, program, device, CL_PROGRAM_BUILD_LOG,
+                                    NULL, NULL, &bufferSz);
 
     char *buffer = new char[bufferSz + 1];
     buffer[bufferSz] = '\0';

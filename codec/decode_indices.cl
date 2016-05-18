@@ -17,8 +17,8 @@ __kernel void decode_indices(const __global   uchar *global_index_data,
   // First read in data
   // !SPEED! This almost definitely causes bank conflicts for stage > 0.
   const uint idx_offset = (1 << (stage * LOCAL_SCAN_SIZE_LOG));
-  const int gidx = idx_offset * (get_global_id(0) + 1) - 1;
-  const int pgidx = idx_offset * get_global_id(0) - 1;
+  const uint gidx = idx_offset * (get_global_id(0) + 1) - 1;
+  const uint pgidx = idx_offset * get_global_id(0) - 1;
 
   if (0 == stage) {
     scratch[get_local_id(0)] = (int)(index_data[get_global_id(0)]) - 128;
@@ -74,7 +74,11 @@ __kernel void collect_indices(const            int    stage,
   uint next_offset = 1 << ((stage - 1) * LOCAL_SCAN_SIZE_LOG);
   uint tidx = next_offset * (get_global_id(0) + 1) - 1;
 
-  if (tidx < (num_vals - 1) && gidx < (num_vals - 1) && get_group_id(0) > 0 && get_local_id(0) != (LOCAL_SCAN_SIZE - 1)) {
+  bool run = tidx < (num_vals - 1);
+  run = run && gidx < (num_vals - 1);
+  run = run && get_group_id(0) > 0;
+  run = run && get_local_id(0) != (LOCAL_SCAN_SIZE - 1);
+  if (run) {
     out[tidx] += out[gidx];
   }
 }

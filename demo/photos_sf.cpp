@@ -474,7 +474,7 @@ public:
     CHECK_GL(glTexParameteri, gliml_ctx.texture_target(), GL_TEXTURE_MIN_FILTER, GL_LINEAR);
   }
 
-  virtual void LoadFile(const std::string &filename) {
+  virtual void LoadFile(const std::string &filename) override {
     _ktx_data = std::move(::LoadFile(filename));
   }
 
@@ -500,7 +500,7 @@ public:
     CHECK_GL(glTexParameteri, GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
   }
 
-  virtual void LoadFile(const std::string &filename) {
+  virtual void LoadFile(const std::string &filename) override {
     std::vector<uint8_t> crn_data = std::move(::LoadFile(filename));
     crnd::uint32 crn_data_sz = static_cast<crnd::uint32>(crn_data.size());
 

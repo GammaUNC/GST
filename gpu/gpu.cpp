@@ -21,8 +21,14 @@ namespace gpu {
 
 static void STDCALL ContextErrorCallback(const char *errinfo, const void *, size_t, void *) {
   fprintf(stderr, "Context error: %s\n", errinfo);
+
+  // We should crash here, but Apple's OpenCL decides to call this on failed OpenCL kernel
+  // builds, so this needs to not abort in the general case. Hopefully the errors that trigger
+  // this function on OS X will also get caught by our CHECK_CL guards.
+#ifndef __APPLE__
   assert(false);
   exit(1);
+#endif
 }
 
 static void PrintDeviceInfo(cl_device_id device_id) {
@@ -121,10 +127,12 @@ static int GetGLSharingDevice(cl_device_id *devices, cl_uint num_devices) {
   const size_t kStrBufSz = 1024;
   char strBuf[kStrBufSz];
 
+  static bool once = false;
   for (cl_uint didx = 0; didx < num_devices; didx++) {
     CHECK_CL(clGetDeviceInfo, devices[didx], CL_DEVICE_EXTENSIONS, kStrBufSz, strBuf, &strLen);
     if (strstr(strBuf, "cl_khr_gl_sharing")) {
-      return static_cast<int>(didx);
+      if (once) { return static_cast<int>(didx); }
+      once = true;
     }
   }
 
@@ -248,7 +256,7 @@ static cl_platform_id GetCLPlatform(bool share_opengl) {
 
 #ifndef NDEBUG
     std::cout << "Platform vendor: " << strBuf << std::endl;
-#else
+#elif !(defined __APPLE__)
     ok = ok && (nPlatforms == 1 || !is_cpu);
 #endif
 
@@ -389,7 +397,11 @@ std::unique_ptr<GPUContext> GPUContext::InitializeOpenCL(bool share_opengl) {
   cl_uint nDevices;
 
   cl_platform_id platform = GetCLPlatform(share_opengl);
+#if (defined NDEBUG) || (defined __APPLE__)
+  CHECK_CL(clGetDeviceIDs, platform, CL_DEVICE_TYPE_GPU, kMaxDevices, devices, &nDevices);
+#else
   CHECK_CL(clGetDeviceIDs, platform, CL_DEVICE_TYPE_ALL, kMaxDevices, devices, &nDevices);
+#endif
 
   cl_device_type device_type;
   CHECK_CL(clGetDeviceInfo, devices[0], CL_DEVICE_TYPE, sizeof(cl_device_type), &device_type, NULL);
