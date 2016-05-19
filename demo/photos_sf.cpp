@@ -32,7 +32,7 @@
 #endif  // _MSC_VER
 
 #include "gpu.h"
-#include "codec.h"
+#include "decoder.h"
 
 #include "ctpl/ctpl_stl.h"
 
@@ -699,7 +699,7 @@ std::vector<std::unique_ptr<Texture> > LoadTextures(const std::unique_ptr<gpu::G
       }
       input_mem_sz += pbo_reqs[i]->in_sz;
 
-      out_mem_sz += pbo_reqs[i]->hdr->RequiredScratchMem();
+      out_mem_sz += GenTC::RequiredScratchMem(*(pbo_reqs[i]->hdr));
     }
 
     GenTC::PreallocateDecompressor(ctx, out_mem_sz);

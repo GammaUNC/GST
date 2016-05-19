@@ -66,6 +66,18 @@ namespace ans {
   std::vector<uint8_t> DecodeInterleaved(const std::vector<uint8_t> &data,
                                          size_t num_symbols,
                                          const Options &opts, size_t num_streams);
+
+  // If we expect our symbol frequency to have 1 << 11 precision, we only have 1 << 4
+  // available for state-precision
+  namespace ocl {
+    static const size_t kANSTableSize = (1 << 11);
+    static const size_t kNumEncodedSymbols = 256;
+    static const size_t kThreadsPerEncodingGroup = 32;
+
+    std::vector<uint32_t> NormalizeFrequencies(const std::vector<uint32_t> &F);
+    ans::Options GetOpenCLOptions(const std::vector<uint32_t> &F);
+  }
+
 }  // namespace ans
 
 #endif  // __ANS_ENCODE_H__

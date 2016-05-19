@@ -10,7 +10,8 @@
 #include <numeric>
 
 // #define VERBOSE
-#include "codec.h"
+#include "encoder.h"
+#include "decoder.h"
 #include "gpu.h"
 #include "kernel_cache.h"
 

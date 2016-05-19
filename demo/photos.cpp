@@ -32,7 +32,7 @@
 #endif  // _MSC_VER
 
 #include "gpu.h"
-#include "codec.h"
+#include "decoder.h"
 
 #include "ctpl/ctpl_stl.h"
 

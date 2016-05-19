@@ -15,8 +15,8 @@ SET( ASSEMBLE_KERNEL_PATH ${GenTC_SOURCE_DIR}/codec/assemble.cl )
 SET( DECODE_INDICES_KERNEL_PATH ${GenTC_SOURCE_DIR}/codec/decode_indices.cl )
 
 CONFIGURE_FILE(
-  "codec_config.h.in"
-  "codec_config.h"
+  "decoder_config.h.in"
+  "decoder_config.h"
 )
 
 SET( KERNELS
@@ -26,41 +26,70 @@ SET( KERNELS
 )
 
 SET( HEADERS
-  "codec.h"
-  "codec_config.h.in"
-  "data_stream.h"
+  "codec_base.h"
   "dxt_image.h"
+  "image.h"
+  "pixel_traits.h"
+)
+
+SET( SOURCES
+  "codec_base.cpp"
+  "dxt_image.cpp"
+  "image.cpp"
+)
+
+ADD_LIBRARY(gentc_codec_base ${HEADERS} ${SOURCES})
+TARGET_LINK_LIBRARIES( gentc_codec_base vptree)
+TARGET_LINK_LIBRARIES( gentc_codec_base squish)
+
+SET( HEADERS
+  "encoder.h"
+  "data_stream.h"
   "entropy.h"
   "fast_dct.h"
-  "image.h"
   "image_utils.h"
   "image_processing.h"
   "pipeline.h"
-  "pixel_traits.h"
   "wavelet.h"
 )  
 
 SET( SOURCES
-  "codec.cpp"
+  "encoder.cpp"
   "data_stream.cpp"
-  "dxt_image.cpp"
   "entropy.cpp"
-  "image.cpp"
   "image_processing.cpp"
   "image_utils.cpp"
   "wavelet.cpp"
 )
 
-SOURCE_GROUP(OpenCL FILES ${KERNELS})
-ADD_LIBRARY(gentc_codec ${HEADERS} ${SOURCES} ${KERNELS})
-TARGET_LINK_LIBRARIES( gentc_codec ans)
-TARGET_LINK_LIBRARIES( gentc_codec gentc_gpu )
-TARGET_LINK_LIBRARIES( gentc_codec ${OPENCL_LIBRARIES} )
-TARGET_LINK_LIBRARIES( gentc_codec vptree)
-TARGET_LINK_LIBRARIES( gentc_codec squish)
+ADD_LIBRARY(gentc_encoder ${HEADERS} ${SOURCES})
+TARGET_LINK_LIBRARIES( gentc_encoder ans)
+TARGET_LINK_LIBRARIES( gentc_encoder gentc_codec_base)
 
-ADD_EXECUTABLE(gentenc encoder.cpp)
-TARGET_LINK_LIBRARIES( gentenc gentc_codec )
+SET( HEADERS
+  "decoder.h"
+  "decoder_config.h.in"
+)
+
+SET( SOURCES
+  "decoder.cpp"
+)
+
+SOURCE_GROUP(OpenCL FILES ${KERNELS})
+ADD_LIBRARY(gentc_decoder ${HEADERS} ${SOURCES} ${KERNELS})
+TARGET_LINK_LIBRARIES( gentc_decoder ans_ocl)
+TARGET_LINK_LIBRARIES( gentc_decoder gentc_gpu )
+TARGET_LINK_LIBRARIES( gentc_decoder ${OPENCL_LIBRARIES} )
+TARGET_LINK_LIBRARIES( gentc_decoder gentc_codec_base)
+
+ADD_EXECUTABLE(gentenc command_line.cpp)
+TARGET_LINK_LIBRARIES( gentenc gentc_encoder )
+
+################################################################################
+##
+## Test
+##
+################################################################################
 
 INCLUDE_DIRECTORIES(${GenTC_SOURCE_DIR}/googletest/include)
 
@@ -83,6 +112,7 @@ CONFIGURE_FILE(
   "test/test_config.h.in"
   "test/test_config.h"
 )
+include_directories("${GenTC_SOURCE_DIR}/codec")
 INCLUDE_DIRECTORIES(${GenTC_BINARY_DIR}/codec/test)
 
 FOREACH(TEST image wavelet codec)

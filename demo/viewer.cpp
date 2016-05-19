@@ -19,7 +19,7 @@
 #pragma warning( pop )
 #endif  // _MSC_VER
 
-#include "codec.h"
+#include "decoder.h"
 
 #ifdef __APPLE__
 #  define GLFW_INCLUDE_GLCOREARB 1

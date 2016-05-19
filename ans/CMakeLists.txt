@@ -4,6 +4,26 @@ include_directories("${GenTC_BINARY_DIR}/ans")
 include_directories("${GenTC_SOURCE_DIR}/gpu")
 INCLUDE_DIRECTORIES( ${OPENCL_INCLUDE_DIRS} )
 
+SET( HEADERS
+  "ans.h"
+  "ans_utils.h"
+  "bits.h"
+  "histogram.h"
+)  
+
+SET( SOURCES
+  "decode.cpp"
+  "ans_ocl_encode.cpp"
+  "encode.cpp"
+  "histogram.cpp"
+)
+
+IF( MSVC )
+  ADD_DEFINITIONS(/D _SCL_SECURE_NO_WARNINGS)
+ENDIF()
+
+ADD_LIBRARY(ans ${HEADERS} ${SOURCES} ${KERNELS})
+
 SET( BUILD_TABLE_KERNEL_PATH ${GenTC_SOURCE_DIR}/ans/build_table.cl )
 SET( ANS_DECODE_KERNEL_PATH ${GenTC_SOURCE_DIR}/ans/ans_decode.cl )
 
@@ -18,28 +38,18 @@ SET( KERNELS
 )
 
 SET( HEADERS
-  "ans.h"
   "ans_config.h"
   "ans_ocl.h"
-  "ans_utils.h"
-  "bits.h"
-  "histogram.h"
-)  
+)
 
 SET( SOURCES
   "ans_ocl.cpp"
-  "decode.cpp"
-  "encode.cpp"
-  "histogram.cpp"
 )
 
-IF( MSVC )
-  ADD_DEFINITIONS(/D _SCL_SECURE_NO_WARNINGS)
-ENDIF()
-
 SOURCE_GROUP(OpenCL FILES ${KERNELS})
-ADD_LIBRARY(ans ${HEADERS} ${SOURCES} ${KERNELS})
-TARGET_LINK_LIBRARIES(ans gentc_gpu)
+ADD_LIBRARY(ans_ocl ${HEADERS} ${SOURCES} ${KERNELS})
+TARGET_LINK_LIBRARIES(ans_ocl ans)
+TARGET_LINK_LIBRARIES(ans_ocl gentc_gpu)
 
 INCLUDE_DIRECTORIES(${GenTC_SOURCE_DIR}/googletest/include)
 
@@ -59,7 +69,7 @@ FOREACH(TEST "histogram" "bits" "ans" "ans_ocl")
   TARGET_LINK_LIBRARIES(${TEST}_test gtest)
 
   IF ("${TEST}" STREQUAL "ans_ocl")
-    TARGET_LINK_LIBRARIES(${TEST}_test gentc_gpu)
+    TARGET_LINK_LIBRARIES(${TEST}_test ans_ocl)
   ELSE()
     TARGET_LINK_LIBRARIES(${TEST}_test gtest_main)
   ENDIF()

@@ -3,7 +3,8 @@
 #include <numeric>
 #include <vector>
 
-#include "codec.h"
+#include "encoder.h"
+#include "decoder.h"
 #include "dxt_image.h"
 #include "test_config.h"
 
@@ -35,7 +36,15 @@ private:
 TEST(GenTC, CanCompressAndDecompressImage) {
   std::string dir(CODEC_TEST_DIR);
   std::string fname = dir + std::string("/") + std::string("test1.png");
-  EXPECT_TRUE(GenTC::TestDXT(gTestEnv->GetContext(), fname.c_str(), NULL));
+
+  GenTC::DXTImage dxt_img(fname.c_str(), NULL);
+  std::vector<uint8_t> cmp_data = std::move(GenTC::CompressDXT(dxt_img));
+  GenTC::DXTImage cmp_img = std::move(GenTC::DecompressDXT(gTestEnv->GetContext(), cmp_data));
+
+  const std::vector<GenTC::PhysicalDXTBlock> &blks = dxt_img.PhysicalBlocks();
+  for (size_t i = 0; i < blks.size(); ++i) {
+    EXPECT_EQ(blks[i].dxt_block, cmp_img.PhysicalBlocks()[i].dxt_block) << "Index: " << i;
+  }
 }
 
 int main(int argc, char** argv) {

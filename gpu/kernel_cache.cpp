@@ -84,7 +84,7 @@ static cl_program CompileProgram(const char *source_filename, cl_context ctx,
   if (build_program_result == CL_BUILD_PROGRAM_FAILURE) {
     size_t bufferSz = 0;
     CHECK_CL(clGetProgramBuildInfo, program, device, CL_PROGRAM_BUILD_LOG,
-                                    NULL, NULL, &bufferSz);
+                                    0, NULL, &bufferSz);
 
     char *buffer = new char[bufferSz + 1];
     buffer[bufferSz] = '\0';
