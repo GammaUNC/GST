@@ -2,16 +2,19 @@
 #define __GENTC_GL_GUARDS_H__
 
 #ifndef NDEBUG
-static inline const char *glErrMsg(GLenum err) {
-  const char *errMsg = NULL;
-  switch(err) {
+static const char *GetGLErrorString(GLenum e) {
+  switch(e) {
+    case GL_INVALID_ENUM:                  return "Invalid enum";
+    case GL_INVALID_VALUE:                 return "Invalid value";
+    case GL_INVALID_OPERATION:             return "Invalid operation";
+    case GL_OUT_OF_MEMORY:                 return "Out of memory";
+    case GL_INVALID_FRAMEBUFFER_OPERATION: return "Invalid Framebuffer Operation";
+    default: return "Unknown GL error";
   }
-
-  return errMsg;
 }
 
 #  define PRINT_ERROR(e) \
-  const char *errMsg = glErrMsg(e);                                     \
+  const char *errMsg = GetGLErrorString(e);                               \
   if (NULL != errMsg) {                                                 \
     fprintf(stderr, "OpenGL error (%s : %d): %s\n",                     \
             __FILE__, __LINE__, errMsg);                                \
