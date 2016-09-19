@@ -1,6 +1,7 @@
+#include "fast_dct.h"
+
 #include "encoder.h"
 
-#include "fast_dct.h"
 #include "codec_base.h"
 #include "data_stream.h"
 #include "image.h"
