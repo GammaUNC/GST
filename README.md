@@ -8,7 +8,6 @@ few times prior to submission, so there may be lingering references to "GTC",
 or "GenTC", or even "TCAR".
 
 ## Licensing
----------------
 
 GST is licensed under the Apache 2.0 license. The full license can be found
 [online](http://www.apache.org/licenses/LICENSE-2.0). There are additional pieces
@@ -39,7 +38,6 @@ distributed under the MIT license.
 also distributed under the MIT license.
 
 ## Building
----------------
 The code has the following dependencies:
 
 - OpenCL 1.2
@@ -58,38 +56,40 @@ then you may need to reconfigure your OpenCL implementation (or perhaps run the 
 as an administrator).
 
 ## Demos
----------------
 The following applications are available for use:
 
-- codec/gentenc <input> [compressed] <output>
-	Generic encoder for processing images. *compressed* is expected to be a DDS or KTX
+- `codec/gentenc <input> [compressed] <output>`
+
+  Generic encoder for processing images. **compressed** is expected to be a DDS or KTX
   file with an existing DXT encoding used instead of the stb_dxt implementation.
 
   Due to the limitations that we have set in the compression settings, all images
-  must have dimensions (w x h) that satisfy the following	constraints:
-	1. w mod 128 == 0
-	2. h mod 128 == 0
-	3. (w * h) mod (16 * 256 * 32) == 0
+  must have dimensions (w x h) that satisfy the following constraints:
+    1. w mod 128 == 0
+    2. h mod 128 == 0
+    3. (w * h) mod (16 * 256 * 32) == 0
 
-	The most applicable dimensions that satisfy these constraints are 512x512.
+  The most applicable dimensions that satisfy these constraints are 512x512.
 
-- demo/viewer
-	OpenGL program that loads and displays the images produced by the encoder
+- `demo/viewer <gst_file>`
 
-- demo/photos_sf [-p] [-s] <directory>
-- demo/photos [-p] [-s] <directory>
-	An OpenGL program that batch loads all images in a folder. The "-s" flag
-	denotes serial execution, and the "-p" flag is for profiling (timing information
-	is reported to stdout). Testing has only been done using the same file types per
-  folder.	GST files have only been tested when all files use the same dimensions.
+  OpenGL program that loads and displays the images produced by the encoder
+
+- `demo/photos[_sf] [-p] [-s] <directory>`
+
+  An OpenGL program that batch loads all images in a folder. The "-s" flag
+  denotes serial execution, and the "-p" flag is for profiling (timing information
+  is reported to stdout). Testing has only been done using the same file types per
+  folder. GST files have only been tested when all files use the same dimensions.
   The difference between photos and photos_sf is that photos_sf attempts to
   interleave the compressed streams for GST files in order to better batch load
   the images (and hence	increase the GPU parallelism of our method). One such dataset
   is the [Pixar dataset](https://community.renderman.pixar.com/article/114/library-pixar-one-twenty-eight.html).
 
-- demo/demo
-	A motion JPEG video player with hardcoded paths. Please refer to the source code for
-	more information on how to use this demo. In short, the demo expects a series of
-	frames produced by the encoder in a folder "../test/dump_gtc" relative to the
-	working directory. It then loads and plays each file named "frameXXXX.gtc" in sequence
-	where XXXX represents the frame number.
+- `demo/demo`
+
+  A motion JPEG video player with hardcoded paths. Please refer to the source code for
+  more information on how to use this demo. In short, the demo expects a series of
+  frames produced by the encoder in a folder "../test/dump_gtc" relative to the
+  working directory. It then loads and plays each file named "frameXXXX.gtc" in sequence
+  where XXXX represents the frame number.
