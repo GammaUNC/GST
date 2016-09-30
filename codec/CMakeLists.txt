@@ -40,7 +40,6 @@ SET( SOURCES
 
 ADD_LIBRARY(gentc_codec_base ${HEADERS} ${SOURCES})
 TARGET_LINK_LIBRARIES( gentc_codec_base vptree)
-TARGET_LINK_LIBRARIES( gentc_codec_base squish)
 
 SET( HEADERS
   "encoder.h"

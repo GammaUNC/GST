@@ -1,2 +1,1 @@
 ADD_SUBDIRECTORY(vptree)
-ADD_SUBDIRECTORY(squish)

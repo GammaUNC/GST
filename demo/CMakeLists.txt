@@ -45,15 +45,3 @@ FOREACH(prg photos photos_sf demo viewer)
 
   INSTALL(TARGETS ${prg} EXPORT GenTCTargets RUNTIME DESTINATION bin COMPONENT bin)
 ENDFOREACH()
-
-FIND_PACKAGE(OpenCV)
-
-IF (OpenCV_FOUND)
-  INCLUDE_DIRECTORIES( ${GenTC_SOURCE_DIR}/ans )
-  ADD_EXECUTABLE(dxt_tester dxt_tester.cpp)
-  TARGET_LINK_LIBRARIES( dxt_tester ${OpenCV_LIBS} )
-  TARGET_LINK_LIBRARIES( dxt_tester ans )
-  TARGET_LINK_LIBRARIES( dxt_tester gentc_encoder )
-  TARGET_LINK_LIBRARIES( dxt_tester gentc_decoder )
-  INSTALL(TARGETS dxt_tester EXPORT GenTCTargets RUNTIME DESTINATION bin COMPONENT bin)
-ENDIF()

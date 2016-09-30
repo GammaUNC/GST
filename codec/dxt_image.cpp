@@ -16,7 +16,10 @@
 #pragma GCC diagnostic ignored "-Wunused-value"
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wconversion-null"
+#else
+#pragma warning(disable : 4312)
 #endif
+
 #define STB_DXT_IMPLEMENTATION
 #include "stb_dxt.h"
 #define STB_IMAGE_IMPLEMENTATION
@@ -26,6 +29,8 @@
 #pragma GCC diagnostic pop
 #pragma GCC diagnostic pop
 #pragma GCC diagnostic pop
+#else
+#pragma warning(default : 4312)
 #endif
 
 #include "vptree/vptree.hh"
@@ -374,11 +379,8 @@ static uint64_t CompressRGB(const uint8_t *img, int width) {
   }
 
   PhysicalDXTBlock result;
-  //squish::Compress(block, reinterpret_cast<unsigned char *>(&result.dxt_block), squish::kDxt1);
-
   stb_compress_dxt_block(reinterpret_cast<unsigned char *>(&result.dxt_block),
     block, 0, STB_DXT_HIGHQUAL);
-
   return result.dxt_block;
 }
 
@@ -394,7 +396,8 @@ DXTImage::DXTImage(const char *orig_fn, const char *cmp_fn) {
     ifs.read(reinterpret_cast<char *>(crn.data()), pos);
 
     crnd::crn_texture_info tinfo;
-    if (!crnd::crnd_get_texture_info(crn.data(), crn.size(), &tinfo)) {
+    crnd::uint32 data_sz = static_cast<crnd::uint32>(crn.size());
+    if (!crnd::crnd_get_texture_info(crn.data(), data_sz, &tinfo)) {
       assert(!"Invalid texture?");
       return;
     }
@@ -402,7 +405,7 @@ DXTImage::DXTImage(const char *orig_fn, const char *cmp_fn) {
     assert(tinfo.m_width == static_cast<uint32_t>(_width));
     assert(tinfo.m_height == static_cast<uint32_t>(_height));
 
-    crnd::crnd_unpack_context ctx = crnd::crnd_unpack_begin(crn.data(), crn.size());
+    crnd::crnd_unpack_context ctx = crnd::crnd_unpack_begin(crn.data(), data_sz);
     if (!ctx) {
       assert(!"Error beginning crn decoding!");
       return;
@@ -600,7 +603,7 @@ void DXTImage::Reencode() {
       _physical_blocks[block_idx] = LogicalToPhysical(blk._logical);
       this_index = static_cast<int>(_index_palette.size() - min_err_idx - 1);
     } else {
-      this_index = _index_palette.size();
+      this_index = static_cast<int>(_index_palette.size());
       _index_palette.push_back(_physical_blocks[block_idx].interpolation);
     }
 
@@ -967,7 +970,7 @@ static std::vector<LogicalDXTBlock> KMeansBlocks(const std::vector<PhysicalDXTBl
 
   std::default_random_engine gen(
     static_cast<unsigned int>(std::chrono::system_clock::now().time_since_epoch().count()));
-  std::uniform_int_distribution<unsigned> dist(0, blocks.size() - 1);
+  std::uniform_int_distribution<unsigned> dist(0, static_cast<unsigned>(blocks.size() - 1));
 
   std::vector<std::pair<uint32_t, size_t> > counted_indices = CountBlocks(blocks);
   std::cout << "Num unique index blocks: " << counted_indices.size() << std::endl;
