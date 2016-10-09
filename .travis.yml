@@ -86,7 +86,6 @@ before_install:
 
 compiler:
 - clang
-- gcc
 
 os:
 - linux
