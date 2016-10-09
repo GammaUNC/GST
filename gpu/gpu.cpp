@@ -397,7 +397,7 @@ std::unique_ptr<GPUContext> GPUContext::InitializeOpenCL(bool share_opengl) {
   cl_uint nDevices;
 
   cl_platform_id platform = GetCLPlatform(share_opengl);
-#if (defined NDEBUG) || (defined __APPLE__)
+#if (defined NDEBUG)
   CHECK_CL(clGetDeviceIDs, platform, CL_DEVICE_TYPE_GPU, kMaxDevices, devices, &nDevices);
 #else
   CHECK_CL(clGetDeviceIDs, platform, CL_DEVICE_TYPE_ALL, kMaxDevices, devices, &nDevices);
