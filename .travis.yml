@@ -47,6 +47,7 @@ addons:
       - cmake
       - cmake-data
       - libxxf86vm-dev
+      - ocl-icd-opencl-dev
 
 before_install:
   - sudo apt-get update -qq
