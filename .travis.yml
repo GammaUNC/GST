@@ -80,6 +80,7 @@ os:
 script:
   - mkdir build
   - cd build
+  - export CXXFLAGS="-MM"
   - cmake .. && make
   - make test
   - if [ $? != 0 ]; then cat Testing/Temporary/LastTest.log; fi
