@@ -63,6 +63,7 @@ before_install:
       echo libamdocl64.so > ${OPENCL_VENDOR_PATH}/amdocl64.icd;
       export LD_LIBRARY_PATH=${HOME}/AMDAPPSDK/lib/x86_64:${LD_LIBRARY_PATH};
       cd ..;
+      chmod a+x ${HOME}/AMDAPPSDK/bin/x86_64/clinfo;
       ${HOME}/AMDAPPSDK/bin/x86_64/clinfo;
     fi
 
