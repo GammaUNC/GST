@@ -88,6 +88,9 @@ before_install:
       ${HOME}/AMDAPPSDK/bin/x86_64/clinfo;
     fi
 
+compiler:
+- clang
+
 os:
 - linux
 - osx
@@ -96,6 +99,8 @@ os:
 script:
   - mkdir build
   - cd build
+  - if [ $C_COMPILER = "" ]; then export C_COMPILER=clang; fi
+  - if [ $CXX_COMPILER = "" ]; then export CXX_COMPILER=clang; fi
   - if [ $TRAVIS_OS_NAME = "linux" ]; then cmake -DCMAKE_C_COMPILER=$C_COMPILER -DCMAKE_CXX_COMPILER=$CXX_COMPILER -DBUILD_DEMOS:BOOL=FALSE .. && make; fi
   - if [ $TRAVIS_OS_NAME != "linux" ]; then cmake -DCMAKE_C_COMPILER=$C_COMPILER -DCMAKE_CXX_COMPILER=$CXX_COMPILER .. && make; fi
   - make test
