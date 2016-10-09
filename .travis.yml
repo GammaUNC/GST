@@ -47,6 +47,8 @@ addons:
       - cmake
       - cmake-data
       - libxxf86vm-dev
+      - libglu1-mesa-dev
+      - mesa-common-dev
 
 before_install:
   - echo $LANG
@@ -81,8 +83,6 @@ script:
   - cmake .. && make
   - make test
   - if [ $? != 0 ]; cat Testing/Temporary/LastTest.log; fi
-
-# after_success:
 
 branches:
   only:
