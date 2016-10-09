@@ -54,8 +54,8 @@ addons:
 before_install:
   - echo $LANG
   - echo $LC_ALL
-  - locate glext
   - if [ $TRAVIS_OS_NAME = "linux" ]; then
+      sudo curl -o /usr/include/GL/glext.h https://www.opengl.org/registry/api/GL/glext.h
       git clone https://gist.github.com/1faa40c2df51e3a9ee55.git amd;
       cd amd;
       bash amd_sdk.sh;
