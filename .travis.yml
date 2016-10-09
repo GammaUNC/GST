@@ -46,6 +46,7 @@ addons:
     packages:
       - cmake
       - cmake-data
+      - libxxf86vm-dev
 
 before_install:
   - sudo apt-get update -qq
