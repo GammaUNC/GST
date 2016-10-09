@@ -81,7 +81,7 @@ os:
 script:
   - mkdir build
   - cd build
-  - cmake .. && make
+  - cmake -DBUILD_DEMOS:BOOL=FALSE .. && make
   - make test
   - if [ $? != 0 ]; then cat Testing/Temporary/LastTest.log; fi
 
