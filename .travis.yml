@@ -92,6 +92,7 @@ os:
 - osx
 
 ## Until https://github.com/travis-ci/travis-ci/issues/5645, we have to not build demos on linux
+## Only run tests on linux since CPU OpenCL support on OSX is close to garbage.
 script:
   - mkdir build
   - cd build
@@ -99,7 +100,7 @@ script:
   - if [ $CXX_COMPILER = "" ]; then export CXX_COMPILER=clang; fi
   - if [ $TRAVIS_OS_NAME = "linux" ]; then cmake -DCMAKE_C_COMPILER=$C_COMPILER -DCMAKE_CXX_COMPILER=$CXX_COMPILER -DBUILD_DEMOS:BOOL=FALSE .. && make; fi
   - if [ $TRAVIS_OS_NAME != "linux" ]; then cmake -DCMAKE_C_COMPILER=$C_COMPILER -DCMAKE_CXX_COMPILER=$CXX_COMPILER .. && make; fi
-  - make test
+  - if [ $TRAVIS_OS_NAME != "osx" ]; then make test; fi
   - if [ $? != 0 ]; then cat Testing/Temporary/LastTest.log; fi
 
 branches:
