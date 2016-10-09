@@ -31,6 +31,7 @@
 #  include <GL/glew.h>
 #  include <GLFW/glfw3.h>
 #else
+#  define GL_GLEXT_PROTOTYPES 1
 #  define GLFW_INCLUDE_GLEXT 1
 #  include <GLFW/glfw3.h>
 #  include <GL/glx.h>
