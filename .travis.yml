@@ -8,17 +8,25 @@ matrix:
       addons:
         apt:
           sources:
+            - george-edison55-precise-backports # cmake 3.2.3 / doxygen 1.8.3
             - ubuntu-toolchain-r-test
           packages:
             - g++-4.9
+            - cmake
+            - cmake-data
+            - libxxf86vm-dev
       env: COMPILER=g++-4.9
     - compiler: gcc
       addons:
         apt:
           sources:
+            - george-edison55-precise-backports # cmake 3.2.3 / doxygen 1.8.3
             - ubuntu-toolchain-r-test
           packages:
             - g++-5
+            - cmake
+            - cmake-data
+            - libxxf86vm-dev
       env: COMPILER=g++-5
     - compiler: clang
       addons:
@@ -26,8 +34,12 @@ matrix:
           sources:
             - ubuntu-toolchain-r-test
             - llvm-toolchain-precise-3.6
+            - george-edison55-precise-backports # cmake 3.2.3 / doxygen 1.8.3
           packages:
             - clang-3.6
+            - cmake
+            - cmake-data
+            - libxxf86vm-dev
       env: COMPILER=clang++-3.6
     - compiler: clang
       addons:
@@ -35,8 +47,12 @@ matrix:
           sources:
             - ubuntu-toolchain-r-test
             - llvm-toolchain-precise-3.7
+            - george-edison55-precise-backports # cmake 3.2.3 / doxygen 1.8.3
           packages:
             - clang-3.7
+            - cmake
+            - cmake-data
+            - libxxf86vm-dev
       env: COMPILER=clang++-3.7
 
 addons:
@@ -47,8 +63,6 @@ addons:
       - cmake
       - cmake-data
       - libxxf86vm-dev
-      - libglu1-mesa-dev
-      - mesa-common-dev
 
 before_install:
   - echo $LANG
@@ -78,10 +92,12 @@ os:
 - linux
 - osx
 
+## Until https://github.com/travis-ci/travis-ci/issues/5645, we have to not build demos on linux
 script:
   - mkdir build
   - cd build
-  - cmake -DBUILD_DEMOS:BOOL=FALSE .. && make
+  - if [ $TRAVIS_OS_NAME = "linux" ]; then cmake -DBUILD_DEMOS:BOOL=FALSE .. && make; fi
+  - if [ $TRAVIS_OS_NAME != "linux" ]; then cmake .. && make; fi
   - make test
   - if [ $? != 0 ]; then cat Testing/Temporary/LastTest.log; fi
 
