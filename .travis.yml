@@ -15,7 +15,8 @@ matrix:
             - cmake
             - cmake-data
             - libxxf86vm-dev
-      env: COMPILER=g++-4.9
+      env: CXX_COMPILER=g++-4.9
+      env: C_COMPILER=gcc-4.9
     - compiler: gcc
       addons:
         apt:
@@ -27,7 +28,8 @@ matrix:
             - cmake
             - cmake-data
             - libxxf86vm-dev
-      env: COMPILER=g++-5
+      env: CXX_COMPILER=g++-5
+      env: C_COMPILER=gcc-5
     - compiler: clang
       addons:
         apt:
@@ -40,7 +42,8 @@ matrix:
             - cmake
             - cmake-data
             - libxxf86vm-dev
-      env: COMPILER=clang++-3.6
+      env: CXX_COMPILER=clang++-3.6
+      env: C_COMPILER=clang-3.6
     - compiler: clang
       addons:
         apt:
@@ -53,7 +56,8 @@ matrix:
             - cmake
             - cmake-data
             - libxxf86vm-dev
-      env: COMPILER=clang++-3.7
+      env: CXX_COMPILER=clang++-3.7
+      env: C_COMPILER=clang-3.7
 
 addons:
   apt:
@@ -83,9 +87,6 @@ before_install:
       chmod a+x ${HOME}/AMDAPPSDK/bin/x86_64/clinfo;
       ${HOME}/AMDAPPSDK/bin/x86_64/clinfo;
     fi
-
-compiler:
-- clang
 
 os:
 - linux
