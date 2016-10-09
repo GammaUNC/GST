@@ -47,11 +47,22 @@ addons:
       - cmake
       - cmake-data
       - libxxf86vm-dev
-      - ocl-icd-opencl-dev
 
 before_install:
-  - sudo apt-get update -qq
-  - sudo apt-get install -y libopencv-dev  
+  - if [ $TRAVIS_OS_NAME = "linux" ]; then
+      git clone https://gist.github.com/1faa40c2df51e3a9ee55.git amd;
+      cd amd;
+      bash amd_sdk.sh;
+      tar -xjf AMD-SDK.tar.bz2;
+      mkdir ${HOME}/AMDAPPSDK;
+      export OPENCL_VENDOR_PATH=${HOME}/AMDAPPSDK/etc/OpenCL/vendors;
+      mkdir -p ${OPENCL_VENDOR_PATH};
+      sh AMD-APP-SDK*.sh --tar -xf -C ${HOME}/AMDAPPSDK;
+      echo libamdocl64.so > ${OPENCL_VENDOR_PATH}/amdocl64.icd;
+      export LD_LIBRARY_PATH=${HOME}/AMDAPPSDK/lib/x86_64:${LD_LIBRARY_PATH};
+      cd ..;
+      ${HOME}/AMDAPPSDK/bin/x86_64/clinfo;
+    fi
 
 compiler:
 - clang
