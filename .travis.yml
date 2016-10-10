@@ -1,0 +1,123 @@
+language: cpp
+sudo: required
+dist: precise
+
+matrix:
+  include:
+    - compiler: gcc
+      addons:
+        apt:
+          sources:
+            - george-edison55-precise-backports # cmake 3.2.3 / doxygen 1.8.3
+            - ubuntu-toolchain-r-test
+          packages:
+            - cmake
+            - cmake-data
+            - libxxf86vm-dev
+            - g++-4.9
+      env:
+        - CXX_COMPILER=g++-4.9
+        - C_COMPILER=gcc-4.9
+    - compiler: gcc
+      addons:
+        apt:
+          sources:
+            - george-edison55-precise-backports # cmake 3.2.3 / doxygen 1.8.3
+            - ubuntu-toolchain-r-test
+          packages:
+            - cmake
+            - cmake-data
+            - libxxf86vm-dev
+            - g++-5
+      env:
+        - CXX_COMPILER=g++-5
+        - C_COMPILER=gcc-5
+    - compiler: clang
+      addons:
+        apt:
+          sources:
+            - george-edison55-precise-backports # cmake 3.2.3 / doxygen 1.8.3
+            - ubuntu-toolchain-r-test
+            - llvm-toolchain-precise-3.6
+          packages:
+            - cmake
+            - cmake-data
+            - libxxf86vm-dev
+            - clang-3.6
+      env:
+        - CXX_COMPILER=clang++-3.6
+        - C_COMPILER=clang-3.6
+    - compiler: clang
+      addons:
+        apt:
+          sources:
+            - george-edison55-precise-backports # cmake 3.2.3 / doxygen 1.8.3
+            - ubuntu-toolchain-r-test
+            - llvm-toolchain-precise-3.7
+          packages:
+            - cmake
+            - cmake-data
+            - libxxf86vm-dev
+            - clang-3.7
+      env:
+        - CXX_COMPILER=clang++-3.7
+        - C_COMPILER=clang-3.7
+
+addons:
+  apt:
+    sources:
+      - george-edison55-precise-backports # cmake 3.2.3 / doxygen 1.8.3
+    packages:
+      - cmake
+      - cmake-data
+      - libxxf86vm-dev
+
+before_install:
+  - echo $LANG
+  - echo $LC_ALL
+  - if [ $TRAVIS_OS_NAME = "linux" ]; then
+      sudo curl -o /usr/include/GL/glext.h https://www.opengl.org/registry/api/GL/glext.h;
+      git clone https://gist.github.com/1faa40c2df51e3a9ee55.git amd;
+      cd amd;
+      bash amd_sdk.sh;
+      tar -xjf AMD-SDK.tar.bz2;
+      mkdir ${HOME}/AMDAPPSDK;
+      export OPENCL_VENDOR_PATH=${HOME}/AMDAPPSDK/etc/OpenCL/vendors;
+      mkdir -p ${OPENCL_VENDOR_PATH};
+      sh AMD-APP-SDK*.sh --tar -xf -C ${HOME}/AMDAPPSDK;
+      echo libamdocl64.so > ${OPENCL_VENDOR_PATH}/amdocl64.icd;
+      export LD_LIBRARY_PATH=${HOME}/AMDAPPSDK/lib/x86_64:${LD_LIBRARY_PATH};
+      cd ..;
+      chmod a+x ${HOME}/AMDAPPSDK/bin/x86_64/clinfo;
+      ${HOME}/AMDAPPSDK/bin/x86_64/clinfo;
+    fi
+
+compiler:
+- clang
+
+os:
+- linux
+- osx
+
+## Until https://github.com/travis-ci/travis-ci/issues/5645, we have to not build demos on linux
+## Only run tests on linux since CPU OpenCL support on OSX is close to garbage.
+script:
+  - mkdir build
+  - cd build
+  - if [ $C_COMPILER = "" ]; then export C_COMPILER=clang; fi
+  - if [ $CXX_COMPILER = "" ]; then export CXX_COMPILER=clang; fi
+  - if [ $TRAVIS_OS_NAME = "linux" ]; then cmake -DCMAKE_C_COMPILER=$C_COMPILER -DCMAKE_CXX_COMPILER=$CXX_COMPILER -DBUILD_DEMOS:BOOL=FALSE .. && make; fi
+  - if [ $TRAVIS_OS_NAME != "linux" ]; then cmake -DCMAKE_C_COMPILER=$C_COMPILER -DCMAKE_CXX_COMPILER=$CXX_COMPILER .. && make; fi
+  - if [ $TRAVIS_OS_NAME != "osx" ]; then make test || cat Testing/Temporary/LastTest.log; fi
+
+branches:
+  only:
+  - master
+  - "/^v\\d+\\./"
+
+notifications:
+  email: true
+
+env:
+  global:
+  - LANG="en_US.UTF-8"
