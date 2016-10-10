@@ -1,5 +1,5 @@
 # GST: GPU-decodable Supercompressed Textures
-[![Build Status](https://travis-ci.org/Mokosha/GST.svg?branch=master)](https://travis-ci.org/Mokosha/GST)
+[![Build Status](https://travis-ci.org/GammaUNC/GST.svg?branch=master)](https://travis-ci.org/GammaUNC/GST)
 
 This source code is intended to provide a reference encoding and GPU decoding
 implementation for the paper
