@@ -45,12 +45,12 @@ int main(int argc, char **argv) {
 #if 0
   GenTC::DXTImage dxt_img = GenTC::DXTImage(orig_fn, cmp_fn);
 #else
-  std::vector<uint8_t> cmp_img = std::move(GenTC::CompressDXT(orig_fn, cmp_fn));
+  std::vector<uint8_t> cmp_img = GenTC::CompressDXT(orig_fn, cmp_fn);
   GenTC::DXTImage dxt_img = GenTC::DecompressDXT(ctx, cmp_img);
 #endif
 
   // Decompress into image...
-  std::vector<uint8_t> decomp_rgba = std::move(dxt_img.DecompressedImage()->Pack());
+  std::vector<uint8_t> decomp_rgba = dxt_img.DecompressedImage()->Pack();
 
   stbi_write_png("img_dxt.png", dxt_img.Width(), dxt_img.Height(), 4, decomp_rgba.data(), 4 * dxt_img.Width());
 
