@@ -318,7 +318,9 @@ static cl_event DecompressDXTImage(const std::unique_ptr<GPUContext> &gpu_ctx,
 
     cl_event next_event;
     size_t decode_indices_global_work_sz[2] = {
-      ((num_decode_indices_vals + kLocalScanSz - 1) / kLocalScanSz) * kLocalScanSz,
+      num_decode_indices_vals < kLocalScanSz
+          ? num_decode_indices_vals
+          : ((num_decode_indices_vals + kLocalScanSz - 1) / kLocalScanSz) * kLocalScanSz,
       hdrs.size()
     };
 

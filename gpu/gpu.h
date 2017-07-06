@@ -108,6 +108,13 @@ namespace gpu {
                              const size_t *global_sz, const size_t *local_sz,
                              cl_uint num_events, const cl_event *events, cl_event *ret_event,
                              Args... kernel_args) {
+#ifndef NDEBUG
+      if (local_sz != nullptr) {
+        for (int i = 0; i < WorkDim; ++i) {
+          assert(global_sz[i] % local_sz[i] == 0);
+        }
+      }
+#endif
       std::unique_lock<std::mutex> lock(_enqueue_mutex);
       cl_kernel k = GetOpenCLKernel(filename, kernel);
       SetArgument(k, 0, kernel_args...);
