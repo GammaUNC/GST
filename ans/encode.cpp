@@ -199,8 +199,7 @@ std::unique_ptr<Encoder> Encoder::Create(const Options &_opts) {
   }
 
   int denom = static_cast<int>(opts.M);
-  std::vector<uint32_t> normalized_fs =
-    ans::GenerateHistogram(opts.Fs, denom);
+  std::vector<uint32_t> normalized_fs = ans::GenerateHistogram(opts.Fs, denom);
 
   switch (opts.type) {
     case eType_rANS:

@@ -86,7 +86,7 @@ __kernel void ans_decode(const __global   AnsTableEntry *global_table,
   }
   #endif
 
-	__local uint normalization_mask;
+  __local uint normalization_mask;
   if (0 == get_local_id(0)) {
     normalization_mask = 0;
   }
@@ -96,7 +96,7 @@ __kernel void ans_decode(const __global   AnsTableEntry *global_table,
 
 __kernel void ans_decode_multiple(const __global   AnsTableEntry *global_table,
                                   const            uint           num_offsets,
-								                  const __global   uint          *offsets,
+                                  const __global   uint          *offsets,
                                   const __global   uchar         *data,
                                         __global   uchar         *out_stream) {
   const __global uint *input_offsets = offsets + num_offsets;
